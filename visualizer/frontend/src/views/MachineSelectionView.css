@@ -1,0 +1,525 @@
+/* ============================================================
+   MachineSelectionView — Neural Architecture Monitor aesthetic
+   ============================================================ */
+
+.msv-root {
+  width: 100vw;
+  height: 100vh;
+  background: var(--re-bg-1);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Header ──────────────────────────────────────────────────── */
+.msv-header {
+  height: 56px;
+  background: var(--re-bg-2);
+  border-bottom: 1px solid var(--re-border-bright);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 28px;
+  flex-shrink: 0;
+}
+
+.msv-wordmark {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.msv-title {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--re-text-0);
+}
+
+.msv-title-accent {
+  color: var(--re-cyan);
+}
+
+.msv-subtitle {
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--re-text-2);
+}
+
+.msv-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Search input */
+.msv-search {
+  background: var(--re-bg-3);
+  border: 1px solid var(--re-border-bright);
+  border-radius: 3px;
+  color: var(--re-text-0);
+  padding: 7px 14px;
+  font-size: 12px;
+  font-family: inherit;
+  width: 240px;
+  outline: none;
+  transition: border-color 0.15s;
+  letter-spacing: 0.02em;
+}
+.msv-search::placeholder {
+  color: var(--re-text-2);
+  font-size: 11px;
+}
+.msv-search:focus {
+  border-color: var(--re-cyan);
+  box-shadow: 0 0 0 1px rgba(0, 200, 239, 0.12);
+}
+
+/* Nav buttons */
+.msv-nav-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid;
+  border-radius: 3px;
+  padding: 7px 16px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: inherit;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.msv-nav-btn-interconnect {
+  background: rgba(16, 217, 160, 0.08);
+  border-color: rgba(16, 217, 160, 0.35);
+  color: var(--re-green);
+}
+.msv-nav-btn-interconnect:hover {
+  background: rgba(16, 217, 160, 0.18);
+  border-color: var(--re-green);
+}
+
+.msv-nav-btn-tobias {
+  background: rgba(155, 109, 255, 0.08);
+  border-color: rgba(155, 109, 255, 0.35);
+  color: var(--re-violet);
+}
+.msv-nav-btn-tobias:hover {
+  background: rgba(155, 109, 255, 0.18);
+  border-color: var(--re-violet);
+}
+
+.msv-nav-btn-files {
+  background: rgba(56, 189, 248, 0.08);
+  border-color: rgba(56, 189, 248, 0.3);
+  color: var(--re-sky);
+}
+.msv-nav-btn-files:hover {
+  background: rgba(56, 189, 248, 0.18);
+  border-color: var(--re-sky);
+}
+
+.msv-nav-btn-create {
+  background: rgba(0, 200, 239, 0.10);
+  border-color: rgba(0, 200, 239, 0.40);
+  color: var(--re-cyan);
+}
+.msv-nav-btn-create:hover {
+  background: rgba(0, 200, 239, 0.22);
+  border-color: var(--re-cyan);
+}
+
+.msv-btn-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+/* ── Toolbar ─────────────────────────────────────────────────── */
+.msv-toolbar {
+  height: 42px;
+  background: var(--re-bg-2);
+  border-bottom: 1px solid var(--re-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 28px;
+  flex-shrink: 0;
+}
+
+.msv-filter-group {
+  display: flex;
+  gap: 4px;
+}
+
+.msv-filter-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  color: var(--re-text-2);
+  padding: 4px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: inherit;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.msv-filter-btn:hover {
+  color: var(--re-text-1);
+  border-color: var(--re-border-bright);
+}
+.msv-filter-btn.active {
+  background: rgba(0, 200, 239, 0.10);
+  border-color: rgba(0, 200, 239, 0.35);
+  color: var(--re-cyan);
+}
+
+.msv-sort-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.msv-sort-label {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--re-text-2);
+}
+
+.msv-sort-select {
+  background: var(--re-bg-3);
+  border: 1px solid var(--re-border-bright);
+  border-radius: 2px;
+  color: var(--re-text-0);
+  padding: 4px 10px;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  outline: none;
+}
+
+/* ── Machine Grid ─────────────────────────────────────────────── */
+.msv-grid-wrapper {
+  flex: 1;
+  overflow-y: auto;
+  padding: 28px;
+}
+
+.msv-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  max-width: 1600px;
+  margin: 0 auto;
+}
+
+/* ── States ───────────────────────────────────────────────────── */
+.msv-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 18px;
+}
+
+.msv-state-text {
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  color: var(--re-text-2);
+}
+
+.msv-state-hint {
+  font-size: 11px;
+  color: var(--re-text-2);
+  opacity: 0.6;
+}
+
+.msv-state-btn {
+  background: rgba(0, 200, 239, 0.10);
+  border: 1px solid rgba(0, 200, 239, 0.35);
+  border-radius: 3px;
+  color: var(--re-cyan);
+  padding: 9px 22px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: inherit;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.msv-state-btn:hover {
+  background: rgba(0, 200, 239, 0.22);
+  border-color: var(--re-cyan);
+}
+
+/* ── Toolbar (tree controls) ─────────────────────────────────── */
+.msv-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.msv-tree-controls {
+  display: flex;
+  gap: 4px;
+}
+
+.msv-tree-btn {
+  background: transparent;
+  border: 1px solid var(--re-border);
+  border-radius: 2px;
+  color: var(--re-text-2);
+  padding: 4px 10px;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: inherit;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.msv-tree-btn:hover {
+  color: var(--re-text-1);
+  border-color: var(--re-border-bright);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* ── Tree container ──────────────────────────────────────────── */
+.msv-tree-wrapper {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 24px 32px 24px;
+}
+
+.msv-tree {
+  max-width: 1600px;
+  margin: 0 auto;
+  outline: none;
+  font-family: inherit;
+}
+
+/* ── Tree row (shared) ───────────────────────────────────────── */
+.msv-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  user-select: none;
+  border: 1px solid transparent;
+  position: relative;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.msv-row:hover {
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.msv-row.is-focused {
+  background: rgba(0, 200, 239, 0.08);
+  border-color: rgba(0, 200, 239, 0.32);
+}
+
+.msv-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  font-size: 9px;
+  color: var(--re-text-2);
+  transition: transform 0.12s ease, color 0.12s ease;
+  flex-shrink: 0;
+}
+.msv-chevron.is-open {
+  transform: rotate(90deg);
+  color: var(--re-text-0);
+}
+.msv-chevron.is-empty {
+  color: var(--re-text-2);
+  opacity: 0.35;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.msv-row-icon {
+  font-size: 11px;
+  color: var(--re-text-2);
+  flex-shrink: 0;
+  width: 14px;
+  text-align: center;
+}
+.msv-row-icon-ces {
+  color: var(--domain-color, var(--re-cyan));
+  opacity: 0.85;
+}
+
+.msv-row-label {
+  font-size: 12px;
+  color: var(--re-text-0);
+  font-weight: 500;
+  flex-shrink: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.msv-row-meta {
+  margin-left: auto;
+  font-size: 10px;
+  font-family: monospace;
+  color: var(--re-text-2);
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+.msv-meta-divider {
+  margin: 0 6px;
+  opacity: 0.5;
+}
+
+.msv-row-meta-ces {
+  color: var(--domain-color, var(--re-text-2));
+  opacity: 0.55;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 600;
+}
+
+/* ── Domain rows (depth 0) ───────────────────────────────────── */
+.msv-row-domain {
+  margin-top: 14px;
+  padding: 9px 12px;
+  background: rgba(255, 255, 255, 0.015);
+  border-left: 3px solid var(--domain-color, var(--re-border-bright));
+  border-radius: 0 4px 4px 0;
+}
+.msv-row-domain:first-child {
+  margin-top: 0;
+}
+.msv-row-domain:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+.msv-row-domain.is-focused {
+  background: rgba(0, 200, 239, 0.06);
+}
+
+.msv-row-label-domain {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--domain-color, var(--re-text-0));
+}
+
+.msv-domain-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+/* ── Machine rows (depth 1) ──────────────────────────────────── */
+.msv-row-machine {
+  margin-left: 22px;
+  padding-left: 14px;
+  border-left: 2px solid rgba(255, 255, 255, 0.04);
+}
+.msv-row-machine:hover {
+  border-left-color: color-mix(in srgb, var(--domain-color, var(--re-cyan)) 50%, transparent);
+}
+.msv-row-machine.is-focused {
+  border-left-color: var(--domain-color, var(--re-cyan));
+}
+
+/* ── CES rows (depth 2) ──────────────────────────────────────── */
+.msv-row-ces {
+  margin-left: 56px;
+  padding-left: 14px;
+  border-left: 2px dashed rgba(255, 255, 255, 0.05);
+}
+.msv-row-ces:hover {
+  border-left-color: color-mix(in srgb, var(--domain-color, var(--re-cyan)) 35%, transparent);
+}
+.msv-row-ces.is-focused {
+  border-left-color: var(--domain-color, var(--re-cyan));
+}
+.msv-row-ces .msv-row-label {
+  font-size: 11.5px;
+  color: var(--re-text-1);
+}
+
+/* ── Badges + per-row actions ───────────────────────────────── */
+.msv-row-badge {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  border: 1px solid;
+}
+
+.msv-badge-example {
+  color: var(--re-text-2);
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.10);
+}
+
+.msv-badge-safety {
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.10);
+  border-color: rgba(248, 113, 113, 0.35);
+}
+
+.msv-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 12px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  flex-shrink: 0;
+}
+.msv-row:hover .msv-row-actions,
+.msv-row.is-focused .msv-row-actions {
+  opacity: 1;
+}
+
+.msv-action-btn {
+  background: transparent;
+  border: 1px solid var(--re-border);
+  border-radius: 2px;
+  color: var(--re-text-2);
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: inherit;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.msv-action-btn:hover {
+  color: var(--re-text-0);
+  border-color: var(--re-border-bright);
+  background: rgba(255, 255, 255, 0.03);
+}
+.msv-action-btn-delete:hover {
+  color: #f87171;
+  border-color: rgba(248, 113, 113, 0.55);
+  background: rgba(248, 113, 113, 0.08);
+}

@@ -1,0 +1,180 @@
+/* ============================================================
+   MachineCard — precision instrument card
+   ============================================================ */
+
+.mc-card {
+  background: var(--re-bg-3);
+  border: 1px solid var(--re-border);
+  border-left: 3px solid var(--re-border-bright);
+  border-radius: 3px;
+  padding: 18px 20px 14px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 12px;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+  position: relative;
+  min-height: 160px;
+}
+
+.mc-card:hover {
+  background: var(--re-bg-4);
+  border-color: var(--re-border-glow);
+  border-left-color: var(--re-cyan);
+  transform: translateY(-2px);
+}
+
+.mc-card.is-example {
+  border-left-color: var(--re-violet);
+}
+.mc-card.is-example:hover {
+  border-left-color: var(--re-violet);
+}
+
+/* ── Header ──────────────────────────────────────────────────── */
+.mc-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.mc-name {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--re-text-0);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  line-height: 1.3;
+}
+
+.mc-badge {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  background: rgba(155, 109, 255, 0.12);
+  border: 1px solid rgba(155, 109, 255, 0.3);
+  color: var(--re-violet);
+  padding: 2px 7px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  line-height: 1.6;
+}
+
+/* ── Description ─────────────────────────────────────────────── */
+.mc-desc {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--re-text-1);
+  line-height: 1.55;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  min-height: 34px;
+  letter-spacing: 0.01em;
+}
+
+/* ── Stats row ───────────────────────────────────────────────── */
+.mc-stats {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.mc-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.mc-stat-label {
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--re-text-2);
+}
+
+.mc-stat-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--re-text-0);
+  line-height: 1.1;
+}
+
+.mc-stat-divider {
+  width: 1px;
+  height: 28px;
+  background: var(--re-border-bright);
+  margin: 0 14px;
+  flex-shrink: 0;
+}
+
+/* ── Footer ──────────────────────────────────────────────────── */
+.mc-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid var(--re-border);
+  padding-top: 10px;
+  margin-top: auto;
+}
+
+.mc-last-accessed {
+  font-size: 10px;
+  color: var(--re-text-2);
+  letter-spacing: 0.04em;
+}
+
+.mc-last-accessed-val {
+  color: var(--re-text-1);
+}
+
+/* ── Action buttons (hover-reveal) ───────────────────────────── */
+.mc-actions {
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.mc-card:hover .mc-actions {
+  opacity: 1;
+}
+
+.mc-action-btn {
+  background: var(--re-bg-3);
+  border: 1px solid var(--re-border-bright);
+  border-radius: 2px;
+  color: var(--re-text-1);
+  padding: 4px 10px;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: inherit;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.mc-action-btn:hover {
+  background: var(--re-bg-4);
+  color: var(--re-text-0);
+  border-color: var(--re-border-glow);
+}
+
+.mc-action-btn-delete {
+  background: rgba(248, 113, 113, 0.06);
+  border-color: rgba(248, 113, 113, 0.25);
+  color: var(--re-red);
+}
+.mc-action-btn-delete:hover {
+  background: rgba(248, 113, 113, 0.18);
+  border-color: var(--re-red);
+  color: var(--re-red);
+}

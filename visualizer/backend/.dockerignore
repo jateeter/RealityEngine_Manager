@@ -1,0 +1,49 @@
+# Node modules
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Build output
+dist/
+build/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Test files
+*.test.ts
+*.spec.ts
+__tests__/
+test/
+
+# Documentation
+*.md
+
+# Docker
+Dockerfile
+.dockerignore
+
+# Temporary files
+tmp/
+temp/
+.cache/

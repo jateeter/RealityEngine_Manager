@@ -1,0 +1,130 @@
+/* ============================================================
+   TobiasAISequencePulse — per-step AI sequence-fire readout
+   Sits between the graph and OutputHistoryBar.
+   ============================================================ */
+
+.tobias-ai-pulse {
+  background:      var(--re-bg-2);
+  border-top:      1px solid var(--re-border-bright);
+  border-bottom:   1px solid var(--re-border-bright);
+  padding:         6px 10px 8px;
+  display:         flex;
+  flex-direction:  column;
+  gap:             4px;
+  font-size:       11px;
+  color:           var(--re-text-0);
+  max-height:      180px;
+  overflow-y:      auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--re-border-bright) transparent;
+}
+.tobias-ai-pulse::-webkit-scrollbar       { width: 4px; }
+.tobias-ai-pulse::-webkit-scrollbar-thumb { background: var(--re-border-bright); border-radius: 2px; }
+
+.tobias-ai-pulse-header {
+  display:         flex;
+  align-items:     center;
+  justify-content: space-between;
+  font-size:       9px;
+  color:           var(--re-text-2);
+  letter-spacing:  0.12em;
+  text-transform:  uppercase;
+}
+
+.tobias-ai-pulse-title {
+  font-weight:     700;
+  color:           var(--re-text-1);
+  letter-spacing:  0.10em;
+}
+
+.tobias-ai-pulse-step {
+  font-variant-numeric: tabular-nums;
+  color:           var(--re-text-2);
+}
+
+.tobias-ai-pulse-empty {
+  padding:         8px 0 2px;
+  color:           var(--re-text-2);
+  font-style:      italic;
+  font-size:       10px;
+  letter-spacing:  0.06em;
+}
+
+.tobias-ai-pulse-rows {
+  display:         flex;
+  flex-direction:  column;
+  gap:             2px;
+}
+
+.tobias-ai-pulse-row {
+  display:         grid;
+  grid-template-columns: 120px auto 1fr;
+  align-items:     center;
+  gap:             10px;
+  padding:         2px 0;
+}
+
+.tobias-ai-pulse-name {
+  color:           var(--re-text-1);
+  font-weight:     600;
+  font-size:       11px;
+  white-space:     nowrap;
+  overflow:        hidden;
+  text-overflow:   ellipsis;
+  letter-spacing:  0.03em;
+}
+
+.tobias-ai-pulse-dots {
+  display:         flex;
+  gap:             4px;
+}
+
+.tobias-ai-pulse-dot {
+  width:           8px;
+  height:          8px;
+  border-radius:   2px;
+  background:      rgba(61,90,114,0.20);   /* --re-text-2 at low opacity */
+  border:          1px solid rgba(61,90,114,0.35);
+  transition:      background 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+}
+
+/* Historical output fired — pink to match OutputHistoryBar output dots */
+.tobias-ai-pulse-dot.hasFired {
+  background:      rgba(240,62,138,0.40);  /* --re-pink */
+  border-color:    rgba(240,62,138,0.65);
+}
+
+/* This step's terminal output — amber flash */
+.tobias-ai-pulse-dot.justFired {
+  background:      var(--re-amber);
+  border-color:    rgba(245,158,11,0.7);
+  box-shadow:      0 0 8px rgba(245,158,11,0.6);
+  animation:       tobiasAIpulse 900ms ease-out;
+}
+
+@keyframes tobiasAIpulse {
+  0%   { box-shadow: 0 0 14px rgba(245,158,11,0.9); transform: scale(1.35); }
+  100% { box-shadow: 0 0 8px  rgba(245,158,11,0.6); transform: scale(1.00); }
+}
+
+.tobias-ai-pulse-latest {
+  font-size:       11px;
+  color:           var(--re-text-2);
+  white-space:     nowrap;
+  overflow:        hidden;
+  text-overflow:   ellipsis;
+  letter-spacing:  0.03em;
+}
+
+.tobias-ai-pulse-latest-name.live {
+  color:           var(--re-amber);
+  font-weight:     600;
+}
+
+.tobias-ai-pulse-latest-name.stale {
+  color:           var(--re-text-2);
+}
+
+.tobias-ai-pulse-idle {
+  color:           var(--re-text-3);
+}

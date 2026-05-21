@@ -1,0 +1,87 @@
+/* ============================================================
+   MachineInterconnectionView
+   ============================================================ */
+
+.machine-interconnection-view {
+  width: 100%;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--re-bg-1);
+  color: var(--re-text-0);
+  overflow: hidden;
+}
+
+/* ── Header ──────────────────────────────────────────────────── */
+.view-header {
+  height: 52px;
+  padding: 0 24px;
+  background: var(--re-bg-2);
+  border-bottom: 1px solid var(--re-border-bright);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.header-content {
+  width: 100%;
+}
+
+.header-title {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.back-button {
+  background: transparent;
+  border: 1px solid var(--re-border-bright);
+  border-radius: 3px;
+  color: var(--re-text-1);
+  padding: 6px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: inherit;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.back-button:hover {
+  background: var(--re-bg-4);
+  border-color: var(--re-border-glow);
+  color: var(--re-text-0);
+}
+
+.view-header h1 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--re-text-0);
+}
+
+/* ── Layout ───────────────────────────────────────────────────── */
+.view-layout {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+
+.left-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.panel-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}

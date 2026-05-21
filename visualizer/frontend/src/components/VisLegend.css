@@ -1,0 +1,214 @@
+/* ============================================================
+   VisLegend — shared floating left-panel legend for all graph views.
+   Place <div class="vis-legend-panel [open]"> inside a `position:relative`
+   graph container.
+   ============================================================ */
+
+/* Container — anchored to left edge, vertically centered */
+.vis-legend-panel {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: row;
+  z-index: 20;
+  pointer-events: auto;
+}
+
+/* ── Vertical tab ────────────────────────────────────────────── */
+.vis-legend-tab {
+  background: var(--re-bg-2);
+  border: 1px solid var(--re-border-bright);
+  border-left: none;
+  border-radius: 0 3px 3px 0;
+  color: var(--re-text-2);
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  padding: 16px 5px;
+  font-size: 8px;
+  font-weight: 700;
+  font-family: inherit;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  white-space: nowrap;
+}
+.vis-legend-tab:hover {
+  background: var(--re-bg-4);
+  color: var(--re-text-1);
+  border-color: var(--re-border-glow);
+}
+.vis-legend-panel.open .vis-legend-tab {
+  background: var(--re-bg-3);
+  color: var(--re-cyan);
+  border-color: var(--re-border-glow);
+}
+
+/* ── Slide-out content panel ─────────────────────────────────── */
+.vis-legend-content {
+  overflow: hidden;
+  max-width: 0;
+  background: var(--re-bg-2);
+  border-top: 1px solid var(--re-border-bright);
+  border-right: 1px solid var(--re-border-bright);
+  border-bottom: 1px solid var(--re-border-bright);
+  border-radius: 0 3px 3px 0;
+  transition: max-width 0.2s ease;
+}
+.vis-legend-panel.open .vis-legend-content {
+  max-width: 200px;
+}
+
+/* ── Item list ───────────────────────────────────────────────── */
+.vis-legend-items {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+/* Single legend row */
+.vis-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  color: var(--re-text-1);
+  letter-spacing: 0.03em;
+}
+
+/* Color swatch — square, not circle, for precision instrument feel */
+.vis-legend-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+/* Ring variant (e.g. terminal node — dark fill + colored border) */
+.vis-legend-ring {
+  background: var(--re-bg-3) !important;
+  border: 1.5px solid;
+}
+
+/* Section divider */
+.vis-legend-divider {
+  height: 1px;
+  background: var(--re-border-bright);
+  margin: 3px 0;
+}
+
+/* Dashed-line symbol for data-flow edges */
+.vis-legend-dash {
+  display: inline-block;
+  width: 20px;
+  height: 0;
+  border-top: 1.5px dashed var(--re-text-2);
+  flex-shrink: 0;
+}
+
+/* Domain filter header row */
+.vis-legend-domain-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+/* Show All / None toggle */
+.vis-legend-domain-toggle {
+  padding: 2px 7px;
+  font-size: 9px;
+  font-weight: 700;
+  font-family: inherit;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--re-cyan);
+  background: rgba(0, 200, 239, 0.08);
+  border: 1px solid rgba(0, 200, 239, 0.3);
+  border-radius: 2px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  white-space: nowrap;
+}
+.vis-legend-domain-toggle:hover {
+  background: rgba(0, 200, 239, 0.18);
+  border-color: var(--re-border-glow);
+}
+
+/* Domain checkbox row */
+.vis-legend-domain-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 10px;
+  color: var(--re-text-1);
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  padding: 1px 0;
+}
+.vis-legend-domain-row:hover {
+  color: var(--re-text-0, #fff);
+}
+
+/* Custom checkbox — tiny, on-brand */
+.vis-legend-domain-cb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid var(--re-border-bright);
+  border-radius: 2px;
+  background: var(--re-bg-3);
+  cursor: pointer;
+  flex-shrink: 0;
+  position: relative;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.vis-legend-domain-cb:checked {
+  background: var(--re-cyan);
+  border-color: var(--re-cyan);
+}
+.vis-legend-domain-cb:checked::after {
+  content: '';
+  position: absolute;
+  top: 1px;
+  left: 2px;
+  width: 4px;
+  height: 6px;
+  border: 1.5px solid #000;
+  border-top: none;
+  border-left: none;
+  transform: rotate(45deg) translateY(-1px);
+}
+.vis-legend-domain-cb:hover {
+  border-color: var(--re-cyan);
+}
+
+/* Reset-layout button */
+.vis-reset-layout-btn {
+  padding: 5px 10px;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: inherit;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--re-text-1);
+  background: rgba(0, 200, 239, 0.06);
+  border: 1px solid var(--re-border-bright);
+  border-radius: 2px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  white-space: nowrap;
+  width: 100%;
+}
+.vis-reset-layout-btn:hover {
+  background: rgba(0, 200, 239, 0.14);
+  border-color: var(--re-border-glow);
+  color: var(--re-cyan);
+}

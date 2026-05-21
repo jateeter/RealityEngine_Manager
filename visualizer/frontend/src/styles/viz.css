@@ -1,0 +1,67 @@
+/**
+ * RealityEngine — design tokens.
+ * "Neural Architecture Monitor" aesthetic: deep navy-black, electric signals.
+ *
+ * Mirrors src/styles/vizTheme.ts — keep in sync.
+ */
+
+:root {
+  /* ── Core backgrounds (blue-black family) ────────────────────────────────── */
+  --re-bg-0:   #020609;   /* void — deepest surface */
+  --re-bg-1:   #040a14;   /* page background */
+  --re-bg-2:   #070e1c;   /* panels, headers, sidebars */
+  --re-bg-3:   #0c1828;   /* cards, surfaces */
+  --re-bg-4:   #132237;   /* hover, raised states */
+
+  /* ── Borders ─────────────────────────────────────────────────────────────── */
+  --re-border:        #0e2038;  /* standard quiet border */
+  --re-border-bright: #1a3352;  /* active/focus border */
+  --re-border-glow:   #254d73;  /* hover border */
+
+  /* ── Text (cool white → steel blue) ─────────────────────────────────────── */
+  --re-text-0: #ddeeff;  /* primary */
+  --re-text-1: #7a9ab8;  /* secondary */
+  --re-text-2: #3d5a72;  /* muted */
+  --re-text-3: #1e3347;  /* very dim */
+
+  /* ── Signal / domain colors ──────────────────────────────────────────────── */
+  --re-cyan:    #00c8ef;  /* primary accent — input streams */
+  --re-pink:    #f03e8a;  /* output streams */
+  --re-violet:  #9b6dff;  /* AI domain */
+  --re-green:   #10d9a0;  /* health services */
+  --re-amber:   #f59e0b;  /* datacenter */
+  --re-sky:     #38bdf8;  /* community services */
+  --re-lime:    #84cc16;  /* agriculture */
+  --re-red:     #f87171;  /* errors / delete */
+
+  /* ── Legacy aliases (used by component CSS — mapped to new palette) ──────── */
+  --viz-bg-page:           var(--re-bg-1);
+  --viz-bg-panel:          var(--re-bg-2);
+  --viz-bg-card-idle:      var(--re-bg-3);
+  --viz-bg-card-connected: #1d3a5c;
+  --viz-bg-card-active:    #0c2d5c;
+
+  --viz-text-primary:   var(--re-text-0);
+  --viz-text-secondary: var(--re-text-1);
+  --viz-text-muted:     var(--re-text-2);
+  --viz-text-emphasis:  #ffffff;
+
+  --viz-accent-input:    var(--re-cyan);
+  --viz-accent-output:   var(--re-pink);
+  --viz-accent-current:  #60b4f8;
+  --viz-accent-external: var(--re-violet);
+
+  --viz-edge-idle:    #1a3352;
+  --viz-edge-active:  var(--re-cyan);
+  --viz-edge-bridge:  var(--re-violet);
+  --viz-edge-label:   var(--re-text-1);
+
+  --viz-status-active-fill:        #062d1a;
+  --viz-status-active-stroke:      var(--re-green);
+  --viz-status-processing-fill:    #2d1c00;
+  --viz-status-processing-stroke:  var(--re-amber);
+
+  --viz-outline-idle:  #1a3352;
+  --viz-outline-focus: var(--re-cyan);
+  --viz-outline-hover: var(--re-amber);
+}

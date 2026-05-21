@@ -1,0 +1,686 @@
+/* ============================================================
+   TobiasView — layout:
+   header / (sidebar[LEFT] + gutter + canvas-area) body
+   canvas-area = [input-history-top] + [canvas-center] + [output-history-bottom]
+   ============================================================ */
+
+.tobias-view {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--re-bg-1);
+  color: var(--re-text-0);
+  overflow: hidden;
+}
+
+/* ── Header ────────────────────────────────────────────────── */
+.tobias-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 52px;
+  padding: 0 24px;
+  background: var(--re-bg-2);
+  border-bottom: 1px solid var(--re-border-bright);
+  flex-shrink: 0;
+  z-index: 10;
+}
+
+.tobias-header-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.tobias-back-button {
+  background: transparent;
+  border: 1px solid var(--re-border-bright);
+  border-radius: 3px;
+  color: var(--re-text-1);
+  padding: 6px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: inherit;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.tobias-back-button:hover {
+  background: var(--re-bg-4);
+  color: var(--re-text-0);
+  border-color: var(--re-border-glow);
+}
+
+.tobias-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.tobias-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--re-text-0);
+  line-height: 1.2;
+}
+
+.tobias-title-accent {
+  color: var(--re-violet);
+}
+
+.tobias-subtitle {
+  margin: 0;
+  font-size: 9px;
+  color: var(--re-text-2);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.tobias-header-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.tobias-step-indicator {
+  font-size: 11px;
+  color: var(--re-text-2);
+  letter-spacing: 0.06em;
+}
+.tobias-step-indicator strong {
+  color: var(--re-violet);
+}
+
+.tobias-selected-label {
+  font-size: 11px;
+  color: var(--re-text-1);
+  background: var(--re-bg-3);
+  padding: 4px 10px;
+  border-radius: 2px;
+  border: 1px solid var(--re-border-bright);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: 0.03em;
+}
+.tobias-selected-label strong {
+  color: var(--re-violet);
+}
+
+.tobias-machine-count {
+  font-size: 11px;
+  color: var(--re-text-2);
+  letter-spacing: 0.04em;
+}
+
+.tobias-domain-hover-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 3px 10px 3px 8px;
+  border-radius: 3px;
+  border: 1px solid;
+  background: rgba(0, 0, 0, 0.3);
+  animation: tobias-domain-fadein 0.12s ease;
+}
+.tobias-domain-hover-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+@keyframes tobias-domain-fadein {
+  from { opacity: 0; transform: translateX(4px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* ── Body (row) ─────────────────────────────────────────────── */
+.tobias-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ── Sidebar (LEFT) ─────────────────────────────────────────── */
+.tobias-sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  background: var(--re-bg-2);
+  border-right: 1px solid var(--re-border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: width 0.2s ease;
+  order: 0;
+}
+
+.tobias-sidebar.collapsed {
+  width: 0;
+  border-right: none;
+}
+
+.tobias-sidebar-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--re-border-bright) transparent;
+}
+.tobias-sidebar-content::-webkit-scrollbar        { width: 4px; }
+.tobias-sidebar-content::-webkit-scrollbar-track  { background: transparent; }
+.tobias-sidebar-content::-webkit-scrollbar-thumb  { background: var(--re-border-bright); border-radius: 2px; }
+
+/* ── Sidebar gutter — holds the collapse toggle ─────────────── */
+/* Lives between sidebar (left) and canvas-area (right).        */
+.tobias-sidebar-gutter {
+  width: 22px;
+  flex-shrink: 0;
+  position: relative;
+  background: var(--re-bg-2);
+  border-right: 1px solid var(--re-border);
+  order: 1;
+}
+
+/* Toggle button sits on the RIGHT edge of the gutter            */
+/* so it visually extends into the canvas area.                  */
+.tobias-sidebar-toggle {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  background: var(--re-bg-3);
+  border: 1px solid var(--re-border-bright);
+  border-left: none;
+  border-radius: 0 4px 4px 0;
+  color: var(--re-text-2);
+  width: 22px;
+  height: 48px;
+  cursor: pointer;
+  font-size: 18px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 1;
+}
+.tobias-sidebar-toggle:hover {
+  background: var(--re-bg-4);
+  color: var(--re-text-0);
+}
+
+/* ── Canvas area (right, flex-1) ────────────────────────────── */
+.tobias-canvas-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  order: 2;
+}
+
+/* Center canvas fills remaining vertical space */
+.tobias-canvas-center {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+/* ── Sidebar sections ───────────────────────────────────────── */
+.tbs-section {
+  padding: 12px;
+  border-bottom: 1px solid var(--re-border);
+}
+
+.tbs-section-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--re-text-2);
+  margin-bottom: 8px;
+}
+
+/* ── Simulation control buttons ─────────────────────────────── */
+.tbs-controls {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  padding: 4px 0;
+}
+
+.tbs-ctrl-btn {
+  background: rgba(0, 200, 239, 0.08);
+  border: 1px solid rgba(0, 200, 239, 0.22);
+  border-radius: 8px;
+  color: var(--re-cyan);
+  font-size: 1.1rem;
+  width: 44px;
+  height: 44px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.tbs-ctrl-btn:hover:not(:disabled) {
+  background: rgba(0, 200, 239, 0.18);
+  border-color: rgba(0, 200, 239, 0.5);
+}
+.tbs-ctrl-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.tbs-ctrl-reset {
+  color: var(--re-red);
+  border-color: rgba(248, 113, 113, 0.25);
+  background: rgba(248, 113, 113, 0.07);
+}
+.tbs-ctrl-reset:hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.18);
+  border-color: rgba(248, 113, 113, 0.5);
+}
+
+/* ── Demo / engine buttons ───────────────────────────────────── */
+.tbs-demo-btn {
+  width: 100%;
+  background: rgba(155, 109, 255, 0.08);
+  border: 1px solid rgba(155, 109, 255, 0.22);
+  border-radius: 6px;
+  color: var(--re-violet);
+  padding: 7px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  margin-bottom: 6px;
+  transition: all 0.15s ease;
+}
+.tbs-demo-btn:last-child { margin-bottom: 0; }
+.tbs-demo-btn:hover:not(:disabled) {
+  background: rgba(155, 109, 255, 0.18);
+  border-color: rgba(155, 109, 255, 0.5);
+}
+.tbs-demo-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.tbs-step-single {
+  color: var(--re-sky);
+  background: rgba(56, 189, 248, 0.08);
+  border-color: rgba(56, 189, 248, 0.22);
+  margin-top: 8px;
+}
+.tbs-layout-hint {
+  font-size: 9px;
+  color: var(--re-text-3);
+  line-height: 1.4;
+  margin-top: 4px;
+  padding: 0 2px;
+}
+.tbs-step-single:hover:not(:disabled) {
+  background: rgba(56, 189, 248, 0.18);
+  border-color: rgba(56, 189, 248, 0.5);
+}
+.tbs-demo-refresh {
+  color: var(--re-text-2);
+  background: rgba(148, 163, 184, 0.06);
+  border-color: rgba(148, 163, 184, 0.18);
+}
+.tbs-demo-refresh:hover:not(:disabled) {
+  background: rgba(148, 163, 184, 0.14);
+  border-color: rgba(148, 163, 184, 0.35);
+}
+
+/* ── Machine filter button group ─────────────────────────────── */
+.tbs-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tbs-filter-btn {
+  width: 100%;
+  background: transparent;
+  border: 1px solid var(--re-border-bright);
+  border-radius: 4px;
+  color: var(--re-text-2);
+  padding: 6px 10px;
+  font-size: 11px;
+  font-family: inherit;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+}
+.tbs-filter-btn:hover {
+  background: var(--re-bg-3);
+  color: var(--re-text-0);
+}
+.tbs-filter-btn.active {
+  background: var(--re-bg-3);
+  border-color: var(--re-violet);
+  color: var(--re-violet);
+}
+
+/* ── Perceptual Space Bar (top of canvas area) ───────────────── */
+.tobias-psbar {
+  flex-shrink: 0;
+  height: 46px;
+  display: flex;
+  align-items: stretch;
+  background: var(--re-bg-0);
+  border-bottom: 1px solid var(--re-border);
+  overflow: hidden;
+}
+
+.tobias-psbar-viz {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 5px 0 4px;
+}
+
+/* Region labels row (above heatmap) */
+.tobias-psbar-labels {
+  height: 14px;
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.tobias-psbar-region-label {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  font-size: 8px;
+  color: var(--re-text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-left: 1px solid;   /* color set inline by domain */
+  padding-left: 3px;
+  line-height: 14px;
+  letter-spacing: 0.04em;
+}
+
+.tobias-psbar-placeholder {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 9px;
+  color: var(--re-text-2);
+  font-style: italic;
+  white-space: nowrap;
+  line-height: 14px;
+  letter-spacing: 0.06em;
+}
+
+/* Canvas heatmap */
+.tobias-psbar-canvas {
+  display: block;
+  width: 100%;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+/* Step counter — right-hand meta cell */
+.tobias-psbar-meta {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0 10px;
+  gap: 1px;
+  border-left: 1px solid var(--re-border-bright);
+  min-width: 64px;
+}
+
+.tobias-psbar-meta-label {
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--re-text-2);
+}
+
+.tobias-psbar-meta-value {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--re-cyan);
+  letter-spacing: 0.04em;
+  line-height: 1;
+}
+
+/* ── Output History Bar (bottom of canvas area) ──────────────── */
+.tobias-outbar {
+  flex-shrink: 0;
+  height: 34px;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  background: var(--re-bg-0);
+  border-top: 1px solid var(--re-border);
+  overflow: hidden;
+  transition: height 0.2s ease;
+}
+
+.tobias-outbar.expanded {
+  height: 132px;
+}
+
+/* Left column: toggle button + vertical "OUTPUT" label */
+.tobias-outbar-side {
+  flex-shrink: 0;
+  width: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 4px 2px 3px;
+  border-right: 1px solid var(--re-border-bright);
+  background: var(--re-bg-2);
+  gap: 3px;
+}
+
+.tobias-outbar-toggle {
+  background: transparent;
+  border: none;
+  color: var(--re-text-2);
+  cursor: pointer;
+  font-size: 9px;
+  padding: 1px;
+  line-height: 1;
+  flex-shrink: 0;
+  font-family: inherit;
+  transition: color 0.12s ease;
+}
+.tobias-outbar-toggle:hover { color: var(--re-text-0); }
+
+.tobias-outbar-label {
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: var(--re-pink);
+  text-transform: uppercase;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  white-space: nowrap;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  opacity: 0.7;
+}
+
+/* Scrollable content area */
+.tobias-outbar-content {
+  flex: 1;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--re-border-bright) transparent;
+  min-width: 0;
+}
+.tobias-outbar-content::-webkit-scrollbar       { height: 3px; }
+.tobias-outbar-content::-webkit-scrollbar-thumb { background: var(--re-border-bright); border-radius: 2px; }
+
+/* ── Collapsed summary view ─── */
+.tobias-outbar-summary {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  height: 100%;
+  padding: 0 8px;
+  gap: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.tobias-outbar-machine {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+  justify-content: center;
+  max-width: 140px;
+  padding: 0 4px;
+  border-right: 1px solid var(--re-border);
+}
+.tobias-outbar-machine:last-child {
+  border-right: none;
+}
+
+.tobias-outbar-mname {
+  font-size: 9px;
+  color: var(--re-text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 72px;
+  letter-spacing: 0.03em;
+}
+
+.tobias-outbar-dots {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+
+/* Output signal dot — value-scaled pink fill */
+.tobias-outbar-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 1px;   /* square-ish, matches legend swatch */
+  flex-shrink: 0;
+  transition: background 0.2s ease;
+}
+
+/* Nil state — hollow ring, clearly visible */
+.tobias-outbar-dot-nil {
+  background: transparent !important;
+  border: 1px solid var(--re-border-bright);
+}
+
+.tobias-outbar-idle {
+  font-size: 10px;
+  color: var(--re-text-2);
+  font-style: italic;
+  letter-spacing: 0.06em;
+  width: 100%;
+  text-align: center;
+}
+
+/* ── Expanded history table ─── */
+.tobias-outbar-table {
+  display: flex;
+  flex-direction: row;
+  height: 100%;
+}
+
+.tobias-outbar-names {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--re-border-bright);
+  background: var(--re-bg-2);
+}
+
+.tobias-outbar-corner {
+  height: 16px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--re-border-bright);
+}
+
+.tobias-outbar-row-name {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  padding: 0 7px;
+  font-size: 9px;
+  color: var(--re-text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 84px;
+  border-bottom: 1px solid var(--re-border);
+  letter-spacing: 0.03em;
+}
+
+.tobias-outbar-stepcol {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  border-right: 1px solid var(--re-border);
+  min-width: 24px;
+}
+
+.tobias-outbar-stepnum {
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  font-weight: 600;
+  color: var(--re-text-2);
+  border-bottom: 1px solid var(--re-border-bright);
+  flex-shrink: 0;
+  letter-spacing: 0.04em;
+}
+
+.tobias-outbar-cell {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 2px;
+  border-bottom: 1px solid var(--re-border);
+}
+
+/* Loading state (if needed) */
+.tobias-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--re-text-2);
+}
