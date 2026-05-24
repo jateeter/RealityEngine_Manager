@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/server.js",
-    "dev": "ts-node src/server.ts"
+    "dev": "tsx src/server.ts"
   },
   "keywords": [
     "reality-engine",
@@ -32,7 +32,7 @@
     "@types/cors": "^2.8.17",
     "@types/node": "^22.0.0",
     "@types/ws": "^8.5.9",
-    "ts-node": "^10.9.2",
+    "tsx": "^4.19.2",
     "typescript": "^5.3.3"
   }
 }

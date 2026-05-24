@@ -1,9 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useVisualizerStore } from '../store';
 import { Machine } from '../types';
-import MachineCreateDialog from '../components/MachineCreateDialog';
-import MachineEditDialog from '../components/MachineEditDialog';
-import MachineManagementModal from '../components/MachineManagementModal';
 import {
   classifyMachine,
   DOMAINS,
@@ -54,20 +51,13 @@ const MachineSelectionView: React.FC = () => {
   const {
     machines,
     setMachines,
-    loadMachine,
-    deleteMachine,
     setCurrentView,
-    setSelectedSequenceId,
   } = useVisualizerStore();
 
-  const [searchQuery,         setSearchQuery]         = useState('');
-  const [filterMode,          setFilterMode]          = useState<'all' | 'examples' | 'custom'>('all');
-  const [sortMode,            setSortMode]            = useState<'name' | 'recent' | 'sequences'>('name');
-  const [isLoading,           setIsLoading]           = useState(false);
-  const [showCreateDialog,    setShowCreateDialog]    = useState(false);
-  const [showEditDialog,      setShowEditDialog]      = useState(false);
-  const [showManagementModal, setShowManagementModal] = useState(false);
-  const [editingMachine,      setEditingMachine]      = useState<Machine | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterMode,  setFilterMode]  = useState<'all' | 'examples' | 'custom'>('all');
+  const [sortMode,    setSortMode]    = useState<'name' | 'recent' | 'sequences'>('name');
+  const [isLoading,   setIsLoading]   = useState(false);
 
   // Expansion + focus state for the tree.
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set<string>());
@@ -230,29 +220,15 @@ const MachineSelectionView: React.FC = () => {
     if (el) el.scrollIntoView({ block: 'nearest' });
   }, []);
 
-  const openMachine = useCallback(async (machineId: string, sequenceId: string | null) => {
-    setIsLoading(true);
-    try {
-      // Set the CES scope BEFORE loadMachine so the admin view picks it up on
-      // its first render — loadMachine flips currentView to 'administration'.
-      setSelectedSequenceId(sequenceId);
-      await loadMachine(machineId);
-    } catch (error) {
-      console.error('Error loading machine:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [loadMachine, setSelectedSequenceId]);
-
   const activateRow = useCallback((row: FlatRow) => {
     const n = row.node;
     if (n.kind === 'domain' || n.kind === 'machine') {
       toggle(n.id);
       return;
     }
-    // CES leaf — open machine scoped to this sequence.
-    openMachine(n.machineId, n.sequenceId);
-  }, [toggle, openMachine]);
+    // CES leaf — expand the parent machine node.
+    toggle(`machine:${n.machineId}`);
+  }, [toggle]);
 
   // ── Keyboard navigation (ARIA tree pattern) ──────────────────────────────
   const handleKey = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -311,11 +287,6 @@ const MachineSelectionView: React.FC = () => {
     }
   }, [flatRows, focusedId, expanded, toggle, focusAndScroll, activateRow]);
 
-  const reloadMachines = async () => {
-    const { api } = await import('../api');
-    setMachines(await api.getMachines());
-  };
-
   // Expand / collapse all helpers for the toolbar.
   const expandAll = () => {
     const next = new Set<string>();
@@ -351,21 +322,6 @@ const MachineSelectionView: React.FC = () => {
           <button className="msv-nav-btn msv-nav-btn-interconnect" onClick={() => setCurrentView('interconnection')}>
             <span className="msv-btn-icon">⚡</span>
             Interconnect
-          </button>
-
-          <button className="msv-nav-btn msv-nav-btn-tobias" onClick={() => setCurrentView('tobias')}>
-            <span className="msv-btn-icon">🔮</span>
-            Tobias
-          </button>
-
-          <button className="msv-nav-btn msv-nav-btn-files" onClick={() => setShowManagementModal(true)}>
-            <span className="msv-btn-icon">📦</span>
-            Files
-          </button>
-
-          <button className="msv-nav-btn msv-nav-btn-create" onClick={() => setShowCreateDialog(true)}>
-            <span className="msv-btn-icon">+</span>
-            New Machine
           </button>
         </div>
       </header>
@@ -416,13 +372,8 @@ const MachineSelectionView: React.FC = () => {
               {searchQuery || filterMode !== 'all' ? 'no machines found' : 'no machines available'}
             </span>
             <span className="msv-state-hint">
-              {searchQuery ? 'try a different search term' : 'create your first machine to get started'}
+              {searchQuery ? 'try a different search term' : 'no machines loaded'}
             </span>
-            {filterMode === 'all' && !searchQuery && (
-              <button className="msv-state-btn" onClick={() => setShowCreateDialog(true)}>
-                + create machine
-              </button>
-            )}
           </div>
         ) : (
           <div
@@ -478,7 +429,7 @@ const MachineSelectionView: React.FC = () => {
                     aria-selected={isFocused}
                     className={`msv-row msv-row-machine${isFocused ? ' is-focused' : ''}`}
                     style={{ ['--domain-color' as any]: DOMAINS[n.domainId].color }}
-                    onClick={() => { setFocusedId(n.id); openMachine(m.id, null); }}
+                    onClick={() => { setFocusedId(n.id); toggle(n.id); }}
                   >
                     <span
                       className={`msv-chevron${isExp ? ' is-open' : ''}${hasKids ? '' : ' is-empty'}`}
@@ -495,30 +446,6 @@ const MachineSelectionView: React.FC = () => {
                       <span className="msv-meta-divider">·</span>
                       {m.totalVectors} vectors
                     </span>
-                    <div className="msv-row-actions" onClick={e => e.stopPropagation()}>
-                      <button
-                        className="msv-action-btn"
-                        onClick={() => { setEditingMachine(m); setShowEditDialog(true); }}
-                        title="Edit machine"
-                      >
-                        edit
-                      </button>
-                      {!m.isExample && (
-                        <button
-                          className="msv-action-btn msv-action-btn-delete"
-                          onClick={async () => {
-                            if (!window.confirm(`Delete "${m.name}"?`)) return;
-                            setIsLoading(true);
-                            try { await deleteMachine(m.id); }
-                            catch (err) { console.error(err); }
-                            finally { setIsLoading(false); }
-                          }}
-                          title="Delete machine"
-                        >
-                          del
-                        </button>
-                      )}
-                    </div>
                   </div>
                 );
               }
@@ -533,7 +460,7 @@ const MachineSelectionView: React.FC = () => {
                   aria-selected={isFocused}
                   className={`msv-row msv-row-ces${isFocused ? ' is-focused' : ''}`}
                   style={{ ['--domain-color' as any]: DOMAINS[n.domainId].color }}
-                  onClick={() => { setFocusedId(n.id); openMachine(n.machineId, n.sequenceId); }}
+                  onClick={() => { setFocusedId(n.id); }}
                 >
                   <span className="msv-chevron is-empty">·</span>
                   <span className="msv-row-icon msv-row-icon-ces">◆</span>
@@ -546,24 +473,6 @@ const MachineSelectionView: React.FC = () => {
         )}
       </div>
 
-      {/* ── Dialogs ───────────────────────────────────────── */}
-      <MachineCreateDialog
-        isOpen={showCreateDialog}
-        onClose={() => setShowCreateDialog(false)}
-        onCreate={reloadMachines}
-      />
-
-      <MachineEditDialog
-        machine={editingMachine}
-        isOpen={showEditDialog}
-        onClose={() => { setShowEditDialog(false); setEditingMachine(null); }}
-        onSave={reloadMachines}
-      />
-
-      <MachineManagementModal
-        isOpen={showManagementModal}
-        onClose={() => { setShowManagementModal(false); reloadMachines(); }}
-      />
     </div>
   );
 };

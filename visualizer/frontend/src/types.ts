@@ -264,3 +264,77 @@ export interface PagingDecisionsResponse {
 }
 
 export type PESource = PETestSource | PESimulatedSource | PESensorSource;
+
+// ── Health & runtime status (SURFACE_SPEC §Response Shape Conventions) ───────
+
+export interface HealthStatus {
+  status: 'healthy' | 'degraded' | 'unhealthy' | string;
+  timestamp: number;
+  version?: string;
+}
+
+// ── Engine active sequences (/api/engine/active) ──────────────────────────────
+
+export interface EngineActive {
+  activeSequences: Array<{
+    id: string;
+    name: string;
+    machineId?: string;
+    currentVectorId?: string;
+    lastMatchedAt?: number;
+  }>;
+  total: number;
+}
+
+// ── PE state (/api/pe/state) ──────────────────────────────────────────────────
+
+export interface PEState {
+  running: boolean;
+  pushCount: number;
+  lastPushAt: number | null;
+  sourceCount: number;
+  activeSources: number;
+  dimension: number;
+  pushIntervalMs?: number;
+  mode?: string;
+}
+
+// ── PE integrations summary (/api/pe/integrations/status) ────────────────────
+
+export interface PEIntegrationEntry {
+  enabled: boolean;
+  connected?: boolean;
+  bridgeId?: string;
+  tokenConfigured?: boolean;
+}
+
+export interface PEIntegrationsStatus {
+  ollama?:     PEIntegrationEntry;
+  openai?:     PEIntegrationEntry;
+  acp?:        PEIntegrationEntry;
+  healthkit?:  PEIntegrationEntry;
+  carekit?:    PEIntegrationEntry;
+  localai?:    PEIntegrationEntry;
+  mqtt?:       PEIntegrationEntry;
+  [key: string]: PEIntegrationEntry | undefined;
+}
+
+// ── Multi-engine registry (/api/engines) ──────────────────────────────────
+
+export interface EngineInstance {
+  id: string;
+  runtime: 'scala' | 'cpp' | 'lsp' | string;
+  re_url: string;
+  pe_url: string;
+  re_port: number;
+  pe_port: number;
+  pid_re: number | null;
+  pid_pe: number | null;
+  started_at: string;
+  status: 'running' | 'stopped' | string;
+}
+
+export interface EngineRegistry {
+  instances: EngineInstance[];
+  activeId: string | null;
+}

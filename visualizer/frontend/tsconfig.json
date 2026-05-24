@@ -17,5 +17,18 @@
     "noFallthroughCasesInSwitch": true
   },
   "include": ["src"],
+  "exclude": [
+    "src/views/MachineAdministrationView.tsx",
+    "src/views/TobiasView.tsx",
+    "src/components/CriticalEventGraphView.tsx",
+    "src/components/MachineContainerView.tsx",
+    "src/components/MachineCreateDialog.tsx",
+    "src/components/MachineEditDialog.tsx",
+    "src/components/MachineManagementModal.tsx",
+    "src/components/MachinePESourcesPanel.tsx",
+    "src/components/tobias",
+    "src/hooks/useMachineSimulation.ts",
+    "src/pages/TobiasView.tsx"
+  ],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
