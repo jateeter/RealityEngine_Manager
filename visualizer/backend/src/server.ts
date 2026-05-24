@@ -321,7 +321,7 @@ app.post('/api/engines/active', (req: Request, res: Response) => {
   reconnectTimer = null;
   connectToREStream();
   console.log(`[engines] active instance switched to: ${id} (${inst.re_url})`);
-  res.json({ activeId, re_url: inst.re_url, pe_url: inst.pe_url });
+  res.json({ activeId: activeEngineId, re_url: inst.re_url, pe_url: inst.pe_url });
 });
 
 // ── RE status & runtime routes (proxied from RE surface) ─────────────────────
