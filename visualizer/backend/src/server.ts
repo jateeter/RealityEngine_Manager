@@ -63,7 +63,12 @@ async function syncRegistry(): Promise<void> {
   try {
     const res = await axios.get(RE_REGISTRY_URL, { timeout: 3000 });
     const data = res.data as { instances?: EngineInstance[] };
-    engineInstances = data.instances ?? [];
+    const fresh = data.instances ?? [];
+    // Only replace the known-good list when the registry returns at least one
+    // instance.  An empty response is treated as a transient outage so stale
+    // URLs continue to be served rather than dropping all proxying.
+    if (fresh.length === 0) return;
+    engineInstances = fresh;
     if (!activeEngineId && engineInstances.length > 0) {
       activeEngineId = engineInstances[0].id;
     }
