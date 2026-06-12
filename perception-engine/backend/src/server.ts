@@ -204,7 +204,7 @@ const careKitBridgeToken = process.env['CAREKIT_BRIDGE_TOKEN'] ?? '';
 const triggersEnabled = (process.env['TRIGGERS_ENABLED'] ?? '').toLowerCase() === 'true'
   || process.env['TRIGGERS_ENABLED'] === '1';
 const triggerDispatchMode = process.env['TRIGGER_DISPATCH_MODE'] ?? 'dry-run';
-const localAIBaseUrl = process.env['LOCAL_AI_BASE_URL'] ?? 'http://localhost:4000';
+const localAIBaseUrl = process.env['LOCAL_AI_BASE_URL'] ?? process.env['LOCAL_AI_API_URL'] ?? 'http://localhost:4000';
 const triggerGraphQLEndpoint = process.env['TRIGGER_GRAPHQL_URL'] ?? `${localAIBaseUrl}/graphql`;
 
 // Lazy machine-catalog cache, populated from RE.  The dispatcher's lookup
