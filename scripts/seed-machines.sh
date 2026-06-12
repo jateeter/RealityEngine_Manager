@@ -12,13 +12,13 @@
 #   scripts/seed-machines.sh [re-url] [examples-dir]
 #
 # Arguments:
-#   re-url        RE runtime URL  (default: http://localhost:3000)
+#   re-url        RE runtime URL  (default: https://localhost:3000)
 #   examples-dir  Path to examples/machines directory (auto-discovered if omitted)
 # ============================================================
 
 set -uo pipefail
 
-RE_URL="${1:-http://localhost:3000}"
+RE_URL="${1:-https://localhost:3000}"
 EXAMPLES_DIR="${2:-}"
 CONCURRENCY=8
 SKIP_THRESHOLD=50
@@ -27,8 +27,8 @@ SKIP_THRESHOLD=50
 if [[ -z "$EXAMPLES_DIR" ]]; then
   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   for candidate in \
-      "$SCRIPT_DIR/../../RealityEngine_AI/examples/machines" \
-      "$SCRIPT_DIR/../../../RealityEngine_AI/examples/machines"; do
+      "$SCRIPT_DIR/../../RealityEngine_Machines/machines" \
+      "$SCRIPT_DIR/../../../RealityEngine_Machines/machines"; do
     if [[ -d "$candidate" ]]; then
       EXAMPLES_DIR="$(cd "$candidate" && pwd)"
       break
@@ -47,7 +47,7 @@ echo "  [seed] Examples: $EXAMPLES_DIR"
 # ── Skip if machines are already loaded ──────────────────────
 MACHINE_COUNT=0
 TMPCOUNT=$(mktemp)
-if curl -sf "$RE_URL/api/machines" -o "$TMPCOUNT" 2>/dev/null; then
+if curl -skf "$RE_URL/api/machines" -o "$TMPCOUNT" 2>/dev/null; then
   MACHINE_COUNT=$(TMPFILE="$TMPCOUNT" python3 -c "
 import json, os
 try:
@@ -94,7 +94,7 @@ content = open(sys.argv[1]).read()
 print(json.dumps({'json': content}))
 " "$file" 2>/dev/null) || return 1
 
-  curl -sf -X POST "$re_url/api/machines/json/import" \
+  curl -skf -X POST "$re_url/api/machines/json/import" \
     -H "Content-Type: application/json" \
     -d "$payload" -o /dev/null 2>&1
 }

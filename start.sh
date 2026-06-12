@@ -9,17 +9,19 @@
 #   ./start.sh [options]
 #
 # Options:
-#   --re <url>     RE runtime URL  (default: http://localhost:3000)
-#   --pe <url>     PE runtime URL  (default: http://localhost:3003)
+#   --re <url>     RE runtime URL  (default: https://localhost:3000)
+#   --pe <url>     PE runtime URL  (default: https://localhost:3004)
 #   --scala        Preset for Scala runtime  (RE :5001, PE :5000)
-#   --lsp          Preset for LSP runtime    (RE :3299, PE :4000)
+#   --cpp          Preset for CPP runtime    (RE :5301, PE :5300)
+#   --lsp          Preset for LSP runtime    (RE :5601, PE :5600)
 #   --port <n>     Visualizer backend port   (default: 3001)
 #   --no-frontend  Skip starting the Vite dev server
 #
 # Runtime defaults per SURFACE_SPEC.md:
-#   CPP   RE :3000  PE :3003
-#   LSP   RE :3299  PE :4000
+#   Docker RE :3000  PE :3004
 #   Scala RE :5001  PE :5000
+#   CPP    RE :5301  PE :5300
+#   LSP    RE :5601  PE :5600
 # ============================================================
 
 set -euo pipefail
@@ -31,8 +33,8 @@ PID_FILE="$ROOT_DIR/.manager-pids"
 LOG_DIR="$ROOT_DIR/.manager-logs"
 
 # ── Defaults ────────────────────────────────────────────────
-RE_RUNTIME_URL="http://localhost:3000"
-PE_RUNTIME_URL="http://localhost:3003"
+RE_RUNTIME_URL="https://localhost:3000"
+PE_RUNTIME_URL="https://localhost:3004"
 VIZ_PORT=3001
 START_FRONTEND=1
 
@@ -42,7 +44,8 @@ while [[ $# -gt 0 ]]; do
     --re)           RE_RUNTIME_URL="$2"; shift 2 ;;
     --pe)           PE_RUNTIME_URL="$2"; shift 2 ;;
     --scala)        RE_RUNTIME_URL="http://localhost:5001"; PE_RUNTIME_URL="http://localhost:5000"; shift ;;
-    --lsp)          RE_RUNTIME_URL="http://localhost:3299"; PE_RUNTIME_URL="http://localhost:4000"; shift ;;
+    --cpp)          RE_RUNTIME_URL="http://localhost:5301"; PE_RUNTIME_URL="http://localhost:5300"; shift ;;
+    --lsp)          RE_RUNTIME_URL="http://localhost:5601"; PE_RUNTIME_URL="http://localhost:5600"; shift ;;
     --port)         VIZ_PORT="$2"; shift 2 ;;
     --no-frontend)  START_FRONTEND=0; shift ;;
     -h|--help)

@@ -6,16 +6,16 @@
 #   ./scripts/smoke-test.sh [options]
 #
 # Options:
-#   --target  <url>    RE runtime base URL  (default: http://localhost:3000)
-#   --pe      <url>    PE runtime base URL  (default: http://localhost:4000)
+#   --target  <url>    RE runtime base URL  (default: https://localhost:3000)
+#   --pe      <url>    PE runtime base URL  (default: https://localhost:3004)
 #   --skip-pe          Skip PE surface tests
 #   --skip-re          Skip RE surface tests
 #   --verbose          Print each request/response
 
 set -euo pipefail
 
-RE_URL="http://localhost:3000"
-PE_URL="http://localhost:4000"
+RE_URL="https://localhost:3000"
+PE_URL="https://localhost:3004"
 SKIP_PE=0
 SKIP_RE=0
 VERBOSE=0
@@ -42,7 +42,7 @@ check() {
   local body="${4:-}"
   local url="${base_url}${path}"
 
-  local args=(-s -o /dev/null -w "%{http_code}" --max-time 5)
+  local args=(-s -k -o /dev/null -w "%{http_code}" --max-time 5)
   if [[ -n "$body" ]]; then
     args+=(-X "$method" -H "Content-Type: application/json" -d "$body")
   else
@@ -84,7 +84,7 @@ SAMPLER_BODY='{"strategy":"manual"}'
 OBSERVE_BODY='{"data":[0.1,0.2,0.3]}'
 DIAG_BODY='{"universalInputSpace":[0.1,0.2,0.3]}'
 ENGINE_PROC_BODY='{"vector":[0.1,0.2,0.3]}'
-DIM_QUERY='?dimension=768'
+DIM_QUERY='?dimension=7680'
 THRESH_QUERY='?threshold=0.5'
 RUNTIME_PATCH='{"historyLimit":100}'
 CONFIG_PATCH='{"matchThreshold":0.5}'

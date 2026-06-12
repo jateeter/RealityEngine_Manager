@@ -10,8 +10,8 @@ import { auditMiddleware, loadAuditConfig, logAuditEvent } from './auditLogger.j
 
 const PORT = parseInt(process.env.VIZ_PORT || '3001', 10);
 const auditConfig = loadAuditConfig('visualizer-backend');
-const RE_RUNTIME_URL_DEFAULT = process.env.RE_RUNTIME_URL || process.env.REALITY_ENGINE_URL || 'http://localhost:3000';
-const PE_RUNTIME_URL_DEFAULT = process.env.PE_RUNTIME_URL || process.env.PERCEPTION_ENGINE_URL || 'http://localhost:3003';
+const RE_RUNTIME_URL_DEFAULT = process.env.RE_RUNTIME_URL || process.env.REALITY_ENGINE_URL || 'https://localhost:3000';
+const PE_RUNTIME_URL_DEFAULT = process.env.PE_RUNTIME_URL || process.env.PERCEPTION_ENGINE_URL || 'https://localhost:3004';
 const RE_REGISTRY_URL = process.env.RE_REGISTRY_URL ?? '';
 const ALLOWED_ORIGINS: string[] = (
   process.env.ALLOWED_ORIGINS ?? 'http://localhost:5173,https://localhost:5173,http://localhost:3001,https://localhost:3001'
