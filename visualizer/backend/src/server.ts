@@ -157,7 +157,7 @@ function upstreamError(res: Response, error: any, context: string): void {
 }
 
 // ── Short-TTL cache ───────────────────────────────────────────────────────────
-const CACHE_TTL_MS = 500;
+const CACHE_TTL_MS = parseInt(process.env.VIZ_CACHE_TTL_MS || '500', 10);
 const CACHE_MAX    = 100;
 interface CacheEntry { data: any; ts: number }
 const responseCache = new Map<string, CacheEntry>();
