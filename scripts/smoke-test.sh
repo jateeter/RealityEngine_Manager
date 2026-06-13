@@ -7,7 +7,8 @@
 #
 # Options:
 #   --target  <url>    RE runtime base URL  (default: https://localhost:3000)
-#   --pe      <url>    PE runtime base URL  (default: https://localhost:3004)
+#   --pe-target <url> PE runtime base URL  (default: https://localhost:3004)
+#   --pe        <url> Compatibility alias for --pe-target
 #   --skip-pe          Skip PE surface tests
 #   --skip-re          Skip RE surface tests
 #   --verbose          Print each request/response
@@ -23,7 +24,7 @@ VERBOSE=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --target)  RE_URL="$2";  shift 2 ;;
-    --pe)      PE_URL="$2";  shift 2 ;;
+    --pe-target|--pe) PE_URL="$2";  shift 2 ;;
     --skip-pe) SKIP_PE=1;    shift   ;;
     --skip-re) SKIP_RE=1;    shift   ;;
     --verbose) VERBOSE=1;    shift   ;;
@@ -41,8 +42,10 @@ check() {
   local path="$3"
   local body="${4:-}"
   local url="${base_url}${path}"
+  local body_file
+  body_file="$(mktemp "${TMPDIR:-/tmp}/re-smoke.XXXXXX")"
 
-  local args=(-s -k -o /dev/null -w "%{http_code}" --max-time 5)
+  local args=(-s -k -o "$body_file" -w "%{http_code}" --max-time 5)
   if [[ -n "$body" ]]; then
     args+=(-X "$method" -H "Content-Type: application/json" -d "$body")
   else
@@ -50,7 +53,13 @@ check() {
   fi
 
   local status
-  status=$(curl "${args[@]}" "$url" 2>/dev/null || echo "000")
+  set +e
+  status=$(curl "${args[@]}" "$url" 2>/dev/null)
+  local curl_rc=$?
+  set -e
+  if [[ "$curl_rc" -ne 0 ]]; then
+    status="000"
+  fi
 
   if [[ "$VERBOSE" == "1" ]]; then
     echo "  $method $path -> $status"
@@ -65,8 +74,32 @@ check() {
   elif [[ "$status" == "500" ]]; then
     FAIL=$((FAIL + 1))
     ERRORS+=("500   $method $path")
+  elif ! valid_json "$body_file"; then
+    FAIL=$((FAIL + 1))
+    ERRORS+=("JSON  $method $path  (response body is not valid JSON)")
   else
     PASS=$((PASS + 1))
+  fi
+
+  rm -f "$body_file"
+}
+
+valid_json() {
+  local file="$1"
+  if command -v node >/dev/null 2>&1; then
+    node -e 'const fs=require("fs"); const s=fs.readFileSync(process.argv[1],"utf8").trim(); if (!s) process.exit(1); JSON.parse(s);' "$file" >/dev/null 2>&1
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 - "$file" >/dev/null 2>&1 <<'PY'
+import json
+import sys
+from pathlib import Path
+s = Path(sys.argv[1]).read_text().strip()
+if not s:
+    raise SystemExit(1)
+json.loads(s)
+PY
+  else
+    return 0
   fi
 }
 
