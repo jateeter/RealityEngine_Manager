@@ -58,6 +58,16 @@ function activePeUrl(): string {
   return PE_RUNTIME_URL_DEFAULT;
 }
 
+function activeRuntime(): string {
+  if (engineInstances.length > 0) {
+    const inst = activeEngineId
+      ? engineInstances.find(i => i.id === activeEngineId)
+      : engineInstances[0];
+    if (inst) return inst.runtime;
+  }
+  return 'ai';
+}
+
 async function syncRegistry(): Promise<void> {
   if (!RE_REGISTRY_URL) return;
   try {
@@ -360,9 +370,14 @@ app.get('/api/pe/integrations/healthkit/status',(req,res)=>proxyGet(req, res, ac
 app.get('/api/pe/integrations/carekit/status',(req,res) => proxyGet(req, res, activePeUrl(), '/api/integrations/carekit/status', null,    'getPECareKitStatus'));
 app.get('/api/pe/mqtt/status',    (req, res) => proxyGet(req, res,  activePeUrl(), '/api/mqtt/status',    'pe:mqtt',  'getPEMqttStatus'));
 app.get('/api/pe/mqtt/mappings',  (req, res) => proxyGet(req, res,  activePeUrl(), '/api/mqtt/mappings',  'pe:mqtt',  'getPEMqttMappings'));
-app.get('/api/pe/mqtt/example',   (req, res) => proxyGet(req, res,  activePeUrl(), '/api/mqtt/example',   null,       'getPEMqttExample'));
-app.post('/api/pe/mqtt/enable',   (req, res) => proxyPost(req, res, activePeUrl(), '/api/mqtt/enable',   'peEnableMqtt',         'pe:mqtt'));
-app.post('/api/pe/mqtt/disable',  (req, res) => proxyPost(req, res, activePeUrl(), '/api/mqtt/disable',  'peDisableMqtt',        'pe:mqtt'));
+app.post('/api/pe/mqtt/enable',  (req, res) => {
+  if (activeRuntime() !== 'ai') { res.status(501).json({ error: 'MQTT enable/disable is only supported by the AI Perception Engine. The active engine does not implement this endpoint.' }); return; }
+  proxyPost(req, res, activePeUrl(), '/api/mqtt/enable',  'peEnableMqtt',  'pe:mqtt');
+});
+app.post('/api/pe/mqtt/disable', (req, res) => {
+  if (activeRuntime() !== 'ai') { res.status(501).json({ error: 'MQTT enable/disable is only supported by the AI Perception Engine. The active engine does not implement this endpoint.' }); return; }
+  proxyPost(req, res, activePeUrl(), '/api/mqtt/disable', 'peDisableMqtt', 'pe:mqtt');
+});
 app.put('/api/pe/mqtt/mappings',  (req, res) => proxyPut(req, res,  activePeUrl(), '/api/mqtt/mappings', 'pePutMqttMappings',    'pe:mqtt'));
 app.get('/api/pe/machines',                  (req, res) => proxyGet(req, res, activePeUrl(), '/api/machines',               null,          'getPEMachines'));
 

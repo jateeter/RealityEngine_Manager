@@ -30,6 +30,41 @@ const T_OFF     = '#475569';
 const POLL_MS = 3_000;
 const DEFAULT_BROKER = 'mqtt://yuma.lateraledge.cloud:1883';
 
+const EXAMPLE_MAPPINGS = JSON.stringify({
+  version: '1.0',
+  defaults: { ttlMs: 30000, qos: 0, acceptRetained: true, pushMode: 'debounced', debounceMs: 250 },
+  mappings: [
+    {
+      id: 'zone-temperature',
+      topicFilter: 'sensors/zone/+/temp',
+      sensorIdTemplate: 'zone.{1}.temp',
+      region: { offset: 0, length: 1 },
+      extract: { type: 'json', pointer: '/value' },
+      normalize: { mode: 'minmax', min: -40, max: 80, clamp: true },
+      ttlMs: 60000,
+      pushMode: 'debounced',
+      debounceMs: 500,
+    },
+    {
+      id: 'humidity',
+      topicFilter: 'sensors/+/humidity',
+      sensorIdTemplate: 'humidity.{1}',
+      region: { offset: 4, length: 1 },
+      extract: { type: 'csv-float' },
+      normalize: { mode: 'passthrough', clamp: true },
+    },
+    {
+      id: 'alarm-state',
+      topicFilter: 'alarms/+/state',
+      sensorIdTemplate: 'alarm.{1}',
+      region: { offset: 8, length: 1 },
+      extract: { type: 'json', pointer: '/triggered' },
+      normalize: { mode: 'passthrough', clamp: true },
+      pushMode: 'immediate',
+    },
+  ],
+}, null, 2);
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 const fmt = (n?: number) => (n ?? 0).toLocaleString();
@@ -142,7 +177,6 @@ const MappingTable: React.FC<{ mappings: MqttMappingRule[] }> = ({ mappings }) =
 
 type Stage =
   | { kind: 'idle' }
-  | { kind: 'loading-example' }
   | { kind: 'enabling' }
   | { kind: 'verifying'; elapsedMs: number }
   | { kind: 'success'; brokerUrl: string; mappings: number; warnings?: string[] }
@@ -169,15 +203,9 @@ const MqttConfigModal: React.FC<MqttConfigModalProps> = ({ open, onClose, onChan
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  const loadExample = useCallback(async () => {
-    setStage({ kind: 'loading-example' });
-    try {
-      const ex = await api.getMqttExample();
-      setMappingsText(JSON.stringify(ex, null, 2));
-      setStage({ kind: 'idle' });
-    } catch (e: any) {
-      setStage({ kind: 'failure', message: `Could not load example: ${e?.message ?? e}` });
-    }
+  const loadExample = useCallback(() => {
+    setMappingsText(EXAMPLE_MAPPINGS);
+    setStage({ kind: 'idle' });
   }, []);
 
   const parseMappings = (): object | null => {
@@ -244,7 +272,7 @@ const MqttConfigModal: React.FC<MqttConfigModalProps> = ({ open, onClose, onChan
   };
 
   if (!open) return null;
-  const busy = stage.kind === 'enabling' || stage.kind === 'verifying' || stage.kind === 'disabling' || stage.kind === 'loading-example';
+  const busy = stage.kind === 'enabling' || stage.kind === 'verifying' || stage.kind === 'disabling';
 
   const inp: React.CSSProperties = {
     background: '#050a12', color: T_TEXT, border: `1px solid ${T_BORDER}`,
@@ -290,7 +318,7 @@ const MqttConfigModal: React.FC<MqttConfigModalProps> = ({ open, onClose, onChan
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: 11, color: T_DIM2, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>Mapping Registry JSON</span>
             <button onClick={loadExample} disabled={busy} style={secondaryBtn(busy)}>
-              {stage.kind === 'loading-example' ? 'Loading…' : 'Load Example'}
+              Load Example
             </button>
           </div>
           <textarea
@@ -304,7 +332,7 @@ const MqttConfigModal: React.FC<MqttConfigModalProps> = ({ open, onClose, onChan
           />
 
           {/* Stage banner */}
-          {stage.kind !== 'idle' && stage.kind !== 'loading-example' && (
+          {stage.kind !== 'idle' && (
             <StageBanner stage={stage} />
           )}
         </div>

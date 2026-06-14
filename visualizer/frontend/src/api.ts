@@ -145,11 +145,6 @@ export const api = {
     return r.data;
   },
 
-  async getMqttExample(): Promise<object> {
-    const r = await http.get('/api/pe/mqtt/example');
-    return r.data;
-  },
-
   async mqttEnable(brokerUrl: string, mappings: object): Promise<{ mappings?: number; warnings?: string[] }> {
     const r = await http.post('/api/pe/mqtt/enable', { brokerUrl, mappings });
     return r.data;

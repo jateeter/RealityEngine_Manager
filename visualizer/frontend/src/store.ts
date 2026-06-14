@@ -54,7 +54,7 @@ export const useVisualizerStore = create<VisualizerState>((set, get) => ({
 
   connectWebSocket: () => {
     const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${wsProto}//${window.location.hostname}:3001/ws`;
+    const wsUrl = `${wsProto}//${window.location.host}/ws`;
     const ws = new WebSocket(wsUrl);
 
     ws.onerror = (error) => { console.error('WebSocket error:', error); };

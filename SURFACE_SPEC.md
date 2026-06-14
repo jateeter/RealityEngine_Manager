@@ -450,13 +450,27 @@ HTTP status: `200` (all ok) · `207` (partial failures).
 
 The following routes appeared in the locked historical RealityEngine_AI surface
 that has been replaced by Scala, but are not part of the canonical surface and
-must not be implemented in CPP, LSP, Scala, or the Manager:
+must not be implemented in CPP, LSP, or Scala:
 
-- `POST /api/mqtt/enable`
-- `POST /api/mqtt/disable`
-- `GET /api/mqtt/example`
+- `POST /api/mqtt/enable` — AI PE only; Manager proxies this as `POST /api/pe/mqtt/enable`
+- `POST /api/mqtt/disable` — AI PE only; Manager proxies this as `POST /api/pe/mqtt/disable`
+- `GET /api/mqtt/example` — AI PE only; not proxied by the Manager (endpoint removed from PE)
 - `GET /api/integrations/healthkit/example`
 - `GET /api/integrations/carekit/example`
 - `POST /api/triggers/replay/:dispatchId`
 - `GET /api/logs/ingest` (Loki-specific, Manager visualizer backend only)
 - `GET /api/viz/*` (Manager visualizer backend only)
+
+### Manager Visualizer Backend Proxy Routes (AI PE only)
+
+The Manager exposes the following `/api/pe/mqtt/*` proxy routes that forward to the AI
+Perception Engine. These are not part of the canonical cross-runtime surface and are not
+proxied when the active engine is CPP, LSP, or Scala.
+
+| Method | Manager route | Forwards to AI PE |
+|--------|---------------|-------------------|
+| GET | `/api/pe/mqtt/status` | `GET /api/mqtt/status` |
+| GET | `/api/pe/mqtt/mappings` | `GET /api/mqtt/mappings` |
+| POST | `/api/pe/mqtt/enable` | `POST /api/mqtt/enable` |
+| POST | `/api/pe/mqtt/disable` | `POST /api/mqtt/disable` |
+| PUT | `/api/pe/mqtt/mappings` | `PUT /api/mqtt/mappings` |
