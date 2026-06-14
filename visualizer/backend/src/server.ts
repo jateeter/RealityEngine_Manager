@@ -371,11 +371,11 @@ app.get('/api/pe/integrations/carekit/status',(req,res) => proxyGet(req, res, ac
 app.get('/api/pe/mqtt/status',    (req, res) => proxyGet(req, res,  activePeUrl(), '/api/mqtt/status',    'pe:mqtt',  'getPEMqttStatus'));
 app.get('/api/pe/mqtt/mappings',  (req, res) => proxyGet(req, res,  activePeUrl(), '/api/mqtt/mappings',  'pe:mqtt',  'getPEMqttMappings'));
 app.post('/api/pe/mqtt/enable',  (req, res) => {
-  if (activeRuntime() !== 'ai') { res.status(501).json({ error: 'MQTT enable/disable is only supported by the AI Perception Engine. The active engine does not implement this endpoint.' }); return; }
+  if (activeRuntime() !== 'ai') { res.status(501).json({ error: 'MQTT enable/disable is not yet implemented for this engine runtime. See SURFACE_SPEC.md open gaps.' }); return; }
   proxyPost(req, res, activePeUrl(), '/api/mqtt/enable',  'peEnableMqtt',  'pe:mqtt');
 });
 app.post('/api/pe/mqtt/disable', (req, res) => {
-  if (activeRuntime() !== 'ai') { res.status(501).json({ error: 'MQTT enable/disable is only supported by the AI Perception Engine. The active engine does not implement this endpoint.' }); return; }
+  if (activeRuntime() !== 'ai') { res.status(501).json({ error: 'MQTT enable/disable is not yet implemented for this engine runtime. See SURFACE_SPEC.md open gaps.' }); return; }
   proxyPost(req, res, activePeUrl(), '/api/mqtt/disable', 'peDisableMqtt', 'pe:mqtt');
 });
 app.put('/api/pe/mqtt/mappings',  (req, res) => proxyPut(req, res,  activePeUrl(), '/api/mqtt/mappings', 'pePutMqttMappings',    'pe:mqtt'));

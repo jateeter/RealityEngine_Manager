@@ -246,6 +246,8 @@ Default ports: Scala 5000 · CPP 5300 · LSP 5600
 | GET | `/api/mqtt/status` | ✓ | ✓ | ✓ |
 | GET | `/api/mqtt/mappings` | ✓ | ✓ | ✓ |
 | PUT | `/api/mqtt/mappings` | ✓ | ✓ | ✓ |
+| POST | `/api/mqtt/enable` | ✗ | ✗ | ✗ |
+| POST | `/api/mqtt/disable` | ✗ | ✗ | ✗ |
 
 ### Streaming
 
@@ -269,7 +271,12 @@ Default ports: Scala 5000 · CPP 5300 · LSP 5600
 
 ### Open gaps
 
-None. All routes listed in this spec are implemented by all three runtimes.
+| Route | CPP | LSP | Scala |
+|-------|-----|-----|-------|
+| `POST /api/mqtt/enable` | planned | planned | planned |
+| `POST /api/mqtt/disable` | planned | planned | planned |
+
+The Manager returns HTTP 501 for these routes until the active runtime implements them.
 
 ---
 
@@ -452,8 +459,6 @@ The following routes appeared in the locked historical RealityEngine_AI surface
 that has been replaced by Scala, but are not part of the canonical surface and
 must not be implemented in CPP, LSP, or Scala:
 
-- `POST /api/mqtt/enable` — AI PE only; Manager proxies this as `POST /api/pe/mqtt/enable`
-- `POST /api/mqtt/disable` — AI PE only; Manager proxies this as `POST /api/pe/mqtt/disable`
 - `GET /api/mqtt/example` — AI PE only; not proxied by the Manager (endpoint removed from PE)
 - `GET /api/integrations/healthkit/example`
 - `GET /api/integrations/carekit/example`
@@ -461,11 +466,11 @@ must not be implemented in CPP, LSP, or Scala:
 - `GET /api/logs/ingest` (Loki-specific, Manager visualizer backend only)
 - `GET /api/viz/*` (Manager visualizer backend only)
 
-### Manager Visualizer Backend Proxy Routes (AI PE only)
+### Manager Visualizer Backend Proxy Routes
 
-The Manager exposes the following `/api/pe/mqtt/*` proxy routes that forward to the AI
-Perception Engine. These are not part of the canonical cross-runtime surface and are not
-proxied when the active engine is CPP, LSP, or Scala.
+The Manager exposes the following `/api/pe/mqtt/*` proxy routes that forward to the active
+Perception Engine. The enable/disable routes return HTTP 501 until the active runtime
+implements them (see Open gaps above).
 
 | Method | Manager route | Forwards to AI PE |
 |--------|---------------|-------------------|
