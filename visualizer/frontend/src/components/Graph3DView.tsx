@@ -222,9 +222,9 @@ interface Graph3DViewProps {
   }>;
   eventEdges?: Array<{ source: string; target: string }>;
   /** For 'machines' mode: fired when the cursor hovers a machine sphere (or
-   *  leaves it — null). The parent renders a shared, in-view tooltip overlay
-   *  so 2D and 3D modes present the same hover content. */
-  onMachineHover?: (machineId: string | null) => void;
+   *  leaves it — null). clientX/Y are viewport coordinates of the mouse at
+   *  hover time, forwarded so the parent can position its tooltip overlay. */
+  onMachineHover?: (machineId: string | null, clientX?: number, clientY?: number) => void;
 }
 
 export const Graph3DView: React.FC<Graph3DViewProps> = ({
@@ -236,6 +236,7 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
   const onMachineHoverRef = useRef(onMachineHover);
   useEffect(() => { onMachineHoverRef.current = onMachineHover; }, [onMachineHover]);
   const containerRef = useRef<HTMLDivElement>(null);
+  const mousePosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const graphRef = useRef<ForceGraph3DInstance | null>(null);
   const hullMeshesRef = useRef<THREE.Mesh[]>([]);
   const [graphData, setGraphData] = useState<MachineGraphData | null>(null);
@@ -273,6 +274,15 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
   }, [mode]);
 
   useEffect(() => { fetchGraphData(); }, [fetchGraphData]);
+
+  // Track mouse viewport position so onNodeHover can forward it to the parent.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const onMove = (e: MouseEvent) => { mousePosRef.current = { x: e.clientX, y: e.clientY }; };
+    el.addEventListener('mousemove', onMove);
+    return () => el.removeEventListener('mousemove', onMove);
+  }, []);
 
   // ── WebSocket step updates ──────────────────────────────────────────────────
   useEffect(() => {
@@ -388,7 +398,8 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
       .nodeLabel(() => '')
       .onNodeHover((node: any) => {
         const id = node ? (node as MachineNode3D).id : null;
-        onMachineHoverRef.current?.(id);
+        const { x, y } = mousePosRef.current;
+        onMachineHoverRef.current?.(id, x, y);
       })
       .nodeColor((node: any) => {
         const n = node as MachineNode3D;

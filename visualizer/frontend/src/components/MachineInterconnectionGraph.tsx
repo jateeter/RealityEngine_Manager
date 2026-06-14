@@ -797,14 +797,22 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
       {is3D && (
         <Graph3DView
           mode="machines"
-          onMachineHover={(id) => {
+          onMachineHover={(id, clientX, clientY) => {
             if (!id) {
+              if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current);
               tooltipTimerRef.current = setTimeout(
                 () => setTooltip(prev => (prev?.pinned ? prev : null)), 220);
               return;
             }
             const m = machines.find(mm => mm.id === id);
-            if (m) showTooltipRef.current(m.id, m.name, 20, 70);
+            if (!m) return;
+            if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current);
+            const rect = containerRef.current?.getBoundingClientRect();
+            const x = rect && clientX !== undefined ? clientX - rect.left + 14 : 20;
+            const y = rect && clientY !== undefined ? clientY - rect.top  - 10 : 70;
+            tooltipTimerRef.current = setTimeout(() => {
+              showTooltipRef.current(m.id, m.name, x, y);
+            }, 160);
           }}
         />
       )}

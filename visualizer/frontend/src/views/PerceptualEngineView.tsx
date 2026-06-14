@@ -8,6 +8,7 @@ import type {
 } from '../types';
 import { classifyMachine, DOMAINS, DOMAIN_ORDER } from '../components/machineDomains';
 import type { DomainId } from '../components/machineDomains';
+import { MqttPanel } from '../components/MqttPanel';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -647,6 +648,7 @@ export const PerceptualEngineView: React.FC = () => {
   const [machines, setMachines] = useState<Machine[]>([]);
   const [autoIntervalMs, setAutoIntervalMs] = useState(1000);
   const [error, setError] = useState<string | null>(null);
+  const [rightTab, setRightTab] = useState<'vector' | 'mqtt'>('vector');
 
   const isAutoRunning = state?.auto.running ?? false;
   const pollMs = isAutoRunning ? POLL_AUTO_MS : POLL_IDLE_MS;
@@ -877,21 +879,52 @@ export const PerceptualEngineView: React.FC = () => {
           hoveredSourceId={hoveredSourceId}
         />
 
-        {/* Right: vector + push log */}
+        {/* Right panel — tabbed: Vector / MQTT */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+
+          {/* Tab bar */}
+          <div style={{
+            display: 'flex', gap: 0, flexShrink: 0,
+            borderBottom: '1px solid #1e293b', background: '#0b1220',
+          }}>
+            {(['vector', 'mqtt'] as const).map(tab => (
+              <button
+                key={tab}
+                onClick={() => setRightTab(tab)}
+                style={{
+                  padding: '7px 18px', fontSize: 11, fontWeight: 700,
+                  textTransform: 'uppercase', letterSpacing: 0.5,
+                  border: 'none', borderBottom: rightTab === tab ? '2px solid #38bdf8' : '2px solid transparent',
+                  background: 'transparent',
+                  color: rightTab === tab ? '#38bdf8' : '#475569',
+                  cursor: 'pointer', marginBottom: -1,
+                }}
+              >
+                {tab === 'vector' ? '⊞ Vector' : '⚡ MQTT'}
+              </button>
+            ))}
+          </div>
+
+          {/* Tab content */}
           <div style={{ flex: 1, overflowY: 'auto' }}>
-            {state ? (
-              <VectorHeatMap
-                vector={state.assembledVector}
-                sources={state.sources}
-                hoveredSourceId={hoveredSourceId}
-              />
+            {rightTab === 'vector' ? (
+              <>
+                {state ? (
+                  <VectorHeatMap
+                    vector={state.assembledVector}
+                    sources={state.sources}
+                    hoveredSourceId={hoveredSourceId}
+                  />
+                ) : (
+                  <div style={{ padding: 24, color: '#475569', fontSize: 13 }}>
+                    {error ? 'Connection failed.' : 'Connecting to Perception Engine…'}
+                  </div>
+                )}
+                <PushLog entries={pushLog} />
+              </>
             ) : (
-              <div style={{ padding: 24, color: '#475569', fontSize: 13 }}>
-                {error ? 'Connection failed.' : 'Connecting to Perception Engine…'}
-              </div>
+              <MqttPanel />
             )}
-            <PushLog entries={pushLog} />
           </div>
         </div>
       </div>

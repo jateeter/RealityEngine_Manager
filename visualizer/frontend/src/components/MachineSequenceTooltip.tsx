@@ -9,7 +9,7 @@
  * strips (drawVectorStrip), and the pin-able panel chrome (SequenceTooltip).
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import './MachineGraphView.css';
 
@@ -615,12 +615,32 @@ const SequenceTooltip: React.FC<{
   onMouseLeave: () => void;
   onPin: () => void;
   onClose: () => void;
-}> = ({ tooltip, live, onMouseEnter, onMouseLeave, onPin, onClose }) => {
+  /** Extra inline styles merged after left/top. Pass `{ position: 'fixed' }` when
+   *  rendering via a React portal so coordinates are viewport-relative. */
+  extraStyle?: React.CSSProperties;
+}> = ({ tooltip, live, onMouseEnter, onMouseLeave, onPin, onClose, extraStyle }) => {
   const { x, y, pinned, name, data } = tooltip;
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // Clamp the panel within the viewport after every render.
+  // Runs after React commits the style={{ left: x, top: y }} so rect is accurate.
+  useLayoutEffect(() => {
+    const el = panelRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const overR = rect.right  - (vw - 8);
+    const overB = rect.bottom - (vh - 8);
+    if (overR > 0) el.style.left = `${Math.max(4, x - overR)}px`;
+    if (overB > 0) el.style.top  = `${Math.max(4, y - overB)}px`;
+  });
+
   return (
     <div
+      ref={panelRef}
       className={`mgv-tooltip${pinned ? ' mgv-tooltip-pinned' : ''}`}
-      style={{ left: x, top: y }}
+      style={{ left: x, top: y, ...extraStyle }}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >

@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import ReactDOM from 'react-dom';
 import { useVisualizerStore } from '../store';
 import { Machine, HealthStatus, EngineActive, PEState } from '../types';
 import { EngineSwitcher } from '../components/EngineSwitcher';
@@ -8,6 +9,16 @@ import {
   DOMAIN_ORDER,
   DomainId,
 } from '../components/machineDomains';
+import {
+  SequenceTooltip,
+  EMPTY_LIVE,
+} from '../components/MachineSequenceTooltip';
+import type {
+  TooltipState,
+  TooltipMachineData,
+  TooltipSeqNode,
+  TooltipVectorElement,
+} from '../components/MachineSequenceTooltip';
 import './RealityEnginePanelView.css';
 
 // ── Surface status polling ────────────────────────────────────────────────────
@@ -162,6 +173,11 @@ const RealityEnginePanelView: React.FC = () => {
   const treeRef = useRef<HTMLDivElement>(null);
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
 
+  // ── Sequence tooltip (machine hover) ────────────────────────────────────
+  const [seqTooltip, setSeqTooltip] = useState<TooltipState | null>(null);
+  const seqCacheRef = useRef<Map<string, TooltipMachineData>>(new Map());
+  const seqTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // ── Load machines ────────────────────────────────────────────────────────
   useEffect(() => {
     const load = async () => {
@@ -287,6 +303,47 @@ const RealityEnginePanelView: React.FC = () => {
     if (focusedId && flatRows.some(r => r.node.id === focusedId)) return;
     setFocusedId(flatRows[0]?.node.id ?? null);
   }, [flatRows, focusedId]);
+
+  const showSeqTooltip = useCallback((id: string, name: string, x: number, y: number) => {
+    setSeqTooltip(prev => {
+      if (prev?.pinned) return prev;
+      return { machineId: id, name, x, y, pinned: false, data: null };
+    });
+
+    const cached = seqCacheRef.current.get(id);
+    if (cached) {
+      setSeqTooltip(prev => prev?.machineId === id ? { ...prev, data: cached } : prev);
+      return;
+    }
+
+    fetch(`/api/machines/${id}/export`)
+      .then(r => r.json())
+      .then((json: any) => {
+        const m = json.machine ?? json;
+        const data: TooltipMachineData = {
+          id,
+          name:        m.name        ?? name,
+          description: m.description ?? '',
+          sequences: (m.sequences ?? []).map((seq: any) => {
+            const nodes: TooltipSeqNode[] = (seq.vectors ?? []).map((v: any) => ({
+              id:        v.id,
+              label:     v.metadata?.name ?? v.id.slice(-6),
+              isInitial: v.isInitial ?? false,
+              hasOutput: Array.isArray(v.outputVectors) && v.outputVectors.length > 0,
+              elements:  Array.isArray(v.elements) ? (v.elements as TooltipVectorElement[]) : [],
+            }));
+            const edges: Array<{ source: string; target: string }> = [];
+            for (const v of (seq.vectors ?? [])) {
+              for (const nid of (v.nextVectorIds ?? [])) edges.push({ source: v.id, target: nid });
+            }
+            return { sequenceId: seq.id, name: seq.name, nodes, edges };
+          }),
+        };
+        seqCacheRef.current.set(id, data);
+        setSeqTooltip(prev => prev?.machineId === id ? { ...prev, data } : prev);
+      })
+      .catch(() => {});
+  }, []);
 
   // ── Helpers ──────────────────────────────────────────────────────────────
   const toggle = useCallback((id: string) => {
@@ -563,6 +620,21 @@ const RealityEnginePanelView: React.FC = () => {
                     className={`rep-row rep-row-machine${isFocused ? ' is-focused' : ''}`}
                     style={{ ['--dc' as any]: DOMAINS[n.domainId].color }}
                     onClick={() => { setFocusedId(n.id); toggle(n.id); }}
+                    onMouseEnter={(e) => {
+                      if (seqTimerRef.current) clearTimeout(seqTimerRef.current);
+                      const x = e.clientX + 14;
+                      const y = e.clientY - 10;
+                      seqTimerRef.current = setTimeout(() => {
+                        showSeqTooltip(m.id, m.name, x, y);
+                      }, 160);
+                    }}
+                    onMouseLeave={() => {
+                      if (seqTimerRef.current) clearTimeout(seqTimerRef.current);
+                      seqTimerRef.current = setTimeout(
+                        () => setSeqTooltip(prev => (prev?.pinned ? prev : null)),
+                        220,
+                      );
+                    }}
                   >
                     <span
                       className={`rep-chevron${isExp ? ' is-open' : ''}${hasKids ? '' : ' is-leaf'}`}
@@ -655,6 +727,28 @@ const RealityEnginePanelView: React.FC = () => {
         </span>
 
       </footer>
+
+      {/* ── Sequence tooltip portal ───────────────────────────────────── */}
+      {seqTooltip && ReactDOM.createPortal(
+        <SequenceTooltip
+          tooltip={seqTooltip}
+          live={EMPTY_LIVE}
+          onMouseEnter={() => {
+            if (seqTimerRef.current) clearTimeout(seqTimerRef.current);
+          }}
+          onMouseLeave={() => {
+            if (seqTimerRef.current) clearTimeout(seqTimerRef.current);
+            seqTimerRef.current = setTimeout(
+              () => setSeqTooltip(prev => (prev?.pinned ? prev : null)),
+              220,
+            );
+          }}
+          onPin={() => setSeqTooltip(prev => prev ? { ...prev, pinned: !prev.pinned } : null)}
+          onClose={() => setSeqTooltip(null)}
+          extraStyle={{ position: 'fixed' }}
+        />,
+        document.body,
+      )}
 
       {/* ── Help overlay ───────────────────────────────────────────────── */}
       {showHelp && (

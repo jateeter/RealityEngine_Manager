@@ -358,7 +358,12 @@ app.get('/api/pe/integrations/ollama/status',(req, res) => proxyGet(req, res, ac
 app.get('/api/pe/integrations/localai/status',(req,res) => proxyGet(req, res, activePeUrl(), '/api/integrations/localai/status', null,    'getPELocalAIStatus'));
 app.get('/api/pe/integrations/healthkit/status',(req,res)=>proxyGet(req, res, activePeUrl(), '/api/integrations/healthkit/status', null,  'getPEHealthKitStatus'));
 app.get('/api/pe/integrations/carekit/status',(req,res) => proxyGet(req, res, activePeUrl(), '/api/integrations/carekit/status', null,    'getPECareKitStatus'));
-app.get('/api/pe/mqtt/status',               (req, res) => proxyGet(req, res, activePeUrl(), '/api/mqtt/status',            'pe:mqtt',     'getPEMqttStatus'));
+app.get('/api/pe/mqtt/status',    (req, res) => proxyGet(req, res,  activePeUrl(), '/api/mqtt/status',    'pe:mqtt',  'getPEMqttStatus'));
+app.get('/api/pe/mqtt/mappings',  (req, res) => proxyGet(req, res,  activePeUrl(), '/api/mqtt/mappings',  'pe:mqtt',  'getPEMqttMappings'));
+app.get('/api/pe/mqtt/example',   (req, res) => proxyGet(req, res,  activePeUrl(), '/api/mqtt/example',   null,       'getPEMqttExample'));
+app.post('/api/pe/mqtt/enable',   (req, res) => proxyPost(req, res, activePeUrl(), '/api/mqtt/enable',   'peEnableMqtt',         'pe:mqtt'));
+app.post('/api/pe/mqtt/disable',  (req, res) => proxyPost(req, res, activePeUrl(), '/api/mqtt/disable',  'peDisableMqtt',        'pe:mqtt'));
+app.put('/api/pe/mqtt/mappings',  (req, res) => proxyPut(req, res,  activePeUrl(), '/api/mqtt/mappings', 'pePutMqttMappings',    'pe:mqtt'));
 app.get('/api/pe/machines',                  (req, res) => proxyGet(req, res, activePeUrl(), '/api/machines',               null,          'getPEMachines'));
 
 // ── PE mutation routes — proxied to PE runtime ────────────────────────────────
@@ -374,6 +379,14 @@ async function proxyPost(req: Request, res: Response, baseUrl: string, path: str
 async function proxyPatch(req: Request, res: Response, baseUrl: string, path: string, context: string, invalidatePrefix?: string): Promise<void> {
   try {
     const r = await axios.patch(`${baseUrl}${path}`, req.body);
+    if (invalidatePrefix) invalidate(invalidatePrefix);
+    res.json(r.data);
+  } catch (e: any) { upstreamError(res, e, context); }
+}
+
+async function proxyPut(req: Request, res: Response, baseUrl: string, path: string, context: string, invalidatePrefix?: string): Promise<void> {
+  try {
+    const r = await axios.put(`${baseUrl}${path}`, req.body);
     if (invalidatePrefix) invalidate(invalidatePrefix);
     res.json(r.data);
   } catch (e: any) { upstreamError(res, e, context); }

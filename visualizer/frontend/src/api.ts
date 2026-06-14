@@ -133,4 +133,34 @@ export const api = {
     const response = await http.post('/api/pe/sources/bootstrap-from-machines', body);
     return response.data;
   },
+
+  // ── MQTT bridge ────────────────────────────────────────────────────────────
+  async getMqttStatus(): Promise<import('./types').MqttBridgeStatus> {
+    const r = await http.get('/api/pe/mqtt/status');
+    return r.data;
+  },
+
+  async getMqttMappings(): Promise<import('./types').MqttMappingsResponse> {
+    const r = await http.get('/api/pe/mqtt/mappings');
+    return r.data;
+  },
+
+  async getMqttExample(): Promise<object> {
+    const r = await http.get('/api/pe/mqtt/example');
+    return r.data;
+  },
+
+  async mqttEnable(brokerUrl: string, mappings: object): Promise<{ mappings?: number; warnings?: string[] }> {
+    const r = await http.post('/api/pe/mqtt/enable', { brokerUrl, mappings });
+    return r.data;
+  },
+
+  async mqttDisable(): Promise<void> {
+    await http.post('/api/pe/mqtt/disable');
+  },
+
+  async mqttUpdateMappings(mappings: object): Promise<{ mappings?: number; warnings?: string[] }> {
+    const r = await http.put('/api/pe/mqtt/mappings', mappings);
+    return r.data;
+  },
 };
