@@ -422,6 +422,16 @@ const RealityEnginePanelView: React.FC = () => {
           </button>
 
           <button
+            className="rep-nav-btn"
+            onClick={() => setCurrentView('perceptual-engine')}
+            title="Open Perception Engine management"
+            style={{ borderColor: 'rgba(125,211,252,0.3)', color: '#7dd3fc' }}
+          >
+            <span className="rep-btn-icon">◎</span>
+            PE Manager
+          </button>
+
+          <button
             className={`rep-help-btn${showHelp ? ' is-active' : ''}`}
             onClick={() => setShowHelp(v => !v)}
             aria-label="Help"

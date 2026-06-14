@@ -338,3 +338,43 @@ export interface EngineRegistry {
   instances: EngineInstance[];
   activeId: string | null;
 }
+
+// ── PE management types (full engine state for management view) ───────────────
+
+export type PEMatchAlgorithm = 'gte' | 'equals';
+
+export interface PEFullState {
+  sources: PESource[];
+  assembledVector: number[];
+  globalStep: number;
+  auto: { running: boolean; intervalMs: number };
+  lastPush: number | null;
+  matchAlgorithm: PEMatchAlgorithm;
+  vectorSize: number;
+}
+
+export interface PEPushResult {
+  success: boolean;
+  step?: Record<string, unknown>;
+  timestamp: number;
+  globalStep: number;
+  error?: string;
+}
+
+export interface PEPushLogEntry extends PEPushResult {
+  id: string;
+}
+
+export interface PEBootstrapResult {
+  created: number;
+  skipped: number;
+  machinesSeen: number;
+  errors: string[];
+  reasons?: {
+    alreadyExisted: number;
+    outOfRange: number;
+    noSequences: number;
+    outsideFilter: number;
+  };
+  vectorSize?: number;
+}

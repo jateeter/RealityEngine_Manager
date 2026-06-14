@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useVisualizerStore } from './store';
 import RealityEnginePanelView from './views/RealityEnginePanelView';
 import { MachineInterconnectionView } from './pages/MachineInterconnectionView';
+import { PerceptualEngineView } from './views/PerceptualEngineView';
 
 function App() {
   const { currentView, connectWebSocket, disconnectWebSocket } = useVisualizerStore();
@@ -17,6 +18,10 @@ function App() {
 
   if (currentView === 'interconnection') {
     return <MachineInterconnectionView />;
+  }
+
+  if (currentView === 'perceptual-engine') {
+    return <PerceptualEngineView />;
   }
 
   return <RealityEnginePanelView />;

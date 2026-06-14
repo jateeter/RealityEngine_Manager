@@ -9,6 +9,10 @@ import {
   PEState,
   PEIntegrationsStatus,
   EngineRegistry,
+  PEFullState,
+  PEPushResult,
+  PEMatchAlgorithm,
+  PEBootstrapResult,
 } from './types';
 
 const http = axios.create({ timeout: 10_000 });
@@ -80,6 +84,53 @@ export const api = {
 
   async setActiveEngine(id: string): Promise<{ activeId: string; re_url: string; pe_url: string }> {
     const response = await http.post('/api/engines/active', { id });
+    return response.data;
+  },
+
+  // ── PE management (full state + mutations) ────────────────────────────────
+  async getPEFullState(): Promise<PEFullState> {
+    const response = await http.get('/api/pe/state');
+    return response.data;
+  },
+
+  async pePush(): Promise<PEPushResult> {
+    const response = await http.post('/api/pe/push');
+    return response.data;
+  },
+
+  async peStartAuto(intervalMs: number): Promise<void> {
+    await http.post('/api/pe/auto/start', { intervalMs });
+  },
+
+  async peStopAuto(): Promise<void> {
+    await http.post('/api/pe/auto/stop');
+  },
+
+  async peReset(): Promise<void> {
+    await http.post('/api/pe/reset');
+  },
+
+  async peSetMatchAlgorithm(algo: PEMatchAlgorithm): Promise<void> {
+    await http.patch('/api/pe/config', { matchAlgorithm: algo });
+  },
+
+  async peAddSource(config: Omit<PESource, 'id'>): Promise<PESource> {
+    const response = await http.post('/api/pe/sources', config);
+    return response.data.source ?? response.data;
+  },
+
+  async peUpdateSource(id: string, patch: Partial<PESource>): Promise<PESource> {
+    const response = await http.patch(`/api/pe/sources/${id}`, patch);
+    return response.data.source ?? response.data;
+  },
+
+  async peDeleteSource(id: string): Promise<void> {
+    await http.delete(`/api/pe/sources/${id}`);
+  },
+
+  async peBootstrapFromMachines(opts?: { machineIds?: string[] }): Promise<PEBootstrapResult> {
+    const body = opts?.machineIds !== undefined ? { machineIds: opts.machineIds } : {};
+    const response = await http.post('/api/pe/sources/bootstrap-from-machines', body);
     return response.data;
   },
 };

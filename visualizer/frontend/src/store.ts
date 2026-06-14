@@ -5,7 +5,7 @@ import type { DomainId } from './components/machineDomains';
 import { DOMAIN_ORDER } from './components/machineDomains';
 
 interface VisualizerState {
-  currentView: 'selection' | 'interconnection';
+  currentView: 'selection' | 'interconnection' | 'perceptual-engine';
 
   machines: Machine[];
   currentMachineId: string | null;
@@ -17,7 +17,7 @@ interface VisualizerState {
   graphZoomState: { k: number; x: number; y: number } | null;
   selectedDomains: DomainId[];
 
-  setCurrentView: (view: 'selection' | 'interconnection') => void;
+  setCurrentView: (view: 'selection' | 'interconnection' | 'perceptual-engine') => void;
   setMachines: (machines: Machine[]) => void;
   loadMachine: (machineId: string) => Promise<void>;
 

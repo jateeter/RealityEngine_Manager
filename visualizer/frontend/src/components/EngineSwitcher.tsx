@@ -23,14 +23,18 @@ function runtimeBadge(runtime: string) {
   );
 }
 
-function StatusDot({ url }: { url: string }) {
+// proxyPath is a same-origin path on the visualizer backend (e.g.
+// /api/engines/default/health).  All engine health checks route through
+// the backend proxy so the browser never makes cross-origin requests to
+// arbitrary engine host:port addresses, avoiding CORS blocks.
+function StatusDot({ proxyPath }: { proxyPath: string }) {
   const [healthy, setHealthy] = useState<boolean | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const check = async () => {
       try {
-        const res = await fetch(`${url}/api/health`, { signal: AbortSignal.timeout(2500) });
+        const res = await fetch(proxyPath, { signal: AbortSignal.timeout(3000) });
         if (!cancelled) setHealthy(res.ok);
       } catch {
         if (!cancelled) setHealthy(false);
@@ -39,7 +43,7 @@ function StatusDot({ url }: { url: string }) {
     void check();
     const t = setInterval(check, 10_000);
     return () => { cancelled = true; clearInterval(t); };
-  }, [url]);
+  }, [proxyPath]);
 
   const colour = healthy === null ? '#888' : healthy ? '#4caf50' : '#f44336';
   return (
@@ -119,7 +123,7 @@ export function EngineSwitcher({ onSwitch }: Props) {
           opacity: switching ? 0.7 : 1,
         }}
       >
-        <StatusDot url={active.re_url} />
+        <StatusDot proxyPath={`/api/engines/${active.id}/health`} />
         {active.id}
         {runtimeBadge(active.runtime)}
         <span style={{ marginLeft: 4, opacity: 0.7, fontSize: '0.7rem' }}>▾</span>
@@ -155,7 +159,7 @@ export function EngineSwitcher({ onSwitch }: Props) {
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <StatusDot url={inst.re_url} />
+                  <StatusDot proxyPath={`/api/engines/${inst.id}/health`} />
                   <span style={{ fontWeight: isActive ? 700 : 400, fontSize: '0.85rem' }}>
                     {inst.id}
                   </span>

@@ -361,6 +361,82 @@ app.get('/api/pe/integrations/carekit/status',(req,res) => proxyGet(req, res, ac
 app.get('/api/pe/mqtt/status',               (req, res) => proxyGet(req, res, activePeUrl(), '/api/mqtt/status',            'pe:mqtt',     'getPEMqttStatus'));
 app.get('/api/pe/machines',                  (req, res) => proxyGet(req, res, activePeUrl(), '/api/machines',               null,          'getPEMachines'));
 
+// ── PE mutation routes — proxied to PE runtime ────────────────────────────────
+
+async function proxyPost(req: Request, res: Response, baseUrl: string, path: string, context: string, invalidatePrefix?: string): Promise<void> {
+  try {
+    const r = await axios.post(`${baseUrl}${path}`, req.body);
+    if (invalidatePrefix) invalidate(invalidatePrefix);
+    res.json(r.data);
+  } catch (e: any) { upstreamError(res, e, context); }
+}
+
+async function proxyPatch(req: Request, res: Response, baseUrl: string, path: string, context: string, invalidatePrefix?: string): Promise<void> {
+  try {
+    const r = await axios.patch(`${baseUrl}${path}`, req.body);
+    if (invalidatePrefix) invalidate(invalidatePrefix);
+    res.json(r.data);
+  } catch (e: any) { upstreamError(res, e, context); }
+}
+
+async function proxyDelete(req: Request, res: Response, baseUrl: string, path: string, context: string, invalidatePrefix?: string): Promise<void> {
+  try {
+    await axios.delete(`${baseUrl}${path}`);
+    if (invalidatePrefix) invalidate(invalidatePrefix);
+    res.json({ success: true });
+  } catch (e: any) { upstreamError(res, e, context); }
+}
+
+app.post('/api/pe/push',   (req, res) => proxyPost(req, res, activePeUrl(), '/api/push',         'pePush',   'pe:'));
+app.post('/api/pe/reset',  (req, res) => proxyPost(req, res, activePeUrl(), '/api/reset',        'peReset',  'pe:'));
+app.post('/api/pe/auto/start', (req, res) => proxyPost(req, res, activePeUrl(), '/api/auto/start', 'peAutoStart'));
+app.post('/api/pe/auto/stop',  (req, res) => proxyPost(req, res, activePeUrl(), '/api/auto/stop',  'peAutoStop'));
+app.patch('/api/pe/config',    (req, res) => proxyPatch(req, res, activePeUrl(), '/api/config',    'pePatchConfig', 'pe:'));
+app.post('/api/pe/sources/bootstrap-from-machines', (req, res) => proxyPost(req, res, activePeUrl(), '/api/sources/bootstrap-from-machines', 'peBootstrap', 'pe:'));
+
+app.post('/api/pe/sources', async (req: Request, res: Response) => {
+  try {
+    const r = await axios.post(`${activePeUrl()}/api/sources`, req.body);
+    invalidate('pe:');
+    res.json(r.data);
+  } catch (e: any) { upstreamError(res, e, 'peAddSource'); }
+});
+
+app.patch('/api/pe/sources/:id', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  if (!isValidId(id)) { res.status(400).json({ error: 'Invalid id' }); return; }
+  try {
+    const r = await axios.patch(`${activePeUrl()}/api/sources/${id}`, req.body);
+    invalidate('pe:');
+    res.json(r.data);
+  } catch (e: any) { upstreamError(res, e, 'peUpdateSource'); }
+});
+
+app.delete('/api/pe/sources/:id', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  if (!isValidId(id)) { res.status(400).json({ error: 'Invalid id' }); return; }
+  try {
+    await axios.delete(`${activePeUrl()}/api/sources/${id}`);
+    invalidate('pe:');
+    res.json({ success: true });
+  } catch (e: any) { upstreamError(res, e, 'peDeleteSource'); }
+});
+
+// Per-instance health check — proxied so the browser never makes cross-origin
+// requests to arbitrary engine host:port addresses.  Callers use the instance
+// id (from /api/engines) so the browser only ever talks to the visualizer backend.
+app.get('/api/engines/:id/health', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const inst = engineInstances.find(i => i.id === id);
+  if (!inst) { res.status(404).json({ error: 'Instance not found' }); return; }
+  try {
+    const r = await axios.get(`${inst.re_url}/api/health`, { timeout: 3000 });
+    res.json(r.data);
+  } catch {
+    res.status(503).json({ status: 'unreachable' });
+  }
+});
+
 // Machine JSON import routes — proxy to RE (must precede /api/machines/:id)
 app.get('/api/machines/json/list', (req, res) => proxyGet(req, res, activeReUrl(), '/api/machines/json/list', null, 'listMachineJSON'));
 
@@ -388,6 +464,17 @@ app.get('/api/machines', rateLimit(120), async (req: Request, res: Response) => 
     setCached(cacheKey, response.data);
     res.json(response.data);
   } catch (error: any) { upstreamError(res, error, 'getMachines'); }
+});
+
+// Full machine export (with sequences + vectors) — used by the interconnection
+// tooltip to populate the embedded CES graph.  Must precede the generic /:id route.
+app.get('/api/machines/:id/export', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  if (!isValidId(id)) { res.status(400).json({ error: 'Invalid id' }); return; }
+  try {
+    const response = await axios.get(`${activeReUrl()}/api/machines/${id}/export`);
+    res.json(response.data);
+  } catch (error: any) { upstreamError(res, error, 'exportMachine'); }
 });
 
 app.get('/api/machines/:id', async (req: Request, res: Response) => {
