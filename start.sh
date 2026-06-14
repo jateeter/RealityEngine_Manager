@@ -37,6 +37,7 @@ RE_RUNTIME_URL="https://localhost:3000"
 PE_RUNTIME_URL="https://localhost:3004"
 VIZ_PORT=3001
 START_FRONTEND=1
+SEED_MACHINES=1
 
 # ── Parse flags ─────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -48,6 +49,7 @@ while [[ $# -gt 0 ]]; do
     --lsp)          RE_RUNTIME_URL="http://localhost:5601"; PE_RUNTIME_URL="http://localhost:5600"; shift ;;
     --port)         VIZ_PORT="$2"; shift 2 ;;
     --no-frontend)  START_FRONTEND=0; shift ;;
+    --no-seed)      SEED_MACHINES=0; shift ;;
     -h|--help)
       grep '^#' "$0" | sed 's/^# \{0,2\}//' | head -30
       exit 0 ;;
@@ -169,12 +171,14 @@ else
   echo "  Backend healthy (PID ${ACTUAL_BACKEND_PID:-unknown}) ✓"
 
   # ── Seed example machines ──────────────────────────────────
-  echo ""
-  echo "Seeding example machines..."
-  if bash "$ROOT_DIR/scripts/seed-machines.sh" "$RE_RUNTIME_URL"; then
-    echo "  Seeding complete."
-  else
-    echo "  Seeding finished with warnings — Manager will continue."
+  if [[ $SEED_MACHINES -eq 1 ]]; then
+    echo ""
+    echo "Seeding example machines..."
+    if bash "$ROOT_DIR/scripts/seed-machines.sh" "$RE_RUNTIME_URL"; then
+      echo "  Seeding complete."
+    else
+      echo "  Seeding finished with warnings — Manager will continue."
+    fi
   fi
 fi
 
