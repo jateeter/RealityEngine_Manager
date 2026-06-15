@@ -1,7 +1,26 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import type { ReactElement } from 'react';
 import OutputStreamVisualization from './OutputStreamVisualization';
 import type { OutputVector } from '../types';
+
+// The panel renders collapsed by default: only the header ("OUTPUT" + arrow +
+// count) is visible, and all detail content (CURRENT/HISTORY sections, the
+// summary line, output cards) is gated behind the expanded state. These helpers
+// render and then click the header toggle so detail assertions see the
+// expanded view.
+function renderPanel(ui: ReactElement) {
+  return render(ui);
+}
+
+function expand(utils: ReturnType<typeof render>) {
+  fireEvent.click(utils.getByRole('button'));
+  return utils;
+}
+
+function renderExpanded(ui: ReactElement) {
+  return expand(render(ui));
+}
 
 describe('OutputStreamVisualization', () => {
   const mockOutputVectors: OutputVector[] = [
@@ -31,35 +50,35 @@ describe('OutputStreamVisualization', () => {
 
   describe('Component Rendering', () => {
     it('should render without crashing', () => {
-      render(<OutputStreamVisualization outputVectors={[]} />);
-      expect(screen.getByText('OUTPUT STREAM')).toBeInTheDocument();
+      renderPanel(<OutputStreamVisualization outputVectors={[]} />);
+      expect(screen.getByText('OUTPUT')).toBeInTheDocument();
     });
 
     it('should display "No outputs yet" when empty', () => {
-      render(<OutputStreamVisualization outputVectors={[]} />);
+      renderExpanded(<OutputStreamVisualization outputVectors={[]} />);
       expect(screen.getByText('No outputs yet')).toBeInTheDocument();
       expect(screen.getByText('Waiting for outputs...')).toBeInTheDocument();
     });
 
     it('should show correct output count', () => {
-      render(<OutputStreamVisualization outputVectors={mockOutputVectors} />);
+      renderExpanded(<OutputStreamVisualization outputVectors={mockOutputVectors} />);
       expect(screen.getByText('3 outputs')).toBeInTheDocument();
     });
 
     it('should show singular "output" for one item', () => {
-      render(<OutputStreamVisualization outputVectors={[mockOutputVectors[0]]} />);
+      renderExpanded(<OutputStreamVisualization outputVectors={[mockOutputVectors[0]]} />);
       expect(screen.getByText('1 output')).toBeInTheDocument();
     });
   });
 
   describe('Current Output Section', () => {
     it('should display CURRENT section header', () => {
-      render(<OutputStreamVisualization outputVectors={mockOutputVectors} />);
+      renderExpanded(<OutputStreamVisualization outputVectors={mockOutputVectors} />);
       expect(screen.getByText('CURRENT')).toBeInTheDocument();
     });
 
     it('should show the most recent output in current section', () => {
-      render(<OutputStreamVisualization outputVectors={mockOutputVectors} />);
+      renderExpanded(<OutputStreamVisualization outputVectors={mockOutputVectors} />);
 
       // Most recent output should be visible
       expect(screen.getByText('output-3')).toBeInTheDocument();
@@ -67,37 +86,37 @@ describe('OutputStreamVisualization', () => {
     });
 
     it('should display current output metadata', () => {
-      render(<OutputStreamVisualization outputVectors={mockOutputVectors} />);
+      renderExpanded(<OutputStreamVisualization outputVectors={mockOutputVectors} />);
       expect(screen.getByText('Third output')).toBeInTheDocument();
     });
 
     it('should show pulsing indicator for current output', () => {
-      const { container } = render(<OutputStreamVisualization outputVectors={mockOutputVectors} />);
+      const utils = renderExpanded(<OutputStreamVisualization outputVectors={mockOutputVectors} />);
 
       // Check for pulsing indicator div
-      const pulseIndicator = container.querySelector('[style*="pulse"]');
+      const pulseIndicator = utils.container.querySelector('[style*="pulse"]');
       expect(pulseIndicator).toBeInTheDocument();
     });
   });
 
   describe('History Section', () => {
     it('should display HISTORY section header when there are previous outputs', () => {
-      render(<OutputStreamVisualization outputVectors={mockOutputVectors} />);
+      renderExpanded(<OutputStreamVisualization outputVectors={mockOutputVectors} />);
       expect(screen.getByText('HISTORY')).toBeInTheDocument();
     });
 
     it('should show correct history count', () => {
-      render(<OutputStreamVisualization outputVectors={mockOutputVectors} />);
+      renderExpanded(<OutputStreamVisualization outputVectors={mockOutputVectors} />);
       expect(screen.getByText('2 previous')).toBeInTheDocument();
     });
 
     it('should not show history section with only one output', () => {
-      render(<OutputStreamVisualization outputVectors={[mockOutputVectors[0]]} />);
+      renderExpanded(<OutputStreamVisualization outputVectors={[mockOutputVectors[0]]} />);
       expect(screen.queryByText('HISTORY')).not.toBeInTheDocument();
     });
 
     it('should display previous outputs in reverse chronological order', () => {
-      render(<OutputStreamVisualization outputVectors={mockOutputVectors} />);
+      renderExpanded(<OutputStreamVisualization outputVectors={mockOutputVectors} />);
 
       // Should show output-2 and output-1 in history
       expect(screen.getByText('output-2')).toBeInTheDocument();
@@ -117,7 +136,7 @@ describe('OutputStreamVisualization', () => {
         timestamp: Date.now()
       };
 
-      render(<OutputStreamVisualization outputVectors={[output]} />);
+      renderExpanded(<OutputStreamVisualization outputVectors={[output]} />);
       expect(screen.getByText('[0.12, 0.99, 0.56]')).toBeInTheDocument();
     });
 
@@ -128,14 +147,14 @@ describe('OutputStreamVisualization', () => {
         timestamp: Date.now()
       };
 
-      render(<OutputStreamVisualization outputVectors={[output]} />);
+      renderExpanded(<OutputStreamVisualization outputVectors={[output]} />);
       expect(screen.getByText('[1.00, 0.00, 0.50, 0.25, 0.75]')).toBeInTheDocument();
     });
   });
 
   describe('Metadata Display', () => {
     it('should display metadata description', () => {
-      render(<OutputStreamVisualization outputVectors={mockOutputVectors} />);
+      renderExpanded(<OutputStreamVisualization outputVectors={mockOutputVectors} />);
       expect(screen.getByText('First output')).toBeInTheDocument();
     });
 
@@ -147,7 +166,7 @@ describe('OutputStreamVisualization', () => {
         metadata: { description: 'Test description', logicValue: 'TRUE' }
       };
 
-      render(<OutputStreamVisualization outputVectors={[output]} />);
+      renderExpanded(<OutputStreamVisualization outputVectors={[output]} />);
       expect(screen.getByText('Test description')).toBeInTheDocument();
     });
 
@@ -159,7 +178,7 @@ describe('OutputStreamVisualization', () => {
         metadata: 'Simple string metadata'
       };
 
-      render(<OutputStreamVisualization outputVectors={[output]} />);
+      renderExpanded(<OutputStreamVisualization outputVectors={[output]} />);
       expect(screen.getByText('Simple string metadata')).toBeInTheDocument();
     });
 
@@ -170,7 +189,7 @@ describe('OutputStreamVisualization', () => {
         timestamp: Date.now()
       };
 
-      render(<OutputStreamVisualization outputVectors={[output]} />);
+      renderExpanded(<OutputStreamVisualization outputVectors={[output]} />);
 
       // Should not crash, vector should be visible
       expect(screen.getByText('[1.00]')).toBeInTheDocument();
@@ -179,11 +198,12 @@ describe('OutputStreamVisualization', () => {
 
   describe('Auto-scroll Behavior', () => {
     it('should auto-scroll history to top when new output arrives', async () => {
-      const { rerender } = render(<OutputStreamVisualization outputVectors={mockOutputVectors.slice(0, 2)} />);
+      const utils = render(<OutputStreamVisualization outputVectors={mockOutputVectors.slice(0, 2)} />);
+      expand(utils);
 
       // Add a new output
       const newOutputs = [...mockOutputVectors];
-      rerender(<OutputStreamVisualization outputVectors={newOutputs} />);
+      utils.rerender(<OutputStreamVisualization outputVectors={newOutputs} />);
 
       // Wait for effect to run
       await waitFor(() => {
@@ -195,10 +215,10 @@ describe('OutputStreamVisualization', () => {
 
   describe('Styling and Animations', () => {
     it('should apply different styling to current vs history outputs', () => {
-      const { container } = render(<OutputStreamVisualization outputVectors={mockOutputVectors} />);
+      const utils = renderExpanded(<OutputStreamVisualization outputVectors={mockOutputVectors} />);
 
       // Current output should have orange gradient
-      const currentCards = container.querySelectorAll('[style*="linear-gradient"]');
+      const currentCards = utils.container.querySelectorAll('[style*="linear-gradient"]');
       expect(currentCards.length).toBeGreaterThan(0);
     });
 
@@ -223,7 +243,7 @@ describe('OutputStreamVisualization', () => {
         timestamp: Date.now()
       };
 
-      render(<OutputStreamVisualization outputVectors={[output]} />);
+      renderExpanded(<OutputStreamVisualization outputVectors={[output]} />);
       // Should not crash and ID should be visible
       expect(screen.getByText(/very-long-output-id/)).toBeInTheDocument();
     });
@@ -235,7 +255,7 @@ describe('OutputStreamVisualization', () => {
         timestamp: Date.now()
       };
 
-      render(<OutputStreamVisualization outputVectors={[output]} />);
+      renderExpanded(<OutputStreamVisualization outputVectors={[output]} />);
       expect(screen.getByText('[]')).toBeInTheDocument();
     });
 
@@ -246,7 +266,7 @@ describe('OutputStreamVisualization', () => {
         timestamp: Date.now() - (100 - i) * 1000
       }));
 
-      render(<OutputStreamVisualization outputVectors={manyOutputs} />);
+      renderExpanded(<OutputStreamVisualization outputVectors={manyOutputs} />);
 
       // Should show all in history (99 previous + 1 current)
       expect(screen.getByText('100 outputs')).toBeInTheDocument();
@@ -260,7 +280,7 @@ describe('OutputStreamVisualization', () => {
         timestamp: Date.now()
       };
 
-      render(<OutputStreamVisualization outputVectors={[output]} />);
+      renderExpanded(<OutputStreamVisualization outputVectors={[output]} />);
       expect(screen.getByText('[-0.50, -1.00, -0.25]')).toBeInTheDocument();
     });
 
@@ -271,7 +291,7 @@ describe('OutputStreamVisualization', () => {
         timestamp: undefined as any
       };
 
-      const { container } = render(<OutputStreamVisualization outputVectors={[output]} />);
+      const { container } = renderExpanded(<OutputStreamVisualization outputVectors={[output]} />);
       // Should not crash
       expect(container).toBeInTheDocument();
     });
@@ -286,10 +306,10 @@ describe('OutputStreamVisualization', () => {
     });
 
     it('should display text content for screen readers', () => {
-      render(<OutputStreamVisualization outputVectors={mockOutputVectors} />);
+      renderExpanded(<OutputStreamVisualization outputVectors={mockOutputVectors} />);
 
       // All text should be accessible
-      expect(screen.getByText('OUTPUT STREAM')).toBeVisible();
+      expect(screen.getByText('OUTPUT')).toBeVisible();
       expect(screen.getByText('CURRENT')).toBeVisible();
       expect(screen.getByText('HISTORY')).toBeVisible();
     });
