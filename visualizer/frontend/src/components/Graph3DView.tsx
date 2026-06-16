@@ -9,9 +9,11 @@
  * Non-intersecting layout is ensured by 3D domain anchoring.
  */
 
-import React, { useEffect, useRef, useCallback, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useCallback, useState } from 'react';
+import ReactDOM from 'react-dom';
 import ForceGraph3D, { type ForceGraph3DInstance } from '3d-force-graph';
 import * as THREE from 'three';
+import { ConvexGeometry } from 'three/examples/jsm/geometries/ConvexGeometry.js';
 import { useVisualizerStore } from '../store';
 import {
   classifyMachine,
@@ -97,6 +99,157 @@ function getMachineColorState(
   return 'idle';
 }
 
+// ── Domain tooltip ────────────────────────────────────────────────────────────
+
+interface DomainActivity {
+  machineId: string;
+  machineName: string;
+  status: 'fired' | 'active';
+  seqNames: string[];
+}
+
+function getDomainActivity(
+  domainId: DomainId,
+  nodes: MachineNode3D[],
+  step: SimulationStep | null,
+): DomainActivity[] {
+  if (!step) return [];
+  const out: DomainActivity[] = [];
+  for (const node of nodes) {
+    if (node.domain !== domainId) continue;
+    const mr = step.machineResults[node.id];
+    if (!mr) continue;
+    const fired = mr.outputVector !== null && mr.outputVector !== undefined;
+    const seqResults = mr.transitionResult?.sequenceResults ?? {};
+    const activeSeqs = Object.entries(seqResults)
+      .filter(([, sr]) => (sr.activatedVectors?.length ?? 0) > 0)
+      .map(([name]) => name);
+    if (fired || activeSeqs.length > 0) {
+      out.push({
+        machineId: node.id,
+        machineName: mr.machineName || node.name,
+        status: fired ? 'fired' : 'active',
+        seqNames: activeSeqs,
+      });
+    }
+  }
+  return out;
+}
+
+const DomainTooltip: React.FC<{
+  domainId: DomainId;
+  x: number;
+  y: number;
+  nodes: MachineNode3D[];
+  step: SimulationStep | null;
+}> = ({ domainId, x, y, nodes, step }) => {
+  const domain = DOMAINS[domainId];
+  const activity = getDomainActivity(domainId, nodes, step);
+  const machineCount = nodes.filter(n => n.domain === domainId).length;
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // Clamp to viewport — runs after React commits style so getBoundingClientRect is accurate.
+  useLayoutEffect(() => {
+    const el = panelRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const overR = rect.right  - (window.innerWidth  - 8);
+    const overB = rect.bottom - (window.innerHeight - 8);
+    if (overR > 0) el.style.left = `${Math.max(4, x - overR)}px`;
+    if (overB > 0) el.style.top  = `${Math.max(4, y - overB)}px`;
+  });
+
+  const S = {
+    panel: {
+      position: 'fixed' as const, left: x, top: y,
+      width: 284, zIndex: 9990,
+      background: '#0b1220',
+      border: `1px solid ${domain.color}55`,
+      borderRadius: 8,
+      boxShadow: '0 12px 40px rgba(0,0,0,0.7)',
+      fontFamily: 'ui-monospace, monospace',
+      fontSize: 12, color: '#e2e8f0',
+      pointerEvents: 'none' as const,
+      overflow: 'hidden' as const,
+    },
+    header: {
+      display: 'flex', alignItems: 'center', gap: 8,
+      padding: '10px 14px',
+      borderBottom: '1px solid #1e293b',
+      background: '#0f172a',
+    },
+    dot: {
+      width: 10, height: 10, borderRadius: '50%',
+      background: domain.color, flexShrink: 0,
+    } as React.CSSProperties,
+    title: { fontWeight: 700, fontSize: 13, color: '#f1f5f9', letterSpacing: 0.3 },
+    count: { marginLeft: 'auto', fontSize: 10, color: '#475569' },
+    desc: {
+      padding: '8px 14px 10px',
+      color: '#94a3b8', lineHeight: 1.55, fontSize: 11,
+      borderBottom: '1px solid #1e293b',
+    },
+    cesSection: { padding: '8px 14px 12px' },
+    cesHeader: {
+      fontSize: 9, fontWeight: 700, textTransform: 'uppercase' as const,
+      letterSpacing: 0.8, color: '#475569', marginBottom: 7,
+    },
+    empty: { color: '#475569', fontSize: 11 },
+    row: { display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 },
+    rowDot: (fired: boolean) => ({
+      width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+      background: fired ? '#ef4444' : '#38bdf8',
+    } as React.CSSProperties),
+    machineName: { color: '#cbd5e1', fontSize: 11, flex: 1, minWidth: 0,
+      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const },
+    badge: (fired: boolean) => ({
+      fontSize: 9, fontWeight: 700, textTransform: 'uppercase' as const,
+      letterSpacing: 0.4, color: fired ? '#ef4444' : '#38bdf8',
+      flexShrink: 0,
+    } as React.CSSProperties),
+    seqChips: { paddingLeft: 12, display: 'flex', flexWrap: 'wrap' as const, gap: 3, marginBottom: 2 },
+    chip: {
+      fontSize: 9, color: '#64748b',
+      background: '#080d18', border: '1px solid #1e293b',
+      borderRadius: 3, padding: '1px 5px',
+    },
+  };
+
+  return (
+    <div ref={panelRef} style={S.panel}>
+      <div style={S.header}>
+        <div style={S.dot} />
+        <span style={S.title}>{domain.label}</span>
+        <span style={S.count}>{machineCount} machine{machineCount !== 1 ? 's' : ''}</span>
+      </div>
+      <div style={S.desc}>{domain.description}</div>
+      <div style={S.cesSection}>
+        <div style={S.cesHeader}>Active CES</div>
+        {!step ? (
+          <div style={S.empty}>No simulation running</div>
+        ) : activity.length === 0 ? (
+          <div style={S.empty}>No active sequences</div>
+        ) : (
+          activity.map(a => (
+            <div key={a.machineId}>
+              <div style={S.row}>
+                <div style={S.rowDot(a.status === 'fired')} />
+                <span style={S.machineName}>{a.machineName}</span>
+                <span style={S.badge(a.status === 'fired')}>{a.status}</span>
+              </div>
+              {a.seqNames.length > 0 && (
+                <div style={S.seqChips}>
+                  {a.seqNames.map(s => <span key={s} style={S.chip}>{s}</span>)}
+                </div>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+};
+
 // ── 3D domain anchors ─────────────────────────────────────────────────────────
 // Extend the 2D 4x3 grid into 3D space. Z is spread across rows to add depth.
 const SPREAD = 600;
@@ -133,76 +286,71 @@ function parseDomainFill(domain: DomainId): { color: string; alpha: number } {
   return { color: DOMAINS[domain].color, alpha: 0.15 };
 }
 
-// ── ConvexHull geometry builder ────────────────────────────────────────────────
+// ── Domain membrane builder ────────────────────────────────────────────────────
+// Uses ConvexGeometry to wrap the actual node cluster shape rather than a sphere.
+// Each node position is expanded MEMBRANE_PAD units outward from the cluster
+// centroid before the hull is computed, so the membrane surface sits a consistent
+// gap outside every node regardless of cluster shape.
 
-function buildConvexHullMesh(
+// Gap between node center and membrane surface (scene units).
+// Max node visual radius ≈ 11 (nodeRelSize 4 × ∛20); +19 gives clear breathing room.
+const MEMBRANE_PAD = 30;
+
+function deduplicatePoints(pts: THREE.Vector3[], tol = 1.0): THREE.Vector3[] {
+  const out: THREE.Vector3[] = [];
+  const tol2 = tol * tol;
+  for (const p of pts) {
+    if (!out.some(q => q.distanceToSquared(p) < tol2)) out.push(p);
+  }
+  return out;
+}
+
+function buildDomainMembrane(
   points: THREE.Vector3[],
   color: string,
   alpha: number,
 ): THREE.Mesh | null {
-  if (points.length < 4) {
-    // For fewer than 4 points, create a sphere enclosing them
-    if (points.length === 0) return null;
-    const center = new THREE.Vector3();
-    points.forEach(p => center.add(p));
-    center.divideScalar(points.length);
-    let maxR = 0;
-    points.forEach(p => { maxR = Math.max(maxR, center.distanceTo(p)); });
-    const radius = Math.max(maxR + 40, 60);
-    const geo = new THREE.SphereGeometry(radius, 24, 16);
-    const mat = new THREE.MeshLambertMaterial({
-      color: new THREE.Color(color),
-      transparent: true,
-      opacity: alpha * 1.5,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-    });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.copy(center);
-    return mesh;
-  }
-
-  // Compute centroid
-  const centroid = new THREE.Vector3();
-  points.forEach(p => centroid.add(p));
-  centroid.divideScalar(points.length);
-
-  // Scale points outward slightly for padding
-  const padded = points.map(p => {
-    const dir = new THREE.Vector3().subVectors(p, centroid).normalize();
-    return p.clone().add(dir.multiplyScalar(35));
-  });
-
-  // Create an ellipsoid that fits the point cloud
-  const bbox = new THREE.Box3();
-  padded.forEach(p => bbox.expandByPoint(p));
-  const size = new THREE.Vector3();
-  bbox.getSize(size);
-  const bboxCenter = new THREE.Vector3();
-  bbox.getCenter(bboxCenter);
-
-  // Use icosphere and warp to approximate hull shape
-  const icoGeo = new THREE.IcosahedronGeometry(1, 2);
-  const posAttr = icoGeo.attributes.position;
-  const halfSize = size.clone().multiplyScalar(0.55).addScalar(30);
-
-  for (let i = 0; i < posAttr.count; i++) {
-    const x = posAttr.getX(i) * halfSize.x + bboxCenter.x;
-    const y = posAttr.getY(i) * halfSize.y + bboxCenter.y;
-    const z = posAttr.getZ(i) * halfSize.z + bboxCenter.z;
-    posAttr.setXYZ(i, x, y, z);
-  }
-  icoGeo.computeVertexNormals();
+  if (points.length === 0) return null;
 
   const mat = new THREE.MeshLambertMaterial({
     color: new THREE.Color(color),
     transparent: true,
-    opacity: alpha * 1.2,
+    opacity: alpha,
     side: THREE.DoubleSide,
     depthWrite: false,
   });
 
-  return new THREE.Mesh(icoGeo, mat);
+  const centroid = new THREE.Vector3();
+  points.forEach(p => centroid.add(p));
+  centroid.divideScalar(points.length);
+
+  // Expand each point outward from centroid so the hull surface clears the nodes.
+  const expanded = points.map(p => {
+    const offset = new THREE.Vector3().subVectors(p, centroid);
+    const len = offset.length();
+    if (len < 1e-6) return p.clone().addScalar(MEMBRANE_PAD); // node at centroid
+    return p.clone().addScaledVector(offset.normalize(), MEMBRANE_PAD);
+  });
+
+  // ConvexGeometry needs ≥ 4 non-coplanar points.
+  const unique = deduplicatePoints(expanded);
+  if (unique.length >= 4) {
+    try {
+      const geo = new ConvexGeometry(unique);
+      geo.computeVertexNormals(); // smooth shading across facets
+      return new THREE.Mesh(geo, mat);
+    } catch {
+      // fall through to sphere fallback
+    }
+  }
+
+  // Sphere fallback: 1–3 nodes or coplanar set.
+  let maxDist = 0;
+  expanded.forEach(p => { maxDist = Math.max(maxDist, centroid.distanceTo(p)); });
+  const geo = new THREE.SphereGeometry(Math.max(maxDist, 75), 32, 24);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.copy(centroid);
+  return mesh;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -242,6 +390,18 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
   const [graphData, setGraphData] = useState<MachineGraphData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const currentStepRef = useRef<SimulationStep | null>(null);
+
+  // Domain hover tooltip — position + which domain is hovered.
+  // A ref mirrors the state so pointer-event closures and the WS handler
+  // can read/write it without stale capture.
+  const [domainTooltip, setDomainTooltip] = useState<{
+    domainId: DomainId; x: number; y: number;
+  } | null>(null);
+  const domainTooltipRef = useRef(domainTooltip);
+  const setDomainTooltipRef = useRef(setDomainTooltip);
+  useEffect(() => {
+    domainTooltipRef.current = domainTooltip;
+  }, [domainTooltip]);
 
   const ws = useVisualizerStore(state => state.ws);
   const loadMachine = useVisualizerStore(state => state.loadMachine);
@@ -292,9 +452,17 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
       if (data.type === 'perceptual-simulation-stepped') {
         currentStepRef.current = data.step;
         updateNodeColors();
+        // Spread-create new object so React re-renders the tooltip and picks up
+        // the latest step from currentStepRef — only pays a re-render if open.
+        if (domainTooltipRef.current) {
+          setDomainTooltipRef.current({ ...domainTooltipRef.current });
+        }
       } else if (data.type === 'perceptual-simulation-reset') {
         currentStepRef.current = null;
         updateNodeColors();
+        if (domainTooltipRef.current) {
+          setDomainTooltipRef.current({ ...domainTooltipRef.current });
+        }
       }
     };
     ws.addEventListener('message', handleMessage);
@@ -324,24 +492,15 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
     return mountMachinesGraph();
   }, [graphData, mode, eventNodes, eventEdges]);
 
-  // ── Update hull + node + link visibility when domain filter changes ──────
+  // ── Update nodes, links, and bubbles when domain filter changes ──────────
   useEffect(() => {
     const graph = graphRef.current;
     if (!graph || mode !== 'machines') return;
 
     const selected = new Set(selectedDomains);
 
-    // Hide/show hull meshes
-    hullMeshesRef.current.forEach(mesh => {
-      const domain = (mesh.userData as any).domain as DomainId;
-      mesh.visible = selected.has(domain);
-    });
-
-    // Filter nodes: only show nodes whose domain is selected
     const visibleNodes = allNodesRef.current.filter(n => selected.has(n.domain));
     const visibleIds = new Set(visibleNodes.map(n => n.id));
-
-    // Filter links: only show links where both endpoints are visible
     const visibleLinks = allLinksRef.current.filter(e => {
       const srcId = typeof e.source === 'object' ? (e.source as any).id : e.source;
       const tgtId = typeof e.target === 'object' ? (e.target as any).id : e.target;
@@ -349,6 +508,10 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
     });
 
     graph.graphData({ nodes: visibleNodes, links: visibleLinks });
+
+    // Rebuild bubbles for the new selection — simpler than toggling visibility
+    // since buildDomainHulls now skips non-selected domains entirely.
+    buildDomainHulls(graph, allNodesRef.current);
   }, [selectedDomains, mode]);
 
   // ── Mount machines graph ────────────────────────────────────────────────────
@@ -365,9 +528,11 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
         domain: cls.domain,
         isExternal: cls.isExternal,
         colorState: 'idle' as const,
-        x: anchor.x + (Math.random() - 0.5) * 200,
-        y: anchor.y + (Math.random() - 0.5) * 200,
-        z: anchor.z + (Math.random() - 0.5) * 150,
+        // Tight initial placement near domain anchor so forces converge quickly
+        // and bubbles are correct even before the simulation settles.
+        x: anchor.x + (Math.random() - 0.5) * 80,
+        y: anchor.y + (Math.random() - 0.5) * 80,
+        z: anchor.z + (Math.random() - 0.5) * 60,
       };
     });
 
@@ -432,13 +597,13 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
       .d3AlphaDecay(0.02)
       .d3VelocityDecay(0.3);
 
-    // Add domain anchor forces via the d3 simulation
+    // Weaker charge so domain attraction can win against inter-node repulsion
     const sim = graph.d3Force('charge');
     if (sim) {
-      (sim as any).strength(-150);
+      (sim as any).strength(-60);
     }
 
-    // Add custom domain attraction forces
+    // Strong domain attraction forces — must outcompete cross-domain link forces
     graph
       .d3Force('domainX', forceX3D(nodes, 'x'))
       .d3Force('domainY', forceX3D(nodes, 'y'))
@@ -446,21 +611,143 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
 
     graphRef.current = graph;
 
-    // Build domain hulls after initial layout settles
-    const hullTimer = setTimeout(() => buildDomainHulls(graph, nodes), 3000);
+    // Build hulls immediately (nodes start tight to their anchors)
+    buildDomainHulls(graph, nodes);
 
-    // Periodically update hulls during simulation
-    const hullInterval = setInterval(() => buildDomainHulls(graph, nodes), 1500);
-    const stopHullUpdate = setTimeout(() => clearInterval(hullInterval), 15000);
+    // Rebuild when the simulation converges — most accurate result
+    graph.onEngineStop(() => buildDomainHulls(graph, nodes));
+
+    // Also refresh during simulation so membranes track the settling layout
+    const hullInterval = setInterval(() => buildDomainHulls(graph, nodes), 1000);
+    const stopHullUpdate = setTimeout(() => clearInterval(hullInterval), 12000);
+
+    // ── Domain membrane drag ──────────────────────────────────────────────────
+    // Pointer events on the renderer canvas are intercepted in capture phase
+    // so our handler fires before 3d-force-graph's OrbitControls see them.
+    // While dragging a membrane, OrbitControls are disabled and pointer is
+    // captured so the drag continues even if the cursor leaves the canvas.
+
+    const canvas = graph.renderer().domElement;
+    const raycaster = new THREE.Raycaster();
+
+    // Mutable drag state (not React state — we don't need a re-render)
+    let dragDomainId: DomainId | null = null;
+    let dragNdcZ = 0;
+    const dragPrevWorld = new THREE.Vector3();
+
+    const ndcFromEvent = (e: PointerEvent): THREE.Vector2 => {
+      const rect = canvas.getBoundingClientRect();
+      return new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1,
+      );
+    };
+
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      const camera = graph.camera() as THREE.PerspectiveCamera;
+      raycaster.setFromCamera(ndcFromEvent(e), camera);
+      const hits = raycaster.intersectObjects(hullMeshesRef.current);
+      if (hits.length === 0) return;
+
+      e.stopPropagation();
+      canvas.setPointerCapture(e.pointerId);
+
+      // Hide tooltip for the duration of the drag
+      domainTooltipRef.current = null;
+      setDomainTooltipRef.current(null);
+
+      dragDomainId = (hits[0].object.userData as any).domain as DomainId;
+      // Record NDC z of the hit point so every pointermove unprojects at the
+      // same camera-space depth, giving a correct camera-plane translation.
+      const ndcHit = hits[0].point.clone().project(camera);
+      dragNdcZ = ndcHit.z;
+      const ndc = ndcFromEvent(e);
+      dragPrevWorld.set(ndc.x, ndc.y, dragNdcZ).unproject(camera);
+
+      (graph.controls() as any).enabled = false;
+      canvas.style.cursor = 'grabbing';
+    };
+
+    const onPointerMove = (e: PointerEvent) => {
+      const ndc = ndcFromEvent(e);
+
+      if (!dragDomainId) {
+        // Hover: raycast membranes for cursor + domain tooltip
+        const camera = graph.camera() as THREE.PerspectiveCamera;
+        raycaster.setFromCamera(ndc, camera);
+        const hits = raycaster.intersectObjects(hullMeshesRef.current);
+        if (hits.length > 0) {
+          canvas.style.cursor = 'grab';
+          const hoveredDomain = (hits[0].object.userData as any).domain as DomainId;
+          // Only update state when the hovered domain changes — avoids a React
+          // re-render on every pointermove while over the same membrane.
+          if (domainTooltipRef.current?.domainId !== hoveredDomain) {
+            const tip = { domainId: hoveredDomain, x: e.clientX + 16, y: e.clientY - 10 };
+            domainTooltipRef.current = tip;
+            setDomainTooltipRef.current(tip);
+          }
+        } else {
+          canvas.style.cursor = '';
+          if (domainTooltipRef.current !== null) {
+            domainTooltipRef.current = null;
+            setDomainTooltipRef.current(null);
+          }
+        }
+        return;
+      }
+
+      e.stopPropagation();
+
+      const camera = graph.camera() as THREE.PerspectiveCamera;
+      const curWorld = new THREE.Vector3(ndc.x, ndc.y, dragNdcZ).unproject(camera);
+      const dx = curWorld.x - dragPrevWorld.x;
+      const dy = curWorld.y - dragPrevWorld.y;
+      const dz = curWorld.z - dragPrevWorld.z;
+      dragPrevWorld.copy(curWorld);
+
+      // Move every node in the domain (all nodes, not just visible ones, so
+      // filtered-out nodes stay coherent with the cluster if re-enabled later).
+      for (const node of nodes) {
+        if (node.domain !== dragDomainId) continue;
+        node.fx = (node.x ?? 0) + dx;
+        node.fy = (node.y ?? 0) + dy;
+        node.fz = (node.z ?? 0) + dz;
+        // Update x/y/z directly so this frame's hull rebuild sees the new positions
+        // before the d3 simulation propagates fx/fy/fz on its next tick.
+        node.x = node.fx;
+        node.y = node.fy;
+        node.z = node.fz;
+      }
+
+      buildDomainHulls(graph, nodes);
+    };
+
+    const onPointerUp = (e: PointerEvent) => {
+      if (!dragDomainId) return;
+      e.stopPropagation();
+      dragDomainId = null;
+      (graph.controls() as any).enabled = true;
+      canvas.releasePointerCapture(e.pointerId);
+      canvas.style.cursor = '';
+    };
+
+    canvas.addEventListener('pointerdown', onPointerDown, { capture: true });
+    canvas.addEventListener('pointermove', onPointerMove, { capture: true });
+    canvas.addEventListener('pointerup',   onPointerUp,   { capture: true });
+    canvas.addEventListener('pointercancel', onPointerUp, { capture: true });
 
     return () => {
-      clearTimeout(hullTimer);
       clearInterval(hullInterval);
       clearTimeout(stopHullUpdate);
+      canvas.removeEventListener('pointerdown',   onPointerDown, { capture: true });
+      canvas.removeEventListener('pointermove',   onPointerMove, { capture: true });
+      canvas.removeEventListener('pointerup',     onPointerUp,   { capture: true });
+      canvas.removeEventListener('pointercancel', onPointerUp,   { capture: true });
       // Clear any stale hover state so the shared tooltip overlay closes
       // when the user toggles back to 2D.
       onMachineHoverRef.current?.(null);
-      // Remove hull meshes
+      // Remove membrane meshes
       hullMeshesRef.current.forEach(mesh => {
         graph.scene().remove(mesh);
         mesh.geometry.dispose();
@@ -529,11 +816,10 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
     };
   }
 
-  // ── Build domain hull meshes ──────────────────────────────────────────────
+  // ── Build domain membrane meshes ─────────────────────────────────────────
   function buildDomainHulls(graph: ForceGraph3DInstance, nodes: MachineNode3D[]) {
     const scene = graph.scene();
 
-    // Remove old hulls
     hullMeshesRef.current.forEach(mesh => {
       scene.remove(mesh);
       mesh.geometry.dispose();
@@ -541,13 +827,15 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
     });
     hullMeshesRef.current = [];
 
-    const selected = new Set(selectedDomains);
+    // Use ref so callbacks scheduled via setTimeout/setInterval/onEngineStop
+    // always see the current domain filter selection rather than the stale
+    // closure value from when mountMachinesGraph ran.
+    const selected = new Set(selectedDomainsRef.current);
 
-    // Group nodes by domain
     const byDomain = new Map<DomainId, MachineNode3D[]>();
     for (const d of DOMAIN_ORDER) byDomain.set(d, []);
     for (const n of nodes) {
-      byDomain.get(n.domain)!.push(n);
+      if (selected.has(n.domain)) byDomain.get(n.domain)!.push(n);
     }
 
     for (const [domainId, domainNodes] of byDomain.entries()) {
@@ -558,16 +846,14 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
       );
 
       const { color, alpha } = parseDomainFill(domainId);
-      const mesh = buildConvexHullMesh(points, color, alpha);
+      const mesh = buildDomainMembrane(points, color, alpha);
       if (mesh) {
         mesh.userData = { domain: domainId };
-        mesh.visible = selected.has(domainId);
-        mesh.renderOrder = -1; // Render behind nodes
+        mesh.renderOrder = -1;
         scene.add(mesh);
         hullMeshesRef.current.push(mesh);
       }
     }
-
   }
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -599,15 +885,27 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
   }
 
   return (
-    <div
-      ref={containerRef}
-      style={{
-        width: '100%',
-        height: '100%',
-        position: 'relative',
-        background: vizTheme.bg.page,
-      }}
-    />
+    <>
+      <div
+        ref={containerRef}
+        style={{
+          width: '100%',
+          height: '100%',
+          position: 'relative',
+          background: vizTheme.bg.page,
+        }}
+      />
+      {domainTooltip && ReactDOM.createPortal(
+        <DomainTooltip
+          domainId={domainTooltip.domainId}
+          x={domainTooltip.x}
+          y={domainTooltip.y}
+          nodes={allNodesRef.current}
+          step={currentStepRef.current}
+        />,
+        document.body,
+      )}
+    </>
   );
 };
 
@@ -618,7 +916,9 @@ function forceX3D(
   nodes: MachineNode3D[],
   axis: 'x' | 'y' | 'z',
 ) {
-  const strength = 0.12;
+  // 0.40 is strong enough to outcompete cross-domain link forces while still
+  // allowing nodes to spread naturally within their cluster.
+  const strength = 0.40;
 
   function force(alpha: number) {
     for (const node of nodes) {
