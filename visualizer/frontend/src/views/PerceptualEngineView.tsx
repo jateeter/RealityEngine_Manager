@@ -676,7 +676,7 @@ export const PerceptualEngineView: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [rightTab, setRightTab] = useState<'vector' | 'mqtt'>('vector');
 
-  const isAutoRunning = state?.auto.running ?? false;
+  const isAutoRunning = state?.auto?.running ?? false;
   const pollMs = isAutoRunning ? POLL_AUTO_MS : POLL_IDLE_MS;
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
