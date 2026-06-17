@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import ReactDOM from 'react-dom';
 import { useVisualizerStore } from '../store';
 import { api } from '../api';
 import type {
@@ -36,9 +37,11 @@ interface VectorHeatMapProps {
 }
 
 const VectorHeatMap: React.FC<VectorHeatMapProps> = ({ vector, sources, hoveredSourceId }) => {
-  const cellSize = 10;
+  const cellH = 5;
   const cols = 64;
   const rows = Math.ceil(vector.length / cols);
+
+  const [cellTip, setCellTip] = useState<{ idx: number; value: number; x: number; y: number } | null>(null);
 
   const hoveredRegion = useMemo(() => {
     if (!hoveredSourceId) return null;
@@ -56,7 +59,7 @@ const VectorHeatMap: React.FC<VectorHeatMapProps> = ({ vector, sources, hoveredS
       </div>
       <div style={{
         display: 'grid',
-        gridTemplateColumns: `repeat(${cols}, ${cellSize}px)`,
+        gridTemplateColumns: `repeat(${cols}, 1fr)`,
         gap: 1,
         fontFamily: 'monospace',
       }}>
@@ -71,13 +74,15 @@ const VectorHeatMap: React.FC<VectorHeatMapProps> = ({ vector, sources, hoveredS
           return (
             <div
               key={i}
-              title={`[${i}] = ${v.toFixed(3)}`}
               style={{
-                width: cellSize, height: cellSize,
+                height: cellH,
                 background: `rgb(${r},${g},${b})`,
                 borderRadius: 1,
                 outline: inHover ? '1px solid rgba(125,211,252,0.6)' : 'none',
+                cursor: 'crosshair',
               }}
+              onMouseEnter={e => setCellTip({ idx: i, value: v, x: e.clientX, y: e.clientY })}
+              onMouseLeave={() => setCellTip(null)}
             />
           );
         })}
@@ -91,6 +96,27 @@ const VectorHeatMap: React.FC<VectorHeatMapProps> = ({ vector, sources, hoveredS
           <span>{Math.round(vector.length / 2)}</span>
           <span>{vector.length - 1}</span>
         </div>
+      )}
+      {cellTip && ReactDOM.createPortal(
+        <div style={{
+          position: 'fixed',
+          left: cellTip.x + 12,
+          top: cellTip.y - 32,
+          background: '#0f172a',
+          border: '1px solid #334155',
+          borderRadius: 4,
+          padding: '3px 8px',
+          fontSize: 11,
+          fontFamily: 'ui-monospace, monospace',
+          color: '#e2e8f0',
+          pointerEvents: 'none',
+          zIndex: 9999,
+          whiteSpace: 'nowrap',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+        }}>
+          [{cellTip.idx}] = {cellTip.value.toFixed(4)}
+        </div>,
+        document.body,
       )}
     </div>
   );

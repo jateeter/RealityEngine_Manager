@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
+import ReactDOM from 'react-dom';
 import { useVisualizerStore } from '../store';
 import { Machine } from '../types';
 import {
@@ -16,6 +17,73 @@ import type {
   TooltipMachineData,
 } from '../components/MachineSequenceTooltip';
 import './MachineSelectionView.css';
+
+// ── Domain info tooltip ───────────────────────────────────────────────────────
+
+const DomainInfoTooltip: React.FC<{
+  domainId: DomainId;
+  x: number;
+  y: number;
+  machineCount: number;
+  cesCount: number;
+}> = ({ domainId, x, y, machineCount, cesCount }) => {
+  const domain = DOMAINS[domainId];
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const el = panelRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const overR = rect.right  - (window.innerWidth  - 8);
+    const overB = rect.bottom - (window.innerHeight - 8);
+    if (overR > 0) el.style.left = `${Math.max(4, x - overR)}px`;
+    if (overB > 0) el.style.top  = `${Math.max(4, y - overB)}px`;
+  });
+
+  return (
+    <div
+      ref={panelRef}
+      style={{
+        position: 'fixed', left: x, top: y,
+        width: 272, zIndex: 9990,
+        background: '#0b1220',
+        border: `1px solid ${domain.color}55`,
+        borderRadius: 8,
+        boxShadow: '0 12px 40px rgba(0,0,0,0.7)',
+        fontFamily: 'ui-monospace, monospace',
+        fontSize: 12, color: '#e2e8f0',
+        pointerEvents: 'none',
+        overflow: 'hidden',
+      }}
+    >
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        padding: '10px 14px',
+        borderBottom: '1px solid #1e293b',
+        background: '#0f172a',
+      }}>
+        <div style={{
+          width: 10, height: 10, borderRadius: '50%',
+          background: domain.color, flexShrink: 0,
+        }} />
+        <span style={{ fontWeight: 700, fontSize: 13, color: '#f1f5f9', letterSpacing: 0.3 }}>
+          {domain.label}
+        </span>
+        <span style={{ marginLeft: 'auto', fontSize: 10, color: '#475569' }}>
+          {machineCount} machine{machineCount !== 1 ? 's' : ''}
+          <span style={{ margin: '0 4px', color: '#334155' }}>·</span>
+          {cesCount} CES
+        </span>
+      </div>
+      <div style={{
+        padding: '8px 14px 12px',
+        color: '#94a3b8', lineHeight: 1.55, fontSize: 11,
+      }}>
+        {domain.description}
+      </div>
+    </div>
+  );
+};
 
 // ── Tree shape ──────────────────────────────────────────────────────────────
 // Three node kinds; flattened at render time into a single visible-rows list
@@ -79,6 +147,12 @@ const MachineSelectionView: React.FC = () => {
   const [tooltip,       setTooltip]       = useState<TooltipState | null>(null);
   const tooltipCacheRef = useRef<Map<string, TooltipMachineData>>(new Map());
   const tooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [domainTooltip, setDomainTooltip] = useState<{
+    domainId: DomainId; x: number; y: number;
+    machineCount: number; cesCount: number;
+  } | null>(null);
+  const domainTooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Load machines on mount ────────────────────────────────────────────────
   useEffect(() => {
@@ -315,7 +389,27 @@ const MachineSelectionView: React.FC = () => {
     try {
       const res = await fetch(`/api/machines/${machineId}/export`);
       if (!res.ok) return;
-      const data: TooltipMachineData = await res.json();
+      const json = await res.json();
+      const m = json.machine ?? json;
+      const data: TooltipMachineData = {
+        id:          machineId,
+        name:        m.name        ?? name,
+        description: m.description ?? '',
+        sequences: (m.sequences ?? []).map((seq: any) => {
+          const nodes = (seq.vectors ?? []).map((v: any) => ({
+            id:        v.id,
+            label:     v.metadata?.name ?? v.id.slice(-6),
+            isInitial: v.isInitial ?? false,
+            hasOutput: Array.isArray(v.outputVectors) && v.outputVectors.length > 0,
+            elements:  Array.isArray(v.elements) ? v.elements : [],
+          }));
+          const edges: Array<{ source: string; target: string }> = [];
+          for (const v of (seq.vectors ?? []))
+            for (const nid of (v.nextVectorIds ?? []))
+              edges.push({ source: v.id, target: nid });
+          return { sequenceId: seq.id, name: seq.name, nodes, edges };
+        }),
+      };
       tooltipCacheRef.current.set(machineId, data);
       setTooltip(prev => prev?.machineId === machineId ? { ...prev, data } : prev);
     } catch {}
@@ -339,8 +433,27 @@ const MachineSelectionView: React.FC = () => {
     );
   }, []);
 
+  const handleDomainMouseEnter = useCallback((
+    e: React.MouseEvent,
+    domainId: DomainId,
+    machineCount: number,
+    cesCount: number,
+  ) => {
+    if (domainTooltipTimerRef.current) clearTimeout(domainTooltipTimerRef.current);
+    const { clientX, clientY } = e;
+    domainTooltipTimerRef.current = setTimeout(() => {
+      setDomainTooltip({ domainId, x: clientX + 16, y: clientY - 10, machineCount, cesCount });
+    }, 180);
+  }, []);
+
+  const handleDomainMouseLeave = useCallback(() => {
+    if (domainTooltipTimerRef.current) clearTimeout(domainTooltipTimerRef.current);
+    domainTooltipTimerRef.current = setTimeout(() => setDomainTooltip(null), 220);
+  }, []);
+
   useEffect(() => () => {
     if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current);
+    if (domainTooltipTimerRef.current) clearTimeout(domainTooltipTimerRef.current);
   }, []);
 
   const machineById = useMemo(() => {
@@ -464,6 +577,8 @@ const MachineSelectionView: React.FC = () => {
                     className={`msv-row msv-row-domain${isFocused ? ' is-focused' : ''}`}
                     style={{ ['--domain-color' as any]: n.color }}
                     onClick={() => { setFocusedId(n.id); toggle(n.id); }}
+                    onMouseEnter={e => handleDomainMouseEnter(e, n.domainId, n.machineCount, n.cesCount)}
+                    onMouseLeave={handleDomainMouseLeave}
                   >
                     <span className={`msv-chevron${isExp ? ' is-open' : ''}`}>▶</span>
                     <span className="msv-domain-swatch" style={{ background: n.color }} />
@@ -538,6 +653,18 @@ const MachineSelectionView: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* ── Domain tooltip ───────────────────────────────── */}
+      {domainTooltip && ReactDOM.createPortal(
+        <DomainInfoTooltip
+          domainId={domainTooltip.domainId}
+          x={domainTooltip.x}
+          y={domainTooltip.y}
+          machineCount={domainTooltip.machineCount}
+          cesCount={domainTooltip.cesCount}
+        />,
+        document.body,
+      )}
 
       {/* ── Node tooltip ─────────────────────────────────── */}
       {tooltip && (

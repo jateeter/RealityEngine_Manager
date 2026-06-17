@@ -283,7 +283,7 @@ function parseDomainFill(domain: DomainId): { color: string; alpha: number } {
     const hex = '#' + [r, g, b].map(c => c.toString(16).padStart(2, '0')).join('');
     return { color: hex, alpha: a };
   }
-  return { color: DOMAINS[domain].color, alpha: 0.15 };
+  return { color: DOMAINS[domain].color, alpha: 0.18 };
 }
 
 // ── Domain membrane builder ────────────────────────────────────────────────────
@@ -561,11 +561,10 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
       // shared in-view tooltip overlay driven by onNodeHover below, matching
       // the 2D MachineInterconnectionGraph behaviour.
       .nodeLabel(() => '')
-      .onNodeHover((node: any) => {
-        const id = node ? (node as MachineNode3D).id : null;
-        const { x, y } = mousePosRef.current;
-        onMachineHoverRef.current?.(id, x, y);
-      })
+      // Node hover is driven by our capture-phase onPointerMove handler,
+      // which raycasts __threeObj meshes and calls onMachineHoverRef directly.
+      // onNodeHover is left empty to avoid double-calling the parent callback.
+      .onNodeHover(() => {})
       .nodeColor((node: any) => {
         const n = node as MachineNode3D;
         const step = currentStepRef.current;
@@ -630,10 +629,23 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
     const canvas = graph.renderer().domElement;
     const raycaster = new THREE.Raycaster();
 
-    // Mutable drag state (not React state — we don't need a re-render)
+    // Mutable hover/drag state (not React state — we don't need a re-render)
     let dragDomainId: DomainId | null = null;
     let dragNdcZ = 0;
     const dragPrevWorld = new THREE.Vector3();
+    // Last node id reported as hovered — tracked so we emit null exactly once on leave.
+    let hoveredNodeId: string | null = null;
+
+    // Find the node whose __threeObj is `obj` or an ancestor of `obj`.
+    const findHitNode = (obj: THREE.Object3D): MachineNode3D | null => {
+      for (const n of nodes) {
+        const root = (n as any).__threeObj as THREE.Object3D | undefined;
+        if (!root) continue;
+        let o: THREE.Object3D | null = obj;
+        while (o) { if (o === root) return n; o = o.parent; }
+      }
+      return null;
+    };
 
     const ndcFromEvent = (e: PointerEvent): THREE.Vector2 => {
       const rect = canvas.getBoundingClientRect();
@@ -647,13 +659,20 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
       if (e.button !== 0) return;
       const camera = graph.camera() as THREE.PerspectiveCamera;
       raycaster.setFromCamera(ndcFromEvent(e), camera);
+      // Node click takes priority — if the cursor is on a node, let
+      // 3d-force-graph handle the event (don't start domain drag).
+      const nodeObjs = nodes
+        .map(n => (n as any).__threeObj as THREE.Object3D)
+        .filter(Boolean);
+      if (raycaster.intersectObjects(nodeObjs, true).length > 0) return;
       const hits = raycaster.intersectObjects(hullMeshesRef.current);
       if (hits.length === 0) return;
 
       e.stopPropagation();
       canvas.setPointerCapture(e.pointerId);
 
-      // Hide tooltip for the duration of the drag
+      // Hide node and domain tooltips for the duration of the drag
+      if (hoveredNodeId !== null) { hoveredNodeId = null; onMachineHoverRef.current?.(null); }
       domainTooltipRef.current = null;
       setDomainTooltipRef.current(null);
 
@@ -673,9 +692,38 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
       const ndc = ndcFromEvent(e);
 
       if (!dragDomainId) {
-        // Hover: raycast membranes for cursor + domain tooltip
         const camera = graph.camera() as THREE.PerspectiveCamera;
         raycaster.setFromCamera(ndc, camera);
+
+        // ── Node hover (highest priority) ──────────────────────────────────
+        // Drive tooltip directly from our capture handler so the bubble-phase
+        // onNodeHover callback isn't needed for correctness.
+        const nodeObjs = nodes
+          .map(n => (n as any).__threeObj as THREE.Object3D)
+          .filter(Boolean);
+        const nodeHits = raycaster.intersectObjects(nodeObjs, true);
+        if (nodeHits.length > 0) {
+          const hitNode = findHitNode(nodeHits[0].object);
+          const newId = hitNode?.id ?? null;
+          if (newId !== hoveredNodeId) {
+            hoveredNodeId = newId;
+            if (newId) onMachineHoverRef.current?.(newId, e.clientX, e.clientY);
+          }
+          // Suppress domain tooltip while over a node
+          if (domainTooltipRef.current !== null) {
+            domainTooltipRef.current = null;
+            setDomainTooltipRef.current(null);
+          }
+          return;
+        }
+
+        // Cursor left a node
+        if (hoveredNodeId !== null) {
+          hoveredNodeId = null;
+          onMachineHoverRef.current?.(null);
+        }
+
+        // ── Domain membrane hover ───────────────────────────────────────────
         const hits = raycaster.intersectObjects(hullMeshesRef.current);
         if (hits.length > 0) {
           canvas.style.cursor = 'grab';
