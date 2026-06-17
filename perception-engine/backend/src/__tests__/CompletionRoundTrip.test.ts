@@ -109,7 +109,7 @@ function makeDispatcher(
     enabled: true,
     mode: 'https',
     graphqlEndpoint: 'http://localhost:4000/graphql',
-    realityEngineUrl: 'http://localhost:3000',
+    realityEngineUrl: 'http://localhost:5001',
   };
   const deps: DispatcherDeps = {
     getMachine: (id) => machineMap.get(id),

@@ -123,7 +123,7 @@ const EXAMPLE_CK_REGISTRY_JSON = {
 };
 
 const PORT = parseInt(process.env['PORT'] ?? '3004', 10);
-const REALITY_ENGINE_URL = process.env['REALITY_ENGINE_URL'] ?? 'http://localhost:3000';
+const REALITY_ENGINE_URL = process.env['REALITY_ENGINE_URL'] ?? 'http://localhost:5001';
 const DATA_PATH = process.env['DATA_PATH'] ?? './data';
 // Default matches the visualizer's PERCEPTUAL_DIM so machine offsets minted
 // by the RE land inside PE's vector out of the box.  Bootstrapping a 50+

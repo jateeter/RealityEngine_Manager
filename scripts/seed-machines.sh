@@ -12,13 +12,13 @@
 #   scripts/seed-machines.sh [re-url] [examples-dir]
 #
 # Arguments:
-#   re-url        RE runtime URL  (default: https://localhost:3000)
+#   re-url        RE runtime URL  (default: https://localhost:5001)
 #   examples-dir  Path to examples/machines directory (auto-discovered if omitted)
 # ============================================================
 
 set -uo pipefail
 
-RE_URL="${1:-https://localhost:3000}"
+RE_URL="${1:-https://localhost:5001}"
 EXAMPLES_DIR="${2:-}"
 CONCURRENCY=8
 SKIP_THRESHOLD=50

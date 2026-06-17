@@ -6,7 +6,7 @@
 #   ./scripts/smoke-test.sh [options]
 #
 # Options:
-#   --target  <url>    RE runtime base URL  (default: https://localhost:3000)
+#   --target  <url>    RE runtime base URL  (default: https://localhost:5001)
 #   --pe-target <url> PE runtime base URL  (default: https://localhost:3004)
 #   --pe        <url> Compatibility alias for --pe-target
 #   --skip-pe          Skip PE surface tests
@@ -15,7 +15,7 @@
 
 set -euo pipefail
 
-RE_URL="https://localhost:3000"
+RE_URL="https://localhost:5001"
 PE_URL="https://localhost:3004"
 SKIP_PE=0
 SKIP_RE=0

@@ -9,7 +9,7 @@
 #   ./start.sh [options]
 #
 # Options:
-#   --re <url>     RE runtime URL  (default: https://localhost:3000)
+#   --re <url>     RE runtime URL  (default: https://localhost:5001)
 #   --pe <url>     PE runtime URL  (default: https://localhost:3004)
 #   --scala        Preset for Scala runtime  (RE :5001, PE :5000)
 #   --cpp          Preset for CPP runtime    (RE :5301, PE :5300)
@@ -18,10 +18,11 @@
 #   --no-frontend  Skip starting the Vite dev server
 #
 # Runtime defaults per SURFACE_SPEC.md:
-#   Docker RE :3000  PE :3004
-#   Scala RE :5001  PE :5000
-#   CPP    RE :5301  PE :5300
-#   LSP    RE :5601  PE :5600
+#   Docker Scala RE :5001  PE :3004  (nginx proxied from reality-engine:3000)
+#   Native Scala   RE :5001  PE :5000
+#   Native CPP     RE :5301  PE :5300
+#   Native LSP     RE :5601  PE :5600
+#   Grafana (Docker): https://localhost:3000
 # ============================================================
 
 set -euo pipefail
@@ -33,7 +34,7 @@ PID_FILE="$ROOT_DIR/.manager-pids"
 LOG_DIR="$ROOT_DIR/.manager-logs"
 
 # ── Defaults ────────────────────────────────────────────────
-RE_RUNTIME_URL="https://localhost:3000"
+RE_RUNTIME_URL="https://localhost:5001"
 PE_RUNTIME_URL="https://localhost:3004"
 VIZ_PORT=3001
 START_FRONTEND=1
