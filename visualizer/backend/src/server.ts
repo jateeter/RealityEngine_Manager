@@ -19,6 +19,8 @@ const ALLOWED_ORIGINS: string[] = (
 const certPath = process.env.TLS_CERT_PATH;
 const keyPath  = process.env.TLS_KEY_PATH;
 const tlsEnabled = !!(certPath && keyPath && existsSync(certPath) && existsSync(keyPath));
+const RATE_LIMIT_MAX = parseInt(process.env.VIZ_RATE_LIMIT_MAX || '200', 10);
+const MACHINES_RATE_LIMIT_MAX = parseInt(process.env.VIZ_MACHINES_RATE_LIMIT_MAX || '120', 10);
 
 // ── Multi-engine registry ─────────────────────────────────────────────────
 
@@ -143,7 +145,7 @@ setInterval(() => {
   for (const [ip, bucket] of rateBuckets) { if (bucket.resetAt < now) rateBuckets.delete(ip); }
 }, 5 * 60_000);
 
-app.use(rateLimit(200));
+app.use(rateLimit(RATE_LIMIT_MAX));
 
 // ── Input validation ──────────────────────────────────────────────────────────
 const ID_RE = /^[a-zA-Z0-9_-]{1,128}$/;
@@ -361,6 +363,7 @@ app.get('/api/pe/integrations/healthkit/status',(req,res)=>proxyGet(req, res, ac
 app.get('/api/pe/integrations/carekit/status',(req,res) => proxyGet(req, res, activePeUrl(), '/api/integrations/carekit/status', null,    'getPECareKitStatus'));
 app.get('/api/pe/mqtt/status',    (req, res) => proxyGet(req, res,  activePeUrl(), '/api/mqtt/status',    'pe:mqtt',  'getPEMqttStatus'));
 app.get('/api/pe/mqtt/mappings',  (req, res) => proxyGet(req, res,  activePeUrl(), '/api/mqtt/mappings',  'pe:mqtt',  'getPEMqttMappings'));
+app.get('/api/pe/mqtt/example',   (req, res) => proxyGet(req, res,  activePeUrl(), '/api/mqtt/example',   'pe:mqtt',  'getPEMqttExample'));
 app.post('/api/pe/mqtt/enable',  (req, res) => proxyPost(req, res, activePeUrl(), '/api/mqtt/enable',  'peEnableMqtt',  'pe:mqtt'));
 app.post('/api/pe/mqtt/disable', (req, res) => proxyPost(req, res, activePeUrl(), '/api/mqtt/disable', 'peDisableMqtt', 'pe:mqtt'));
 app.put('/api/pe/mqtt/mappings',  (req, res) => proxyPut(req, res,  activePeUrl(), '/api/mqtt/mappings', 'pePutMqttMappings',    'pe:mqtt'));
@@ -468,7 +471,7 @@ app.post('/api/machines/json/import', async (req: Request, res: Response) => {
 });
 
 // Machines — list and detail
-app.get('/api/machines', rateLimit(120), async (req: Request, res: Response) => {
+app.get('/api/machines', rateLimit(MACHINES_RATE_LIMIT_MAX), async (req: Request, res: Response) => {
   const cacheKey = 'machines:list';
   const cached = getCached(cacheKey);
   if (cached) { res.json(cached); return; }

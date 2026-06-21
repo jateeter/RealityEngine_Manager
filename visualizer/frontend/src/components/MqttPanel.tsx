@@ -203,8 +203,13 @@ const MqttConfigModal: React.FC<MqttConfigModalProps> = ({ open, onClose, onChan
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  const loadExample = useCallback(() => {
-    setMappingsText(EXAMPLE_MAPPINGS);
+  const loadExample = useCallback(async () => {
+    try {
+      const example = await api.getMqttExample();
+      setMappingsText(JSON.stringify(example, null, 2));
+    } catch {
+      setMappingsText(EXAMPLE_MAPPINGS);
+    }
     setStage({ kind: 'idle' });
   }, []);
 

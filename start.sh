@@ -9,13 +9,19 @@
 #   ./start.sh [options]
 #
 # Options:
-#   --re <url>     RE runtime URL  (default: https://localhost:5001)
-#   --pe <url>     PE runtime URL  (default: https://localhost:3004)
-#   --scala        Preset for Scala runtime  (RE :5001, PE :5000)
-#   --cpp          Preset for CPP runtime    (RE :5301, PE :5300)
-#   --lsp          Preset for LSP runtime    (RE :5601, PE :5600)
-#   --port <n>     Visualizer backend port   (default: 3001)
-#   --no-frontend  Skip starting the Vite dev server
+#   --re <url>              RE runtime URL  (default: https://localhost:5001)
+#   --pe <url>              PE runtime URL  (default: https://localhost:3004)
+#   --scala                 Preset for Scala runtime  (RE :5001, PE :5000)
+#   --cpp                   Preset for CPP runtime    (RE :5301, PE :5300)
+#   --lsp                   Preset for LSP runtime    (RE :5601, PE :5600)
+#   --port <n>              Visualizer backend port   (default: 3001)
+#   --no-frontend           Skip starting the Vite dev server
+#   --mqtt-broker-url <url> Enable MQTT bridge on PE after startup
+#                             (e.g. mqtt://yuma.lateraledge.cloud:1883)
+#   --mqtt-mappings <path>  Path to mappings JSON file for MQTT bridge
+#                             (if omitted, loads PE's bundled Yuma example)
+#   --mqtt-username <user>  MQTT broker username (optional)
+#   --mqtt-password <pass>  MQTT broker password (optional)
 #
 # Runtime defaults per SURFACE_SPEC.md:
 #   Docker Scala RE :5001  PE :3004  (nginx proxied from reality-engine:3000)
@@ -39,18 +45,26 @@ PE_RUNTIME_URL="https://localhost:3004"
 VIZ_PORT=3001
 START_FRONTEND=1
 SEED_MACHINES=1
+MQTT_BROKER_URL=""
+MQTT_MAPPINGS_PATH=""
+MQTT_USERNAME=""
+MQTT_PASSWORD=""
 
 # ── Parse flags ─────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --re)           RE_RUNTIME_URL="$2"; shift 2 ;;
-    --pe)           PE_RUNTIME_URL="$2"; shift 2 ;;
-    --scala)        RE_RUNTIME_URL="http://localhost:5001"; PE_RUNTIME_URL="http://localhost:5000"; shift ;;
-    --cpp)          RE_RUNTIME_URL="http://localhost:5301"; PE_RUNTIME_URL="http://localhost:5300"; shift ;;
-    --lsp)          RE_RUNTIME_URL="http://localhost:5601"; PE_RUNTIME_URL="http://localhost:5600"; shift ;;
-    --port)         VIZ_PORT="$2"; shift 2 ;;
-    --no-frontend)  START_FRONTEND=0; shift ;;
-    --no-seed)      SEED_MACHINES=0; shift ;;
+    --re)                 RE_RUNTIME_URL="$2"; shift 2 ;;
+    --pe)                 PE_RUNTIME_URL="$2"; shift 2 ;;
+    --scala)              RE_RUNTIME_URL="http://localhost:5001"; PE_RUNTIME_URL="http://localhost:5000"; shift ;;
+    --cpp)                RE_RUNTIME_URL="http://localhost:5301"; PE_RUNTIME_URL="http://localhost:5300"; shift ;;
+    --lsp)                RE_RUNTIME_URL="http://localhost:5601"; PE_RUNTIME_URL="http://localhost:5600"; shift ;;
+    --port)               VIZ_PORT="$2"; shift 2 ;;
+    --no-frontend)        START_FRONTEND=0; shift ;;
+    --no-seed)            SEED_MACHINES=0; shift ;;
+    --mqtt-broker-url)    MQTT_BROKER_URL="$2"; shift 2 ;;
+    --mqtt-mappings)      MQTT_MAPPINGS_PATH="$2"; shift 2 ;;
+    --mqtt-username)      MQTT_USERNAME="$2"; shift 2 ;;
+    --mqtt-password)      MQTT_PASSWORD="$2"; shift 2 ;;
     -h|--help)
       grep '^#' "$0" | sed 's/^# \{0,2\}//' | head -30
       exit 0 ;;
@@ -91,6 +105,7 @@ echo "  RE:       $RE_RUNTIME_URL"
 echo "  PE:       $PE_RUNTIME_URL"
 echo "  Backend:  http://localhost:$VIZ_PORT"
 [[ $START_FRONTEND -eq 1 ]] && echo "  Frontend: http://localhost:5173"
+[[ -n "$MQTT_BROKER_URL" ]] && echo "  MQTT:     $MQTT_BROKER_URL"
 echo "────────────────────────────────────────────────────────"
 
 # ── Guard — abort if already running ────────────────────────
@@ -179,6 +194,56 @@ else
       echo "  Seeding complete."
     else
       echo "  Seeding finished with warnings — Manager will continue."
+    fi
+  fi
+
+  # ── Enable MQTT bridge on PE if --mqtt-broker-url was given ────────────────
+  if [[ -n "$MQTT_BROKER_URL" ]]; then
+    echo ""
+    echo "Enabling MQTT bridge on PE ($PE_RUNTIME_URL)..."
+
+    # Resolve mappings JSON: file → PE example endpoint
+    _MQTT_MAPPINGS_JSON=""
+    if [[ -n "$MQTT_MAPPINGS_PATH" ]]; then
+      if [[ -f "$MQTT_MAPPINGS_PATH" ]]; then
+        _MQTT_MAPPINGS_JSON=$(cat "$MQTT_MAPPINGS_PATH")
+        echo "  Mappings: $MQTT_MAPPINGS_PATH"
+      else
+        echo "  Warning: --mqtt-mappings path not found: $MQTT_MAPPINGS_PATH"
+      fi
+    fi
+    if [[ -z "$_MQTT_MAPPINGS_JSON" ]]; then
+      echo "  Fetching example mappings from PE GET /api/mqtt/example..."
+      _MQTT_MAPPINGS_JSON=$(curl -sk --max-time 5 "$PE_RUNTIME_URL/api/mqtt/example" 2>/dev/null || true)
+    fi
+
+    if [[ -z "$_MQTT_MAPPINGS_JSON" ]]; then
+      echo "  Warning: could not load MQTT mappings — skipping enable"
+    else
+      _MQTT_MAP_TMP=$(mktemp /tmp/mqtt-mappings.XXXXXX.json)
+      printf '%s' "$_MQTT_MAPPINGS_JSON" > "$_MQTT_MAP_TMP"
+      _MQTT_ENABLE_BODY=$(python3 - "$_MQTT_MAP_TMP" "$MQTT_BROKER_URL" "$MQTT_USERNAME" "$MQTT_PASSWORD" <<'PYEOF'
+import json, sys
+body = {"brokerUrl": sys.argv[2], "mappings": json.loads(open(sys.argv[1]).read())}
+if sys.argv[3]: body["username"] = sys.argv[3]
+if sys.argv[4]: body["password"] = sys.argv[4]
+print(json.dumps(body))
+PYEOF
+)
+      rm -f "$_MQTT_MAP_TMP"
+      _MQTT_RESP=$(curl -sk --max-time 10 -X POST "$PE_RUNTIME_URL/api/mqtt/enable" \
+        -H "Content-Type: application/json" -d "$_MQTT_ENABLE_BODY" 2>/dev/null || true)
+      if echo "$_MQTT_RESP" | python3 -c \
+          "import json,sys; d=json.load(sys.stdin); exit(0 if d.get('success') or d.get('enabled') else 1)" \
+          2>/dev/null; then
+        _MQTT_COUNT=$(echo "$_MQTT_RESP" | python3 -c \
+          "import json,sys; print(json.load(sys.stdin).get('mappings','?'))" 2>/dev/null || echo "?")
+        echo "  MQTT bridge enabled  broker=$MQTT_BROKER_URL  mappings=$_MQTT_COUNT ✓"
+      else
+        _MQTT_ERR=$(echo "$_MQTT_RESP" | python3 -c \
+          "import json,sys; print(json.load(sys.stdin).get('error','?'))" 2>/dev/null || echo "$_MQTT_RESP")
+        echo "  Warning: MQTT enable failed: $_MQTT_ERR"
+      fi
     fi
   fi
 fi
