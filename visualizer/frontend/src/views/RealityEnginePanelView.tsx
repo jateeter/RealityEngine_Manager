@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom';
 import { useVisualizerStore } from '../store';
 import { Machine, HealthStatus, EngineActive, PEState } from '../types';
 import { EngineSwitcher } from '../components/EngineSwitcher';
+import { MachineGraphView } from '../components/MachineGraphView';
 import {
   classifyMachine,
   DOMAINS,
@@ -547,6 +548,9 @@ const RealityEnginePanelView: React.FC = () => {
 
       </div>
 
+      {/* ── Main split: tree (left) · interconnection graph (right) ────── */}
+      <div className="rep-main">
+
       {/* ── Tree body ──────────────────────────────────────────────────── */}
       <div className="rep-body">
         {isLoading ? (
@@ -675,6 +679,13 @@ const RealityEnginePanelView: React.FC = () => {
             })}
           </div>
         )}
+      </div>
+
+        {/* ── Interconnection graph panel (right) ────────────────────────── */}
+        <aside className="rep-graph-panel" aria-label="Machine interconnection graph">
+          <MachineGraphView />
+        </aside>
+
       </div>
 
       {/* ── Status footer ─────────────────────────────────────────────── */}
