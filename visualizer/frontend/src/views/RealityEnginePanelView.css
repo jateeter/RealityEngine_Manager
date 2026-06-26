@@ -336,7 +336,7 @@
 }
 
 .rep-body {
-  flex: 1 1 auto;
+  flex: 0 0 33.333%;
   min-width: 0;
   overflow-y: auto;
   overflow-x: hidden;
@@ -345,9 +345,7 @@
 
 /* Right-side panel hosting the interconnection graph + legend */
 .rep-graph-panel {
-  flex: 0 0 44%;
-  min-width: 420px;
-  max-width: 60%;
+  flex: 0 0 66.667%;
   height: 100%;
   position: relative;
   overflow: hidden;
