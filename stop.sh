@@ -33,16 +33,33 @@ echo "────────────────────────�
 echo "  Reality Engine Manager — stopping"
 echo "────────────────────────────────────────────────────────"
 
+# Kill a process holding one of the Manager ports — but NEVER Docker's proxy.
+# When the RealityEngine_CI Docker stack is running, ports 3001/5173 are
+# published by the reality-engine-tls-proxy container and bound on the host by
+# `com.docker.backend` (a.k.a. docker-proxy). Killing that PID takes the whole
+# Docker daemon down. Only kill genuine native Manager processes (node/vite).
+kill_native_port_holder() {
+  local port="$1" sig="${2:-TERM}" pid comm
+  for pid in $(lsof -ti tcp:"$port" 2>/dev/null || true); do
+    [[ -z "$pid" ]] && continue
+    comm=$(ps -p "$pid" -o comm= 2>/dev/null || true)
+    case "$comm" in
+      *com.docker.backend*|*docker-proxy*|*Docker.app*|*vpnkit*)
+        echo "  Port :$port is held by Docker ($comm, PID $pid) — NOT killing (would crash the daemon)."
+        continue ;;
+    esac
+    echo "  Native process on :$port (PID $pid, ${comm:-unknown}) — sending SIG$sig."
+    kill -"$sig" "$pid" 2>/dev/null || true
+  done
+}
+
 if [[ ! -f "$PID_FILE" ]]; then
   echo "  .manager-pids not found — nothing to stop."
   echo ""
-  # Best-effort: kill anything still holding the known ports
+  # Best-effort: kill native processes still holding the known ports
+  # (skips Docker's proxy so we never crash the daemon).
   for port in 3001 5173; do
-    pid=$(lsof -ti tcp:"$port" 2>/dev/null || true)
-    if [[ -n "$pid" ]]; then
-      echo "  Found stray process on :$port (PID $pid) — killing."
-      kill -TERM $pid 2>/dev/null || true
-    fi
+    kill_native_port_holder "$port" TERM
   done
   exit 0
 fi
@@ -96,13 +113,9 @@ if [[ $FORCE -eq 0 ]]; then
   done
 fi
 
-# ── Kill any process still on the known ports ────────────────
+# ── Kill any native process still on the known ports (skips Docker's proxy) ──
 for port in 3001 5173; do
-  stray=$(lsof -ti tcp:"$port" 2>/dev/null || true)
-  if [[ -n "$stray" ]]; then
-    echo "  Port :$port still held by PID $stray — killing."
-    kill -KILL $stray 2>/dev/null || true
-  fi
+  kill_native_port_holder "$port" KILL
 done
 
 rm -f "$PID_FILE"
