@@ -28,6 +28,16 @@ export const MachineInterconnectionView: React.FC = () => {
             </button>
             <h1>Machine Interconnection View</h1>
           </div>
+          <div className="header-actions">
+            <button
+              className="pe-manager-button"
+              onClick={() => setCurrentView('perceptual-engine')}
+              title="Open Perception Engine management"
+            >
+              <span className="pe-manager-button-icon">◎</span>
+              PE Manager
+            </button>
+          </div>
         </div>
       </div>
 
