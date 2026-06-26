@@ -30,12 +30,13 @@ export const MachineInterconnectionView: React.FC = () => {
           </div>
           <div className="header-actions">
             <button
-              className="pe-manager-button"
+              className="rep-nav-btn"
               onClick={() => setCurrentView('perceptual-engine')}
               title="Open Perception Engine management"
+              style={{ borderColor: 'rgba(125,211,252,0.3)', color: '#7dd3fc' }}
             >
-              <span className="pe-manager-button-icon">◎</span>
-              PE Manager
+              <span className="rep-btn-icon">◎</span>
+              Perception
             </button>
           </div>
         </div>

@@ -485,7 +485,7 @@ const RealityEnginePanelView: React.FC = () => {
             style={{ borderColor: 'rgba(125,211,252,0.3)', color: '#7dd3fc' }}
           >
             <span className="rep-btn-icon">◎</span>
-            PE Manager
+            Perception
           </button>
 
           <button

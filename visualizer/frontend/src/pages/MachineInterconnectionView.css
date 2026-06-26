@@ -43,34 +43,11 @@
   gap: 8px;
 }
 
-/* PE Manager button — mirrors the button on the machine tree view header */
-.pe-manager-button {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: transparent;
-  border: 1px solid rgba(125, 211, 252, 0.30);
-  border-radius: 3px;
-  color: #7dd3fc;
-  padding: 6px 14px;
-  font-size: 10.5px;
-  font-weight: 600;
-  font-family: inherit;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  cursor: pointer;
-  transition: background 0.14s, border-color 0.14s;
-  white-space: nowrap;
-}
-.pe-manager-button:hover {
-  background: rgba(125, 211, 252, 0.12);
-  border-color: rgba(125, 211, 252, 0.6);
-}
-
-.pe-manager-button-icon {
-  font-size: 12px;
-  line-height: 1;
-}
+/*
+ * The PE/Perception button reuses the `.rep-nav-btn` / `.rep-btn-icon`
+ * classes defined in RealityEnginePanelView.css so it stays visually
+ * identical to the button on the machine tree view header.
+ */
 
 .back-button {
   background: transparent;
