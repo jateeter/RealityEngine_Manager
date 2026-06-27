@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom';
 import { useVisualizerStore } from '../store';
 import { Machine, HealthStatus, EngineActive, PEState } from '../types';
 import { EngineSwitcher } from '../components/EngineSwitcher';
+import { MachineGraphView } from '../components/MachineGraphView';
 import {
   classifyMachine,
   DOMAINS,
@@ -485,7 +486,7 @@ const RealityEnginePanelView: React.FC = () => {
             style={{ borderColor: 'rgba(125,211,252,0.3)', color: '#7dd3fc' }}
           >
             <span className="rep-btn-icon">◎</span>
-            PE Manager
+            Perception
           </button>
 
           <button
@@ -546,6 +547,9 @@ const RealityEnginePanelView: React.FC = () => {
         </div>
 
       </div>
+
+      {/* ── Main split: tree (left) · interconnection graph (right) ────── */}
+      <div className="rep-main">
 
       {/* ── Tree body ──────────────────────────────────────────────────── */}
       <div className="rep-body">
@@ -675,6 +679,13 @@ const RealityEnginePanelView: React.FC = () => {
             })}
           </div>
         )}
+      </div>
+
+        {/* ── Interconnection graph panel (right) ────────────────────────── */}
+        <aside className="rep-graph-panel" aria-label="Machine interconnection graph">
+          <MachineGraphView />
+        </aside>
+
       </div>
 
       {/* ── Status footer ─────────────────────────────────────────────── */}

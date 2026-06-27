@@ -25,6 +25,10 @@
 
 .header-content {
   width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
 }
 
 .header-title {
@@ -32,6 +36,18 @@
   align-items: center;
   gap: 16px;
 }
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/*
+ * The PE/Perception button reuses the `.rep-nav-btn` / `.rep-btn-icon`
+ * classes defined in RealityEnginePanelView.css so it stays visually
+ * identical to the button on the machine tree view header.
+ */
 
 .back-button {
   background: transparent;
