@@ -22,8 +22,9 @@ import {
   DomainId,
   getNodeRole,
   NodeRole,
-  OPENCLAW_NODE_ID,
   OPENCLAW_PS_REGION,
+  portalNodeId,
+  isPortalNode,
 } from './machineDomains';
 import { vizTheme } from '../styles/vizTheme';
 
@@ -514,9 +515,7 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
 
     const selected = new Set(selectedDomains);
 
-    const visibleNodes = allNodesRef.current.filter(
-      n => n.id === OPENCLAW_NODE_ID || selected.has(n.domain),
-    );
+    const visibleNodes = allNodesRef.current.filter(n => selected.has(n.domain));
     const visibleIds = new Set(visibleNodes.map(n => n.id));
     const visibleLinks = allLinksRef.current.filter(e => {
       const srcId = typeof e.source === 'object' ? (e.source as any).id : e.source;
@@ -555,29 +554,42 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
 
     const links: MachineEdge3D[] = data.edges.map(e => ({ ...e }));
 
-    // Inject OpenClaw virtual node + ACP dispatch edges when agent-dispatchers exist
-    const dispatchers = nodes.filter(n => n.role === 'agent-dispatcher');
-    if (dispatchers.length > 0) {
-      const ocNode: MachineNode3D = {
-        id: OPENCLAW_NODE_ID,
-        name: 'OpenClaw Gateway',
-        description: `OpenClaw xACP gateway — ${dispatchers.length} agent-dispatcher machine(s). Completions return to PS[${OPENCLAW_PS_REGION.offset}:${OPENCLAW_PS_REGION.offset + OPENCLAW_PS_REGION.length - 1}].`,
+    // ── Per-domain OpenClaw portal nodes (3D) ──────────────────────────────────
+    const dispatchersByDomain = new Map<DomainId, MachineNode3D[]>();
+    for (const n of nodes) {
+      if (n.role !== 'agent-dispatcher') continue;
+      const dom = n.domain;
+      if (!dispatchersByDomain.has(dom)) dispatchersByDomain.set(dom, []);
+      dispatchersByDomain.get(dom)!.push(n);
+    }
+
+    for (const [domain, domainDispatchers] of dispatchersByDomain) {
+      const pid    = portalNodeId(domain);
+      const anchor = domainAnchor3D(domain);
+      const portalNode: MachineNode3D = {
+        id:            pid,
+        name:          `OpenClaw Portal · ${DOMAINS[domain].label}`,
+        description:   `Domain ACP portal — ${domainDispatchers.length} dispatcher(s)`,
         inputMapping:  OPENCLAW_PS_REGION,
         outputMapping: OPENCLAW_PS_REGION,
-        metadata: { virtual: true, tags: ['external', 'openclaw'] },
-        domain: 'general',
-        isExternal: true,
-        role: 'openclaw-virtual',
-        colorState: 'idle',
-        x: 0, y: -SPREAD * 2.5, z: 0,
-        fx: 0, fy: -SPREAD * 2.5, fz: 0,
+        metadata:      {
+          virtual: true, isPortal: true, domainId: domain,
+          domainColor: DOMAINS[domain].color, dispatcherCount: domainDispatchers.length,
+        },
+        domain,
+        isExternal: false,
+        role:          'openclaw-virtual',
+        colorState:    'idle',
+        // Elevated above domain plane
+        x: anchor.x, y: anchor.y + SPREAD * 0.8, z: anchor.z,
+        fx: anchor.x, fy: anchor.y + SPREAD * 0.8, fz: anchor.z,
       };
-      nodes.push(ocNode);
+      nodes.push(portalNode);
 
-      for (const d of dispatchers) {
+      for (const d of domainDispatchers) {
         links.push({
-          source: d.id,
-          target: OPENCLAW_NODE_ID,
+          source:        d.id,
+          target:        pid,
           sourceRegion:  d.outputMapping,
           targetRegion:  OPENCLAW_PS_REGION,
           overlap:       false,
@@ -615,7 +627,7 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
       .onNodeHover(() => {})
       .nodeColor((node: any) => {
         const n = node as MachineNode3D;
-        if (n.id === OPENCLAW_NODE_ID) return G3D_OPENCLAW_COLOR;
+        if (isPortalNode(n.id)) return G3D_OPENCLAW_COLOR;
         const step = currentStepRef.current;
         const state = getMachineColorState(step?.machineResults[n.id]);
         if (state === 'fired') return '#ef4444';
@@ -628,7 +640,7 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
       .nodeResolution(16)
       .nodeVal((node: any) => {
         const n = node as MachineNode3D;
-        if (n.id === OPENCLAW_NODE_ID) return 32;
+        if (isPortalNode(n.id)) return 20;
         if (n.role === 'interconnect') return Math.max(8, Math.min(28, (n.metadata?.sequenceCount ?? 4) * 3));
         return Math.max(4, Math.min(20, (n.metadata?.sequenceCount ?? 3) * 2));
       })
@@ -935,7 +947,7 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
     const byDomain = new Map<DomainId, MachineNode3D[]>();
     for (const d of DOMAIN_ORDER) byDomain.set(d, []);
     for (const n of nodes) {
-      if (n.id === OPENCLAW_NODE_ID) continue; // virtual node — not in any domain hull
+      if (isPortalNode(n.id)) continue; // portal nodes sit inside their domain hull, not above it
       if (selected.has(n.domain)) byDomain.get(n.domain)!.push(n);
     }
 

@@ -10,7 +10,8 @@ import * as d3 from 'd3';
 import { useVisualizerStore } from '../store';
 import {
   classifyMachine, DOMAINS, DOMAIN_ORDER, DomainId,
-  getNodeRole, NodeRole, OPENCLAW_NODE_ID, OPENCLAW_PS_REGION,
+  getNodeRole, NodeRole, OPENCLAW_PS_REGION,
+  portalNodeId, isPortalNode, PortalNodeMetadata,
 } from './machineDomains';
 import { vizTheme } from '../styles/vizTheme';
 import { Graph3DView } from './Graph3DView';
@@ -46,6 +47,17 @@ interface MachineGraphData {
   edges: MachineEdge[];
   perceptualSpaceDimension: number;
   totalMachines?: number;
+}
+
+interface PortalTooltipState {
+  domainId: DomainId;
+  domainLabel: string;
+  domainColor: string;
+  x: number; y: number;
+  dispatchers: Array<{ id: string; name: string }>;
+  buses: Array<{ id: string; name: string; psIn: string; psOut: string }>;
+  semanticLanes: Array<{ fromDomain: string; toDomain: string }>;
+  acpPsRegion: string;
 }
 
 interface SimulationStep {
@@ -180,6 +192,7 @@ export const MachineGraphView: React.FC = () => {
   const compactModeRef    = useRef(false);
 
   const [tooltip,     setTooltip]     = useState<TooltipState | null>(null);
+  const [portalTooltip, setPortalTooltip] = useState<PortalTooltipState | null>(null);
   const tooltipCacheRef = useRef<Map<string, TooltipMachineData>>(new Map());
   const tooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showTooltipRef  = useRef<(id: string, name: string, x: number, y: number) => void>(() => {});
@@ -336,10 +349,10 @@ export const MachineGraphView: React.FC = () => {
     if (nodeSelRef.current) {
       nodeSelRef.current
         .style('opacity', (d: MachineNode) =>
-          (d as any).id === OPENCLAW_NODE_ID || allSelected || selected.has(d.domain ?? 'general')
+          allSelected || selected.has(d.domain ?? 'general')
             ? 1 : 0.04)
         .style('pointer-events', (d: MachineNode) =>
-          (d as any).id === OPENCLAW_NODE_ID || allSelected || selected.has(d.domain ?? 'general')
+          allSelected || selected.has(d.domain ?? 'general')
             ? 'all' : 'none');
     }
 
@@ -483,30 +496,81 @@ export const MachineGraphView: React.FC = () => {
       };
     });
 
-    // Inject OpenClaw virtual node + ACP dispatch edges when agent-dispatchers exist
-    const dispatcherNodes = simNodes.filter(n => n.role === 'agent-dispatcher');
-    if (dispatcherNodes.length > 0) {
-      const ocNode: MachineNode & d3.SimulationNodeDatum = {
-        id: OPENCLAW_NODE_ID,
-        name: 'OpenClaw Gateway',
-        description: `OpenClaw xACP gateway — ${dispatcherNodes.length} agent-dispatcher machine(s) dispatch to this gateway. Completions return to PE at PS[${OPENCLAW_PS_REGION.offset}:${OPENCLAW_PS_REGION.offset + OPENCLAW_PS_REGION.length - 1}].`,
-        inputMapping:  OPENCLAW_PS_REGION,
-        outputMapping: OPENCLAW_PS_REGION,
-        metadata: { virtual: true, tags: ['external', 'openclaw'] },
-        domain: 'general',
-        role: 'openclaw-virtual',
-        x:  innerWidth + 100,
-        y:  innerHeight / 2,
-        fx: innerWidth + 100,
-        fy: innerHeight / 2,
-      };
-      simNodes.push(ocNode);
-      nodeById.set(OPENCLAW_NODE_ID, ocNode);
+    // ── Per-domain OpenClaw portal nodes ─────────────────────────────────────
+    // One virtual portal per domain that has agent-dispatchers. Sits inside the
+    // domain hull and carries metadata for the portal tooltip panel.
+    const dispatchersByDomain = new Map<DomainId, typeof simNodes>();
+    for (const n of simNodes) {
+      if (n.role !== 'agent-dispatcher') continue;
+      const dom = (n.domain ?? 'general') as DomainId;
+      if (!dispatchersByDomain.has(dom)) dispatchersByDomain.set(dom, []);
+      dispatchersByDomain.get(dom)!.push(n);
+    }
 
-      for (const d of dispatcherNodes) {
+    for (const [domain, dispatchers] of dispatchersByDomain) {
+      const portalId = portalNodeId(domain);
+      const domDef   = DOMAINS[domain];
+
+      // Mechanical buses: interconnect machines in the same domain
+      const buses = simNodes.filter(n =>
+        n.role === 'interconnect' && (n.domain ?? 'general') === domain,
+      );
+
+      // Semantic lanes: unique cross-domain pairs involving this domain
+      const lanePairsSeen = new Set<string>();
+      const semanticLanes: Array<{ fromDomain: string; toDomain: string }> = [];
+      for (const e of simEdges) {
+        if (!e.isCrossDomain) continue;
+        const srcD = (typeof e.source === 'object' ? (e.source as any).domain : null) ?? 'general';
+        const tgtD = (typeof e.target === 'object' ? (e.target as any).domain : null) ?? 'general';
+        if (srcD !== domain && tgtD !== domain) continue;
+        const key = [srcD, tgtD].sort().join('|');
+        if (lanePairsSeen.has(key)) continue;
+        lanePairsSeen.add(key);
+        semanticLanes.push({ fromDomain: srcD, toDomain: tgtD });
+      }
+
+      const portalMeta: PortalNodeMetadata = {
+        isPortal: true,
+        domainId: domain,
+        domainLabel: domDef.label,
+        domainColor: domDef.color,
+        dispatchers: dispatchers.map(d => ({ id: d.id, name: d.name })),
+        buses: buses.map(b => ({
+          id: b.id, name: b.name,
+          psIn:  `[${b.inputMapping.offset}:${b.inputMapping.offset + b.inputMapping.length - 1}]`,
+          psOut: `[${b.outputMapping.offset}:${b.outputMapping.offset + b.outputMapping.length - 1}]`,
+        })),
+        semanticLanes,
+        acpPsRegion: `PS[${OPENCLAW_PS_REGION.offset}:${OPENCLAW_PS_REGION.offset + OPENCLAW_PS_REGION.length - 1}]`,
+        dispatcherCount: dispatchers.length,
+      };
+
+      // Initial position: domain anchor, slightly pulled toward canvas center
+      const ax = domDef.anchor.x * innerWidth;
+      const ay = domDef.anchor.y * innerHeight;
+
+      const portalNode = Object.assign(
+        {} as MachineNode & d3.SimulationNodeDatum,
+        {
+          id:            portalId,
+          name:          `OpenClaw Portal · ${domDef.label}`,
+          description:   `Domain ACP portal — ${dispatchers.length} dispatcher(s), ${buses.length} bus(es)`,
+          inputMapping:  OPENCLAW_PS_REGION,
+          outputMapping: OPENCLAW_PS_REGION,
+          metadata:      portalMeta,
+          domain:        domain,
+          role:          'openclaw-virtual' as const,
+          x: ax, y: ay, fx: null, fy: null,
+        },
+      );
+      simNodes.push(portalNode);
+      nodeById.set(portalId, portalNode);
+
+      for (const d of dispatchers) {
         simEdges.push({
           source:        d as any,
-          target:        ocNode as any,
+          target:        portalNode as any,
           sourceRegion:  d.outputMapping,
           targetRegion:  OPENCLAW_PS_REGION,
           overlap:       false,
@@ -640,7 +704,10 @@ export const MachineGraphView: React.FC = () => {
     const drawHulls = () => {
       const byDomain = new Map<DomainId, (MachineNode & d3.SimulationNodeDatum)[]>();
       for (const d of DOMAIN_ORDER) byDomain.set(d, []);
-      for (const n of simNodes) byDomain.get((n.domain ?? 'general'))!.push(n);
+      for (const n of simNodes) {
+        if (isPortalNode(n.id)) continue;
+        byDomain.get((n.domain ?? 'general'))!.push(n);
+      }
 
       const hullData = DOMAIN_ORDER
         .map(domainId => {
@@ -732,45 +799,54 @@ export const MachineGraphView: React.FC = () => {
     if (compact) {
       // ── Compact mode: role-differentiated shapes ─────────────────────────
 
-      // OpenClaw gateway: hexagon, pinned outside domain grid
-      node.filter((d: any) => d.id === OPENCLAW_NODE_ID)
+      // Portal nodes: hexagon with domain color + orange ring + count badge
+      node.filter((d: any) => isPortalNode(d.id))
         .append('polygon')
         .attr('points', hexagonPoints(22))
-        .attr('fill', OPENCLAW_FILL)
+        .attr('fill', (d: any) => {
+          const meta = d.metadata as PortalNodeMetadata;
+          return `${meta.domainColor}22`;
+        })
         .attr('stroke', OPENCLAW_STROKE)
-        .attr('stroke-width', 2)
+        .attr('stroke-width', 2.5)
         .attr('stroke-dasharray', '5,3');
 
-      node.filter((d: any) => d.id === OPENCLAW_NODE_ID)
+      node.filter((d: any) => isPortalNode(d.id))
+        .append('polygon')
+        .attr('points', hexagonPoints(16))
+        .attr('fill', 'none')
+        .attr('stroke', (d: any) => (d.metadata as PortalNodeMetadata).domainColor)
+        .attr('stroke-width', 1.5);
+
+      node.filter((d: any) => isPortalNode(d.id))
         .append('text')
         .attr('text-anchor', 'middle')
         .attr('y', -28)
-        .attr('font-size', '9px')
+        .attr('font-size', '8px')
         .attr('font-weight', 700)
         .attr('fill', OPENCLAW_STROKE)
-        .attr('letter-spacing', '0.5px')
         .attr('pointer-events', 'none')
-        .text('OpenClaw');
+        .text((d: any) => (d.metadata as PortalNodeMetadata).domainLabel.split(' ')[0]);
 
-      node.filter((d: any) => d.id === OPENCLAW_NODE_ID)
+      node.filter((d: any) => isPortalNode(d.id))
         .append('text')
         .attr('text-anchor', 'middle')
         .attr('y', -18)
-        .attr('font-size', '8px')
+        .attr('font-size', '7px')
         .attr('fill', OPENCLAW_STROKE)
-        .attr('opacity', 0.7)
+        .attr('opacity', 0.75)
         .attr('pointer-events', 'none')
-        .text('xACP Gateway');
+        .text((d: any) => `⬡ ×${(d.metadata as PortalNodeMetadata).dispatcherCount}`);
 
       // Interconnect (mechanical bus): diamond shape with double ring
-      node.filter((d: any) => d.role === 'interconnect' && d.id !== OPENCLAW_NODE_ID)
+      node.filter((d: any) => d.role === 'interconnect')
         .append('polygon')
         .attr('points', diamondPoints(COMPACT_R + 4, COMPACT_R + 4))
         .attr('fill', 'rgba(96,180,248,0.10)')
         .attr('stroke', BUS_STROKE)
         .attr('stroke-width', 2);
 
-      node.filter((d: any) => d.role === 'interconnect' && d.id !== OPENCLAW_NODE_ID)
+      node.filter((d: any) => d.role === 'interconnect')
         .append('polygon')
         .attr('points', diamondPoints(COMPACT_R - 2, COMPACT_R - 2))
         .attr('fill', 'none')
@@ -778,7 +854,7 @@ export const MachineGraphView: React.FC = () => {
         .attr('stroke-width', 1)
         .attr('opacity', 0.45);
 
-      node.filter((d: any) => d.role === 'interconnect' && d.id !== OPENCLAW_NODE_ID)
+      node.filter((d: any) => d.role === 'interconnect')
         .append('text')
         .attr('text-anchor', 'middle')
         .attr('y', COMPACT_R + 14)
@@ -805,16 +881,16 @@ export const MachineGraphView: React.FC = () => {
         .attr('fill', OPENCLAW_STROKE)
         .attr('opacity', 0.9);
 
-      // Standard nodes
-      node.filter((d: any) => d.role === 'standard' && d.id !== OPENCLAW_NODE_ID)
+      // Standard nodes — skip portals
+      node.filter((d: any) => d.role === 'standard' && !isPortalNode(d.id))
         .append('circle')
         .attr('r', COMPACT_R)
         .attr('fill', vizTheme.bg.cardIdle)
         .attr('stroke', (d: MachineNode) => DOMAINS[(d.domain ?? 'general')].color)
         .attr('stroke-width', 2);
 
-      // Agent-dispatcher inner circle (to keep the base shape)
-      node.filter((d: any) => d.role === 'agent-dispatcher')
+      // Agent-dispatcher inner circle
+      node.filter((d: any) => d.role === 'agent-dispatcher' && !isPortalNode(d.id))
         .append('circle')
         .attr('r', COMPACT_R)
         .attr('fill', 'rgba(255,107,53,0.08)')
@@ -825,40 +901,53 @@ export const MachineGraphView: React.FC = () => {
     } else {
       // ── Full mode: cards with name + mapping labels ───────────────────────
 
-      // OpenClaw gateway: hexagon card, not a rect
-      node.filter((d: any) => d.id === OPENCLAW_NODE_ID)
+      // Portal nodes: hexagon with domain-colored inner ring + orange outer ring
+      node.filter((d: any) => isPortalNode(d.id))
         .append('polygon')
-        .attr('points', hexagonPoints(52))
-        .attr('fill', OPENCLAW_FILL)
+        .attr('points', hexagonPoints(56))
+        .attr('fill', (d: any) => {
+          const meta = d.metadata as PortalNodeMetadata;
+          return `${meta.domainColor}18`;
+        })
         .attr('stroke', OPENCLAW_STROKE)
         .attr('stroke-width', 2)
-        .attr('stroke-dasharray', '6,3');
+        .attr('stroke-dasharray', '7,3');
 
-      node.filter((d: any) => d.id === OPENCLAW_NODE_ID)
+      node.filter((d: any) => isPortalNode(d.id))
+        .append('polygon')
+        .attr('points', hexagonPoints(44))
+        .attr('fill', 'none')
+        .attr('stroke', (d: any) => (d.metadata as PortalNodeMetadata).domainColor)
+        .attr('stroke-width', 2);
+
+      node.filter((d: any) => isPortalNode(d.id))
         .append('text')
         .attr('text-anchor', 'middle')
-        .attr('y', -10)
-        .attr('font-size', '12px')
+        .attr('y', -16)
+        .attr('font-size', '10px')
         .attr('font-weight', 700)
         .attr('fill', OPENCLAW_STROKE)
-        .text('OpenClaw');
+        .text(() => `⬡ OpenClaw Portal`);
 
-      node.filter((d: any) => d.id === OPENCLAW_NODE_ID)
+      node.filter((d: any) => isPortalNode(d.id))
         .append('text')
         .attr('text-anchor', 'middle')
-        .attr('y', 8)
+        .attr('y', 0)
         .attr('font-size', '10px')
-        .attr('fill', OPENCLAW_STROKE)
-        .attr('opacity', 0.75)
-        .text('xACP Gateway');
+        .attr('fill', (d: any) => (d.metadata as PortalNodeMetadata).domainColor)
+        .attr('font-weight', 600)
+        .text((d: any) => (d.metadata as PortalNodeMetadata).domainLabel);
 
-      node.filter((d: any) => d.id === OPENCLAW_NODE_ID)
+      node.filter((d: any) => isPortalNode(d.id))
         .append('text')
         .attr('text-anchor', 'middle')
-        .attr('y', 26)
+        .attr('y', 16)
         .attr('font-size', '9px')
         .attr('fill', vizTheme.text.secondary)
-        .text(`PS[${OPENCLAW_PS_REGION.offset}:${OPENCLAW_PS_REGION.offset + OPENCLAW_PS_REGION.length - 1}]`);
+        .text((d: any) => {
+          const m = d.metadata as PortalNodeMetadata;
+          return `×${m.dispatcherCount} dispatch · ${m.buses.length} bus · ${m.semanticLanes.length} lane(s)`;
+        });
 
       // Interconnect (mechanical bus): diamond card
       node.filter((d: any) => d.role === 'interconnect')
@@ -917,7 +1006,7 @@ export const MachineGraphView: React.FC = () => {
         .attr('opacity', 0.65);
 
       // Standard cards for non-virtual standard + agent-dispatcher nodes
-      node.filter((d: any) => d.role !== 'interconnect' && d.id !== OPENCLAW_NODE_ID)
+      node.filter((d: any) => d.role !== 'interconnect' && !isPortalNode(d.id))
         .append('rect')
         .attr('width', 160)
         .attr('height', 100)
@@ -950,7 +1039,7 @@ export const MachineGraphView: React.FC = () => {
         .attr('pointer-events', 'none')
         .text('ACP');
 
-      node.filter((d: any) => d.role !== 'interconnect' && d.id !== OPENCLAW_NODE_ID)
+      node.filter((d: any) => d.role !== 'interconnect' && !isPortalNode(d.id))
         .append('text')
         .attr('text-anchor', 'middle')
         .attr('y', -20)
@@ -959,7 +1048,7 @@ export const MachineGraphView: React.FC = () => {
         .attr('fill', vizTheme.text.primary)
         .text((d: MachineNode) => d.name);
 
-      node.filter((d: any) => d.role !== 'interconnect' && d.id !== OPENCLAW_NODE_ID)
+      node.filter((d: any) => d.role !== 'interconnect' && !isPortalNode(d.id))
         .append('text')
         .attr('text-anchor', 'middle')
         .attr('y', 0)
@@ -967,7 +1056,7 @@ export const MachineGraphView: React.FC = () => {
         .attr('fill', vizTheme.accent.input)
         .text((d: MachineNode) => `In: [${d.inputMapping.offset}:${d.inputMapping.offset + d.inputMapping.length}]`);
 
-      node.filter((d: any) => d.role !== 'interconnect' && d.id !== OPENCLAW_NODE_ID)
+      node.filter((d: any) => d.role !== 'interconnect' && !isPortalNode(d.id))
         .append('text')
         .attr('text-anchor', 'middle')
         .attr('y', 15)
@@ -976,7 +1065,7 @@ export const MachineGraphView: React.FC = () => {
         .text((d: MachineNode) => `Out: [${d.outputMapping.offset}:${d.outputMapping.offset + d.outputMapping.length}]`);
 
       const stepText = node
-        .filter((d: any) => d.id !== OPENCLAW_NODE_ID)
+        .filter((d: any) => !isPortalNode(d.id))
         .append<SVGTextElement>('text')
         .attr('text-anchor', 'middle')
         .attr('y', 35)
@@ -1012,6 +1101,7 @@ export const MachineGraphView: React.FC = () => {
 
     // Double-click — navigate to that machine's interconnect view
     node.on('dblclick', (_event: any, d: any) => {
+      if (isPortalNode(d.id)) return;
       loadMachineRef.current(d.id);
     });
 
@@ -1019,6 +1109,24 @@ export const MachineGraphView: React.FC = () => {
     node
       .on('mouseenter.tooltip', (event: MouseEvent, d: any) => {
         if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current);
+        if (isPortalNode(d.id)) {
+          tooltipTimerRef.current = setTimeout(() => {
+            const rect = containerRef.current!.getBoundingClientRect();
+            const meta = d.metadata as PortalNodeMetadata;
+            setPortalTooltip({
+              domainId:     meta.domainId,
+              domainLabel:  meta.domainLabel,
+              domainColor:  meta.domainColor,
+              x: event.clientX - rect.left + 14,
+              y: event.clientY - rect.top - 10,
+              dispatchers:  meta.dispatchers,
+              buses:        meta.buses,
+              semanticLanes: meta.semanticLanes,
+              acpPsRegion:  meta.acpPsRegion,
+            });
+          }, 180);
+          return;
+        }
         tooltipTimerRef.current = setTimeout(() => {
           const rect = containerRef.current!.getBoundingClientRect();
           showTooltipRef.current(d.id, d.name, event.clientX - rect.left + 14, event.clientY - rect.top - 10);
@@ -1028,10 +1136,12 @@ export const MachineGraphView: React.FC = () => {
         if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current);
         tooltipTimerRef.current = setTimeout(() => {
           setTooltip(prev => (prev?.pinned ? prev : null));
+          setPortalTooltip(null);
         }, 220);
       })
       .on('click.tooltip', (_event: any, d: any) => {
         if (didDrag) return;
+        if (isPortalNode(d.id)) return; // no click-pin for portals
         setTooltip(prev => {
           if (!prev || prev.machineId !== d.id) return prev;
           return prev.pinned ? null : { ...prev, pinned: true };
@@ -1151,7 +1261,7 @@ export const MachineGraphView: React.FC = () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const nodeShape: d3.Selection<any, MachineNode, SVGGElement, unknown> = compactModeRef.current
       ? node.filter((d: any) => d.role === 'standard').select<SVGCircleElement>('circle')
-      : node.filter((d: any) => d.id !== OPENCLAW_NODE_ID && d.role !== 'interconnect').select<SVGRectElement>('rect:last-of-type');
+      : node.filter((d: any) => !isPortalNode(d.id) && d.role !== 'interconnect').select<SVGRectElement>('rect:last-of-type');
     nodeShape
       .attr('fill', (d: MachineNode) => {
         const state = getMachineColorState(currentStep?.machineResults[d.id]);
@@ -1366,7 +1476,7 @@ export const MachineGraphView: React.FC = () => {
                     background: OPENCLAW_FILL, border: `1.5px dashed ${OPENCLAW_STROKE}`,
                     clipPath: 'polygon(50% 0%, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%)',
                   }} />
-                  <span style={{ color: OPENCLAW_STROKE }}>OpenClaw xACP Gateway</span>
+                  <span style={{ color: OPENCLAW_STROKE }}>OpenClaw Domain Portal</span>
                 </div>
               )}
               <div className="vis-legend-divider" />
@@ -1443,6 +1553,89 @@ export const MachineGraphView: React.FC = () => {
             onPin={() => setTooltip(prev => prev ? { ...prev, pinned: !prev.pinned } : null)}
             onClose={() => setTooltip(null)}
           />
+        )}
+
+        {!is3D && portalTooltip && (
+          <div
+            className="portal-tooltip"
+            style={{
+              position:   'absolute',
+              left:        portalTooltip.x,
+              top:         portalTooltip.y,
+              zIndex:      50,
+              background:  'rgba(4,10,20,0.96)',
+              border:      `1px solid ${portalTooltip.domainColor}`,
+              borderRadius: 8,
+              padding:     '10px 14px',
+              minWidth:    260,
+              maxWidth:    380,
+              boxShadow:   '0 4px 24px rgba(0,0,0,0.6)',
+              pointerEvents: 'none',
+              fontFamily:  'ui-monospace,monospace',
+              fontSize:    11,
+            }}
+          >
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <span style={{
+                color: '#ff6b35', fontSize: 14, fontWeight: 700,
+              }}>⬡</span>
+              <span style={{ color: '#ff6b35', fontWeight: 700, fontSize: 12 }}>
+                OpenClaw Portal
+              </span>
+              <span style={{ color: portalTooltip.domainColor, fontWeight: 600, fontSize: 11 }}>
+                · {portalTooltip.domainLabel}
+              </span>
+            </div>
+
+            {/* Dispatchers */}
+            <div style={{ color: '#7a9ab8', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>
+              ACP Dispatchers ({portalTooltip.dispatchers.length})
+            </div>
+            {portalTooltip.dispatchers.map(d => (
+              <div key={d.id} style={{ color: '#ff6b35', marginLeft: 8, marginBottom: 2, fontSize: 10 }}>
+                ↯ {d.name}
+              </div>
+            ))}
+
+            {/* Mechanical buses */}
+            {portalTooltip.buses.length > 0 && (
+              <>
+                <div style={{ color: '#7a9ab8', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.5px', marginTop: 8, marginBottom: 4 }}>
+                  Mechanical Buses ({portalTooltip.buses.length})
+                </div>
+                {portalTooltip.buses.map(b => (
+                  <div key={b.id} style={{ color: '#60b4f8', marginLeft: 8, marginBottom: 2, fontSize: 10 }}>
+                    ◈ {b.name}
+                    <span style={{ color: '#3d5a72', marginLeft: 6 }}>
+                      in{b.psIn} out{b.psOut}
+                    </span>
+                  </div>
+                ))}
+              </>
+            )}
+
+            {/* Semantic lanes */}
+            {portalTooltip.semanticLanes.length > 0 && (
+              <>
+                <div style={{ color: '#7a9ab8', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.5px', marginTop: 8, marginBottom: 4 }}>
+                  Semantic Lanes ({portalTooltip.semanticLanes.length})
+                </div>
+                {portalTooltip.semanticLanes.map((l, i) => (
+                  <div key={i} style={{ color: '#9b6dff', marginLeft: 8, marginBottom: 2, fontSize: 10 }}>
+                    ⟿ {DOMAINS[l.fromDomain as DomainId]?.label ?? l.fromDomain}
+                    {' → '}
+                    {DOMAINS[l.toDomain as DomainId]?.label ?? l.toDomain}
+                  </div>
+                ))}
+              </>
+            )}
+
+            {/* ACP completion region */}
+            <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid #1a3352', color: '#3d5a72', fontSize: 10 }}>
+              Completions return to {portalTooltip.acpPsRegion}
+            </div>
+          </div>
         )}
       </div>
     </div>
