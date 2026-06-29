@@ -56,6 +56,19 @@ export const vizTheme = {
     focus:          '#00c8ef',
     hover:          '#f59e0b',
   },
+
+  bus: {
+    interconnectStroke: '#60b4f8',         // sky-blue — mechanical bus/interconnect nodes
+    interconnectFill:   'rgba(96,180,248,0.10)',
+    barBg:              'rgba(96,180,248,0.06)',
+    semanticLane:       'rgba(96,180,248,0.18)',
+  },
+
+  openclaw: {
+    node:  '#ff6b35',                      // burnt-orange — OpenClaw gateway
+    fill:  'rgba(255,107,53,0.12)',
+    edge:  '#ff6b35',
+  },
 } as const;
 
 export type VizTheme = typeof vizTheme;

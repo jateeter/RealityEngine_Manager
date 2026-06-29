@@ -20,6 +20,10 @@ import {
   DOMAINS,
   DOMAIN_ORDER,
   DomainId,
+  getNodeRole,
+  NodeRole,
+  OPENCLAW_NODE_ID,
+  OPENCLAW_PS_REGION,
 } from './machineDomains';
 import { vizTheme } from '../styles/vizTheme';
 
@@ -34,6 +38,7 @@ interface MachineNode3D {
   metadata: Record<string, any>;
   domain: DomainId;
   isExternal: boolean;
+  role?: NodeRole | 'openclaw-virtual';
   // 3d-force-graph managed
   x?: number;
   y?: number;
@@ -51,7 +56,11 @@ interface MachineEdge3D {
   sourceRegion: { offset: number; length: number };
   targetRegion: { offset: number; length: number };
   overlap: boolean;
+  isAcpEdge?: boolean;
 }
+
+const G3D_BUS_COLOR      = '#60b4f8';
+const G3D_OPENCLAW_COLOR = '#ff6b35';
 
 interface MachineGraphData {
   nodes: Array<{
@@ -435,6 +444,12 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
 
   useEffect(() => { fetchGraphData(); }, [fetchGraphData]);
 
+  useEffect(() => {
+    const handler = () => { fetchGraphData(); };
+    window.addEventListener('re:engine-switched', handler);
+    return () => window.removeEventListener('re:engine-switched', handler);
+  }, [fetchGraphData]);
+
   // Track mouse viewport position so onNodeHover can forward it to the parent.
   useEffect(() => {
     const el = containerRef.current;
@@ -499,7 +514,9 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
 
     const selected = new Set(selectedDomains);
 
-    const visibleNodes = allNodesRef.current.filter(n => selected.has(n.domain));
+    const visibleNodes = allNodesRef.current.filter(
+      n => n.id === OPENCLAW_NODE_ID || selected.has(n.domain),
+    );
     const visibleIds = new Set(visibleNodes.map(n => n.id));
     const visibleLinks = allLinksRef.current.filter(e => {
       const srcId = typeof e.source === 'object' ? (e.source as any).id : e.source;
@@ -522,21 +539,52 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
     // Classify and build nodes
     const nodes: MachineNode3D[] = data.nodes.map(n => {
       const cls = classifyMachine(n);
+      const role = getNodeRole(n);
       const anchor = domainAnchor3D(cls.domain);
       return {
         ...n,
         domain: cls.domain,
         isExternal: cls.isExternal,
+        role,
         colorState: 'idle' as const,
-        // Tight initial placement near domain anchor so forces converge quickly
-        // and bubbles are correct even before the simulation settles.
         x: anchor.x + (Math.random() - 0.5) * 80,
         y: anchor.y + (Math.random() - 0.5) * 80,
         z: anchor.z + (Math.random() - 0.5) * 60,
       };
     });
 
-    const links = data.edges.map(e => ({ ...e }));
+    const links: MachineEdge3D[] = data.edges.map(e => ({ ...e }));
+
+    // Inject OpenClaw virtual node + ACP dispatch edges when agent-dispatchers exist
+    const dispatchers = nodes.filter(n => n.role === 'agent-dispatcher');
+    if (dispatchers.length > 0) {
+      const ocNode: MachineNode3D = {
+        id: OPENCLAW_NODE_ID,
+        name: 'OpenClaw Gateway',
+        description: `OpenClaw xACP gateway — ${dispatchers.length} agent-dispatcher machine(s). Completions return to PS[${OPENCLAW_PS_REGION.offset}:${OPENCLAW_PS_REGION.offset + OPENCLAW_PS_REGION.length - 1}].`,
+        inputMapping:  OPENCLAW_PS_REGION,
+        outputMapping: OPENCLAW_PS_REGION,
+        metadata: { virtual: true, tags: ['external', 'openclaw'] },
+        domain: 'general',
+        isExternal: true,
+        role: 'openclaw-virtual',
+        colorState: 'idle',
+        x: 0, y: -SPREAD * 2.5, z: 0,
+        fx: 0, fy: -SPREAD * 2.5, fz: 0,
+      };
+      nodes.push(ocNode);
+
+      for (const d of dispatchers) {
+        links.push({
+          source: d.id,
+          target: OPENCLAW_NODE_ID,
+          sourceRegion:  d.outputMapping,
+          targetRegion:  OPENCLAW_PS_REGION,
+          overlap:       false,
+          isAcpEdge:     true,
+        });
+      }
+    }
 
     // Store all nodes/links for domain filtering
     allNodesRef.current = nodes;
@@ -567,27 +615,31 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
       .onNodeHover(() => {})
       .nodeColor((node: any) => {
         const n = node as MachineNode3D;
+        if (n.id === OPENCLAW_NODE_ID) return G3D_OPENCLAW_COLOR;
         const step = currentStepRef.current;
         const state = getMachineColorState(step?.machineResults[n.id]);
         if (state === 'fired') return '#ef4444';
         if (state === 'active') return vizTheme.accent.input;
+        if (n.role === 'agent-dispatcher') return G3D_OPENCLAW_COLOR;
+        if (n.role === 'interconnect')     return G3D_BUS_COLOR;
         return domainColorHex(n.domain);
       })
       .nodeOpacity(0.92)
       .nodeResolution(16)
       .nodeVal((node: any) => {
-        // Scale node size by sequence count or default
         const n = node as MachineNode3D;
+        if (n.id === OPENCLAW_NODE_ID) return 32;
+        if (n.role === 'interconnect') return Math.max(8, Math.min(28, (n.metadata?.sequenceCount ?? 4) * 3));
         return Math.max(4, Math.min(20, (n.metadata?.sequenceCount ?? 3) * 2));
       })
       .linkSource('source')
       .linkTarget('target')
-      .linkColor(() => EDGE_COLOR)
+      .linkColor((link: any) => link.isAcpEdge ? G3D_OPENCLAW_COLOR : EDGE_COLOR)
       .linkOpacity(0.8)
-      .linkWidth(2.5)
+      .linkWidth((link: any) => link.isAcpEdge ? 1.5 : 2.5)
       .linkDirectionalArrowLength(8)
       .linkDirectionalArrowRelPos(1)
-      .linkDirectionalArrowColor(() => ARROW_COLOR)
+      .linkDirectionalArrowColor((link: any) => link.isAcpEdge ? G3D_OPENCLAW_COLOR : ARROW_COLOR)
       .linkDirectionalParticles(0)
       .onNodeClick((node: any) => {
         const n = node as MachineNode3D;
@@ -883,6 +935,7 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
     const byDomain = new Map<DomainId, MachineNode3D[]>();
     for (const d of DOMAIN_ORDER) byDomain.set(d, []);
     for (const n of nodes) {
+      if (n.id === OPENCLAW_NODE_ID) continue; // virtual node — not in any domain hull
       if (selected.has(n.domain)) byDomain.get(n.domain)!.push(n);
     }
 

@@ -396,3 +396,29 @@ export function domainFill(domain: DomainId): string {
 export function domainLabel(domain: DomainId): string {
   return DOMAINS[domain].label;
 }
+
+// ── Node roles ────────────────────────────────────────────────────────────────
+
+export type NodeRole = 'standard' | 'interconnect' | 'agent-dispatcher';
+
+export function getNodeRole(m: MinimalMachine): NodeRole {
+  if ((m.name ?? '').includes('Interconnect')) return 'interconnect';
+  const meta = m.metadata ?? {};
+  const tags = Array.isArray(meta.tags)
+    ? meta.tags.map(t => String(t).toLowerCase())
+    : [];
+  if (
+    tags.includes('agent-dispatcher') ||
+    String(meta.function ?? '').toLowerCase().includes('agent dispatcher')
+  ) {
+    return 'agent-dispatcher';
+  }
+  return 'standard';
+}
+
+// The perceptual-space region reserved for OpenClaw ACP completion signals.
+export const OPENCLAW_PS_REGION = { offset: 4210, length: 4 } as const;
+
+// Synthetic node ID used to represent the OpenClaw gateway in the visualizer.
+// It is never stored in the machine corpus.
+export const OPENCLAW_NODE_ID = '__openclaw__' as const;

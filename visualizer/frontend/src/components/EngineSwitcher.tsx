@@ -101,6 +101,7 @@ export function EngineSwitcher({ onSwitch }: Props) {
     try {
       await api.setActiveEngine(inst.id);
       setActiveId(inst.id);
+      window.dispatchEvent(new CustomEvent('re:engine-switched', { detail: { id: inst.id } }));
       onSwitch?.(inst);
     } catch (e) {
       console.error('Engine switch failed', e);
