@@ -17,6 +17,10 @@ import {
   DOMAINS,
   DOMAIN_ORDER,
   DomainId,
+  getNodeRole,
+  NodeRole,
+  OPENCLAW_NODE_ID,
+  OPENCLAW_PS_REGION,
 } from './machineDomains';
 import { vizTheme } from '../styles/vizTheme';
 import { Graph3DView } from './Graph3DView';
@@ -61,6 +65,7 @@ interface MachineNode extends d3.SimulationNodeDatum {
   isExternal: boolean;
   severity?: string;
   status?: 'idle' | 'processing' | 'active';
+  role?: NodeRole | 'openclaw-virtual';
 }
 
 interface MachineLink {
@@ -69,7 +74,12 @@ interface MachineLink {
   sourceRegion: { offset: number; length: number };
   targetRegion: { offset: number; length: number };
   overlapSize: number;
+  isAcpEdge?: boolean;
 }
+
+const MIG_BUS_COLOR      = '#60b4f8';
+const MIG_OPENCLAW_COLOR = '#ff6b35';
+const MIG_OPENCLAW_FILL  = 'rgba(255,107,53,0.10)';
 
 // Raw per-step payload from the engine. Only the fields the tooltip needs are
 // typed; the WebSocket frame carries more.
@@ -387,14 +397,14 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
     );
     const neighbourCount = egoMachines.length - 1;
 
+    const ringR = Math.min(width, height) * 0.32;
+
     const nodes: MachineNode[] = egoMachines.map((m, i) => {
       const cls = classifications.get(m.id)
         ?? { domain: 'general' as DomainId, isExternal: false, reason: 'missing' };
       const meta = m.metadata ?? {};
       const isCurrent = m.id === currentMachineId;
-      // Seed neighbours on a ring; the current node is pinned at center.
       const angle = neighbourCount > 0 ? (i / Math.max(1, neighbourCount)) * 2 * Math.PI : 0;
-      const ringR = Math.min(width, height) * 0.32;
       const saved = nodePositionsRef.current.get(m.id);
       return {
         id: m.id,
@@ -410,12 +420,36 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
         isExternal: cls.isExternal,
         severity: (m as any).severity ?? meta.severity,
         status: 'idle' as const,
+        role: getNodeRole(m) as NodeRole,
         x: isCurrent ? cx : (saved?.x ?? cx + ringR * Math.cos(angle)),
         y: isCurrent ? cy : (saved?.y ?? cy + ringR * Math.sin(angle)),
         fx: isCurrent ? cx : undefined,
         fy: isCurrent ? cy : undefined,
       };
     });
+
+    // If the current or any neighbour is an agent-dispatcher, add the OpenClaw
+    // virtual node at the right side of the canvas.
+    const hasDispatcher = nodes.some(n => n.role === 'agent-dispatcher');
+    if (hasDispatcher) {
+      const ocSaved = nodePositionsRef.current.get(OPENCLAW_NODE_ID);
+      const ocNode: MachineNode = {
+        id: OPENCLAW_NODE_ID,
+        name: 'OpenClaw Gateway',
+        description: `OpenClaw xACP gateway (PS[${OPENCLAW_PS_REGION.offset}:${OPENCLAW_PS_REGION.offset + OPENCLAW_PS_REGION.length - 1}])`,
+        inputMapping:  OPENCLAW_PS_REGION,
+        outputMapping: OPENCLAW_PS_REGION,
+        isCurrent: false,
+        isConnected: true,
+        metadata: { virtual: true, tags: ['external', 'openclaw'] },
+        domain: 'general',
+        isExternal: true,
+        role: 'openclaw-virtual',
+        x: ocSaved?.x ?? cx + ringR * 1.4,
+        y: ocSaved?.y ?? cy,
+      };
+      nodes.push(ocNode);
+    }
 
     const nodeIds = new Set(nodes.map(n => n.id));
     const links: MachineLink[] = [];
@@ -436,6 +470,22 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
             sourceRegion: so,
             targetRegion: ti,
             overlapSize: oEnd - oStart,
+          });
+        }
+      }
+    }
+
+    // ACP dispatch edges: agent-dispatcher nodes → OpenClaw virtual node
+    if (hasDispatcher && nodeIds.has(OPENCLAW_NODE_ID)) {
+      for (const n of nodes) {
+        if (n.role === 'agent-dispatcher') {
+          links.push({
+            source: n.id,
+            target: OPENCLAW_NODE_ID,
+            sourceRegion: n.outputMapping,
+            targetRegion: OPENCLAW_PS_REGION,
+            overlapSize: 0,
+            isAcpEdge: true,
           });
         }
       }
@@ -490,21 +540,28 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
       .attr('class', 'link-path')
       .attr('fill', 'none')
       .attr('stroke', (d: MachineLink) => {
+        if (d.isAcpEdge) return MIG_OPENCLAW_COLOR;
         const { s, t } = endpointNodes(d);
+        if (s?.role === 'interconnect' || t?.role === 'interconnect') return MIG_BUS_COLOR;
         return (s?.isCurrent || t?.isCurrent) ? vizTheme.edge.active : vizTheme.edge.idle;
       })
       .attr('stroke-width', (d: MachineLink) => {
+        if (d.isAcpEdge) return 1.8;
         const { s, t } = endpointNodes(d);
+        if (s?.role === 'interconnect' || t?.role === 'interconnect') return 3;
         return (s?.isCurrent || t?.isCurrent) ? 3 : 2;
       })
+      .attr('stroke-dasharray', (d: MachineLink) => d.isAcpEdge ? '6,4' : null)
       .attr('opacity', 0.7)
       .attr('marker-end', (d: MachineLink) => {
+        if (d.isAcpEdge) return 'url(#arrowhead-acp)';
         const { s, t } = endpointNodes(d);
+        if (s?.role === 'interconnect' || t?.role === 'interconnect') return 'url(#arrowhead-bus)';
         return (s?.isCurrent || t?.isCurrent) ? 'url(#arrowhead-active)' : 'url(#arrowhead)';
       });
 
     svg.append('defs').selectAll('marker')
-      .data(['arrowhead', 'arrowhead-active'])
+      .data(['arrowhead', 'arrowhead-active', 'arrowhead-acp', 'arrowhead-bus'])
       .join('marker')
       .attr('id', markerType => markerType)
       .attr('viewBox', '0 -5 10 10')
@@ -515,7 +572,11 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
       .attr('orient', 'auto')
       .append('path')
       .attr('d', 'M0,-5L10,0L0,5')
-      .attr('fill', markerType => markerType === 'arrowhead-active' ? vizTheme.edge.active : vizTheme.edge.arrowhead);
+      .attr('fill', (markerType: string) =>
+        markerType === 'arrowhead-active' ? vizTheme.edge.active
+        : markerType === 'arrowhead-acp'  ? MIG_OPENCLAW_COLOR
+        : markerType === 'arrowhead-bus'  ? MIG_BUS_COLOR
+        : vizTheme.edge.arrowhead);
 
     const linkLabel = link.append('text')
       .attr('class', 'link-label')
@@ -537,7 +598,41 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
         loadMachineRef.current(d.id);
       });
 
-    node.append('rect')
+    // OpenClaw virtual node: hexagon shape, not a card
+    const hexPts = (r: number) => Array.from({ length: 6 }, (_, i) => {
+      const a = (i * 60 - 30) * Math.PI / 180;
+      return `${r * Math.cos(a)},${r * Math.sin(a)}`;
+    }).join(' ');
+
+    node.filter((d: MachineNode) => d.id === OPENCLAW_NODE_ID)
+      .append('polygon')
+      .attr('points', hexPts(60))
+      .attr('fill', MIG_OPENCLAW_FILL)
+      .attr('stroke', MIG_OPENCLAW_COLOR)
+      .attr('stroke-width', 2)
+      .attr('stroke-dasharray', '5,3');
+
+    node.filter((d: MachineNode) => d.id === OPENCLAW_NODE_ID)
+      .append('text')
+      .attr('text-anchor', 'middle').attr('y', -8)
+      .attr('font-size', '13px').attr('font-weight', 700)
+      .attr('fill', MIG_OPENCLAW_COLOR)
+      .text('OpenClaw');
+
+    node.filter((d: MachineNode) => d.id === OPENCLAW_NODE_ID)
+      .append('text')
+      .attr('text-anchor', 'middle').attr('y', 10)
+      .attr('font-size', '10px').attr('fill', MIG_OPENCLAW_COLOR).attr('opacity', 0.75)
+      .text('xACP Gateway');
+
+    node.filter((d: MachineNode) => d.id === OPENCLAW_NODE_ID)
+      .append('text')
+      .attr('text-anchor', 'middle').attr('y', 28)
+      .attr('font-size', '9px').attr('fill', vizTheme.text.secondary)
+      .text(`PS[${OPENCLAW_PS_REGION.offset}:${OPENCLAW_PS_REGION.offset + OPENCLAW_PS_REGION.length - 1}]`);
+
+    node.filter((d: MachineNode) => d.id !== OPENCLAW_NODE_ID)
+      .append('rect')
       .attr('data-field', 'status-rect')
       .attr('width', 200)
       .attr('height', 140)
@@ -545,19 +640,26 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
       .attr('y', -70)
       .attr('rx', 10)
       .attr('fill', (d: MachineNode) => d.isCurrent ? vizTheme.bg.cardActive : vizTheme.bg.cardConnected)
-      .attr('stroke', (d: MachineNode) => DOMAINS[d.domain].color)
+      .attr('stroke', (d: MachineNode) =>
+        d.role === 'agent-dispatcher' ? MIG_OPENCLAW_COLOR
+        : d.role === 'interconnect'   ? MIG_BUS_COLOR
+        : DOMAINS[d.domain].color)
       .attr('stroke-width', (d: MachineNode) => d.isCurrent ? 4 : 2.5);
 
-    node.append('rect')
+    node.filter((d: MachineNode) => d.id !== OPENCLAW_NODE_ID)
+      .append('rect')
       .attr('width', 200)
       .attr('height', 6)
       .attr('x', -100)
       .attr('y', -70)
       .attr('rx', 3)
-      .attr('fill', (d: MachineNode) => DOMAINS[d.domain].color)
+      .attr('fill', (d: MachineNode) =>
+        d.role === 'agent-dispatcher' ? MIG_OPENCLAW_COLOR
+        : d.role === 'interconnect'   ? MIG_BUS_COLOR
+        : DOMAINS[d.domain].color)
       .attr('opacity', 0.9);
 
-    node.filter((d: MachineNode) => d.isExternal)
+    node.filter((d: MachineNode) => d.isExternal && d.id !== OPENCLAW_NODE_ID)
       .append('g')
       .attr('class', 'external-chip')
       .call(g => {
@@ -576,13 +678,57 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
           .text('↯ EXTERNAL');
       });
 
-    node.append('text')
+    // Role chip: BUS or ACP badge on non-virtual nodes
+    node.filter((d: MachineNode) => d.role === 'interconnect' && d.id !== OPENCLAW_NODE_ID)
+      .append('g')
+      .attr('class', 'role-chip')
+      .call(g => {
+        g.append('rect')
+          .attr('x', -96).attr('y', d => (d as MachineNode).isExternal ? -46 : -64)
+          .attr('width', 38).attr('height', 14)
+          .attr('rx', 7)
+          .attr('fill', MIG_BUS_COLOR)
+          .attr('opacity', 0.85);
+        g.append('text')
+          .attr('x', -77).attr('y', d => (d as MachineNode).isExternal ? -36 : -54)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', '9px').attr('font-weight', 700)
+          .attr('fill', '#0a1428')
+          .text('⊞ BUS');
+      });
+
+    node.filter((d: MachineNode) => d.role === 'agent-dispatcher')
+      .append('g')
+      .attr('class', 'role-chip')
+      .call(g => {
+        g.append('rect')
+          .attr('x', 24).attr('y', -64)
+          .attr('width', 38).attr('height', 14)
+          .attr('rx', 7)
+          .attr('fill', MIG_OPENCLAW_COLOR)
+          .attr('opacity', 0.85);
+        g.append('text')
+          .attr('x', 43).attr('y', -54)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', '9px').attr('font-weight', 700)
+          .attr('fill', '#fff')
+          .text('↯ ACP');
+      });
+
+    node.filter((d: MachineNode) => d.id !== OPENCLAW_NODE_ID)
+      .append('text')
       .attr('x', 94).attr('y', -54)
       .attr('text-anchor', 'end')
       .attr('font-size', '9px')
       .attr('font-weight', 700)
-      .attr('fill', (d: MachineNode) => DOMAINS[d.domain].color)
-      .text((d: MachineNode) => DOMAINS[d.domain].short.toUpperCase());
+      .attr('fill', (d: MachineNode) =>
+        d.role === 'agent-dispatcher' ? MIG_OPENCLAW_COLOR
+        : d.role === 'interconnect'   ? MIG_BUS_COLOR
+        : DOMAINS[d.domain].color)
+      .text((d: MachineNode) =>
+        d.role === 'interconnect'     ? 'BUS'
+        : d.role === 'agent-dispatcher' ? 'ACP'
+        : DOMAINS[d.domain].short.toUpperCase());
 
     // Current machine focus ring
     node.filter((d: MachineNode) => d.isCurrent)
@@ -598,7 +744,8 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
       .attr('stroke-dasharray', '6,5')
       .attr('opacity', 0.7);
 
-    node.append('text')
+    node.filter((d: MachineNode) => d.id !== OPENCLAW_NODE_ID)
+      .append('text')
       .attr('text-anchor', 'middle')
       .attr('y', -40)
       .attr('font-size', '14px')
@@ -609,7 +756,8 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
         return d.name.length > maxLen ? d.name.substring(0, maxLen) + '...' : d.name;
       });
 
-    node.append('circle')
+    node.filter((d: MachineNode) => d.id !== OPENCLAW_NODE_ID)
+      .append('circle')
       .attr('data-field', 'status-dot')
       .attr('cx', 85)
       .attr('cy', -60)
@@ -617,35 +765,40 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
       .attr('fill', vizTheme.status.dotIdle)
       .attr('opacity', 0.9);
 
-    node.append('text')
+    node.filter((d: MachineNode) => d.id !== OPENCLAW_NODE_ID)
+      .append('text')
       .attr('text-anchor', 'middle')
       .attr('y', -18)
       .attr('font-size', '11px')
       .attr('fill', vizTheme.accent.input)
       .text((d: MachineNode) => `In: [${d.inputMapping.offset}:${d.inputMapping.offset + d.inputMapping.length - 1}]`);
 
-    node.append('text')
+    node.filter((d: MachineNode) => d.id !== OPENCLAW_NODE_ID)
+      .append('text')
       .attr('text-anchor', 'middle')
       .attr('y', -3)
       .attr('font-size', '11px')
       .attr('fill', vizTheme.accent.outputBright)
       .text((d: MachineNode) => `Out: [${d.outputMapping.offset}:${d.outputMapping.offset + d.outputMapping.length - 1}]`);
 
-    node.append('text')
+    node.filter((d: MachineNode) => d.id !== OPENCLAW_NODE_ID)
+      .append('text')
       .attr('data-field', 'last-input')
       .attr('text-anchor', 'middle')
       .attr('y', 15)
       .attr('font-size', '9px')
       .attr('fill', vizTheme.text.secondary);
 
-    node.append('text')
+    node.filter((d: MachineNode) => d.id !== OPENCLAW_NODE_ID)
+      .append('text')
       .attr('data-field', 'last-output')
       .attr('text-anchor', 'middle')
       .attr('y', 30)
       .attr('font-size', '9px')
       .attr('fill', vizTheme.accent.output);
 
-    node.append('text')
+    node.filter((d: MachineNode) => d.id !== OPENCLAW_NODE_ID)
+      .append('text')
       .attr('text-anchor', 'middle')
       .attr('y', 50)
       .attr('font-size', '10px')
@@ -653,7 +806,9 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
       .text((d: MachineNode) => d.sequenceCount ? `${d.sequenceCount} sequences` : '');
 
     // Invisible hit-rect drives the embedded Sequences tooltip.
-    node.append('rect')
+    // Skip for the OpenClaw virtual node — it has no RE machine data to fetch.
+    node.filter((d: MachineNode) => d.id !== OPENCLAW_NODE_ID)
+      .append('rect')
       .attr('width', 200).attr('height', 140)
       .attr('x', -100).attr('y', -70)
       .attr('fill', 'transparent')
@@ -736,6 +891,8 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
     if (!svgRef.current) return;
     const svg = d3.select(svgRef.current);
     svg.selectAll<SVGGElement, MachineNode>('g.node').each(function(d) {
+      if (d.id === OPENCLAW_NODE_ID) return; // virtual node has no simulation state
+
       const info = machineStatuses[d.id];
       const status = info?.status ?? 'idle';
 
@@ -878,6 +1035,32 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
         )}
 
         <div className="legend-divider" />
+        <div className="legend-section-title">Node Roles</div>
+        <div className="legend-item">
+          <div className="legend-box" style={{
+            backgroundColor: 'rgba(96,180,248,0.10)',
+            borderColor: MIG_BUS_COLOR, borderWidth: 2,
+            clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)',
+          }} />
+          <span style={{ color: MIG_BUS_COLOR }}>Interconnect (Mech. Bus)</span>
+        </div>
+        <div className="legend-item">
+          <div className="legend-box" style={{
+            backgroundColor: MIG_OPENCLAW_FILL,
+            borderColor: MIG_OPENCLAW_COLOR, borderWidth: 2, borderStyle: 'dashed',
+            borderRadius: '50%',
+          }} />
+          <span style={{ color: MIG_OPENCLAW_COLOR }}>Agent Dispatcher (ACP)</span>
+        </div>
+        <div className="legend-item">
+          <div className="legend-box" style={{
+            backgroundColor: MIG_OPENCLAW_FILL,
+            borderColor: MIG_OPENCLAW_COLOR, borderWidth: 2, borderStyle: 'dashed',
+            clipPath: 'polygon(50% 0%, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%)',
+          }} />
+          <span style={{ color: MIG_OPENCLAW_COLOR }}>OpenClaw xACP</span>
+        </div>
+        <div className="legend-divider" />
         <div className="legend-section-title">Runtime</div>
         <div className="legend-item">
           <div className="legend-box" style={{ backgroundColor: vizTheme.status.activeFill, borderColor: vizTheme.status.activeStroke }} />
@@ -890,6 +1073,14 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
         <div className="legend-item">
           <div className="legend-arrow" />
           <span>Data Flow</span>
+        </div>
+        <div className="legend-item" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ width: 24, height: 2, borderTop: `2px dashed ${MIG_OPENCLAW_COLOR}`, opacity: 0.8 }} />
+          <span style={{ color: MIG_OPENCLAW_COLOR }}>ACP Dispatch</span>
+        </div>
+        <div className="legend-item" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ width: 24, height: 3, background: MIG_BUS_COLOR, opacity: 0.7 }} />
+          <span style={{ color: MIG_BUS_COLOR }}>Mech. Bus Flow</span>
         </div>
         <div className="legend-divider" />
         <div className="legend-item" style={{ color: '#64748b', fontSize: '10px' }}>

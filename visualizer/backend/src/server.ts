@@ -324,6 +324,8 @@ app.post('/api/engines/active', (req: Request, res: Response) => {
   const inst = engineInstances.find(i => i.id === id);
   if (!inst) { res.status(404).json({ error: `Instance '${id}' not found` }); return; }
   activeEngineId = id;
+  invalidate('machine-graph');
+  invalidate('machines:');
   // Reconnect SSE stream to the new active RE instance
   if (reconnectTimer) clearTimeout(reconnectTimer);
   reconnectTimer = null;
