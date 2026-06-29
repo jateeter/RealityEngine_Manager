@@ -422,3 +422,24 @@ export const OPENCLAW_PS_REGION = { offset: 4210, length: 4 } as const;
 // Synthetic node ID used to represent the OpenClaw gateway in the visualizer.
 // It is never stored in the machine corpus.
 export const OPENCLAW_NODE_ID = '__openclaw__' as const;
+
+// Per-domain OpenClaw portal — one virtual node per domain that has dispatchers.
+export function portalNodeId(domain: DomainId): string {
+  return `__openclaw_portal_${domain}__`;
+}
+
+export function isPortalNode(id: string): boolean {
+  return id.startsWith('__openclaw_portal_');
+}
+
+export interface PortalNodeMetadata {
+  isPortal: true;
+  domainId: DomainId;
+  domainLabel: string;
+  domainColor: string;
+  dispatchers: Array<{ id: string; name: string }>;
+  buses: Array<{ id: string; name: string; psIn: string; psOut: string }>;
+  semanticLanes: Array<{ fromDomain: string; toDomain: string }>;
+  acpPsRegion: string;
+  dispatcherCount: number;
+}
