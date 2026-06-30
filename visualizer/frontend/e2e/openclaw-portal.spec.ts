@@ -8,30 +8,24 @@ test.describe('OpenClaw Domain Portals', () => {
     // Navigate to the interconnection graph view
     await page.getByRole('button', { name: /Interconnect/i }).click();
     // Wait for the machine graph SVG to become visible (simulation settles)
-    await page.waitForSelector('.machine-graph-svg', { timeout: 20_000 });
+    await page.waitForSelector('.graph-svg', { timeout: 20_000 });
     await page.waitForFunction(
-      () => document.querySelector('.machine-graph-svg')?.getAttribute('style')?.includes('opacity: 1') ||
-             !document.querySelector('.machine-graph-svg')?.getAttribute('style')?.includes('opacity: 0'),
+      () => document.querySelector('.graph-svg')?.getAttribute('style')?.includes('opacity: 1') ||
+             !document.querySelector('.graph-svg')?.getAttribute('style')?.includes('opacity: 0'),
       { timeout: 20_000 },
     );
   });
 
   test('Health Services domain has an OpenClaw portal node', async ({ page }) => {
-    // The portal node has text "⬡ OpenClaw Portal" or compact "⬡ ×N"
-    // In compact mode (many nodes), look for the portal text label
     const svgText = await page.locator('svg text').allTextContents();
-    const hasPortal = svgText.some(t => t.includes('OpenClaw Portal') || t.includes('⬡'));
+    const hasPortal = svgText.some(t => t.includes('OpenClaw Portal'));
     expect(hasPortal).toBe(true);
   });
 
   test('portal node tooltip shows dispatchers and buses on hover', async ({ page }) => {
-    // Find any portal node — look for text containing "OpenClaw Portal" in the SVG
-    const portalTextEl = page.locator('svg text').filter({ hasText: /OpenClaw Portal/i }).first();
-    // Fall back to compact mode badge text
-    const portalGroup = page.locator('g.node').filter({ has: portalTextEl });
+    const portalGroup = page.locator('g.openclaw-portal').first();
 
     if (await portalGroup.count() === 0) {
-      // Compact mode: look for "⬡ ×" badge
       test.skip(true, 'Portal node not visible in current mode');
       return;
     }
@@ -49,9 +43,7 @@ test.describe('OpenClaw Domain Portals', () => {
   });
 
   test('portal tooltip shows mechanical buses if domain has bus nodes', async ({ page }) => {
-    const portalGroup = page.locator('g.node').filter({
-      has: page.locator('text').filter({ hasText: /OpenClaw Portal/i }),
-    }).first();
+    const portalGroup = page.locator('g.openclaw-portal').first();
 
     if (await portalGroup.count() === 0) {
       test.skip(true, 'Portal node not found in current mode');
@@ -72,7 +64,7 @@ test.describe('OpenClaw Domain Portals', () => {
 
     // Count portals before filter
     const svgBefore = await page.locator('svg text').allTextContents();
-    const hasPortalBefore = svgBefore.some(t => t.includes('OpenClaw Portal') || t.includes('⬡ ×'));
+    const hasPortalBefore = svgBefore.some(t => t.includes('OpenClaw Portal'));
 
     if (!hasPortalBefore) {
       test.skip(true, 'No visible portal node in current mode');
@@ -80,16 +72,13 @@ test.describe('OpenClaw Domain Portals', () => {
     }
 
     // Uncheck Health Services domain
-    const hsCb = page.locator('label').filter({ hasText: /Health Services/i }).locator('input[type="checkbox"]');
-    await hsCb.uncheck();
+    await page.getByRole('button', { name: /Health Services/i }).click();
 
     // Allow filter animation
     await page.waitForTimeout(300);
 
     // Portal should be hidden (opacity 0.04 or display none)
-    const portalNodeGroups = page.locator('g.node').filter({
-      has: page.locator('text').filter({ hasText: /OpenClaw Portal/i }),
-    });
+    const portalNodeGroups = page.locator('g.openclaw-portal');
 
     if (await portalNodeGroups.count() > 0) {
       // Check that opacity is very low (domain filter applied)

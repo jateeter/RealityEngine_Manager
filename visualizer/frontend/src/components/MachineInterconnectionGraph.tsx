@@ -19,8 +19,10 @@ import {
   DomainId,
   getNodeRole,
   NodeRole,
-  OPENCLAW_NODE_ID,
   OPENCLAW_PS_REGION,
+  PortalNodeMetadata,
+  isPortalNode,
+  portalNodeId,
 } from './machineDomains';
 import { vizTheme } from '../styles/vizTheme';
 import { Graph3DView } from './Graph3DView';
@@ -65,7 +67,7 @@ interface MachineNode extends d3.SimulationNodeDatum {
   isExternal: boolean;
   severity?: string;
   status?: 'idle' | 'processing' | 'active';
-  role?: NodeRole | 'openclaw-virtual';
+  role?: NodeRole | 'openclaw-portal';
 }
 
 interface MachineLink {
@@ -75,6 +77,12 @@ interface MachineLink {
   targetRegion: { offset: number; length: number };
   overlapSize: number;
   isAcpEdge?: boolean;
+}
+
+interface PortalTooltipState {
+  node: MachineNode;
+  x: number;
+  y: number;
 }
 
 const MIG_BUS_COLOR      = '#60b4f8';
@@ -191,6 +199,7 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
 
   // ── Embedded Sequences tooltip state (shared with MachineGraphView) ────────
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
+  const [portalTooltip, setPortalTooltip] = useState<PortalTooltipState | null>(null);
   const tooltipCacheRef = useRef<Map<string, TooltipMachineData>>(new Map());
   const tooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showTooltipRef = useRef<(id: string, name: string, x: number, y: number) => void>(() => {});
@@ -428,27 +437,53 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
       };
     });
 
-    // If the current or any neighbour is an agent-dispatcher, add the OpenClaw
-    // virtual node at the right side of the canvas.
-    const hasDispatcher = nodes.some(n => n.role === 'agent-dispatcher');
-    if (hasDispatcher) {
-      const ocSaved = nodePositionsRef.current.get(OPENCLAW_NODE_ID);
-      const ocNode: MachineNode = {
-        id: OPENCLAW_NODE_ID,
-        name: 'OpenClaw Gateway',
-        description: `OpenClaw xACP gateway (PS[${OPENCLAW_PS_REGION.offset}:${OPENCLAW_PS_REGION.offset + OPENCLAW_PS_REGION.length - 1}])`,
-        inputMapping:  OPENCLAW_PS_REGION,
+    // Add one OpenClaw portal inside each active domain that has dispatchers.
+    const dispatcherDomains = Array.from(new Set(
+      nodes.filter(n => n.role === 'agent-dispatcher').map(n => n.domain),
+    ));
+    for (const domain of dispatcherDomains) {
+      const domainNodes = nodes.filter(n => n.domain === domain);
+      const dispatchers = domainNodes.filter(n => n.role === 'agent-dispatcher');
+      const buses = domainNodes.filter(n => n.role === 'interconnect');
+      if (dispatchers.length === 0) continue;
+
+      const centroidSource = buses.length > 0 ? [...dispatchers, ...buses] : dispatchers;
+      const avgX = d3.mean(centroidSource, n => n.x ?? cx) ?? cx;
+      const avgY = d3.mean(centroidSource, n => n.y ?? cy) ?? cy;
+      const id = portalNodeId(domain);
+      const saved = nodePositionsRef.current.get(id);
+      const portalMetadata: PortalNodeMetadata = {
+        isPortal: true,
+        domainId: domain,
+        domainLabel: DOMAINS[domain].label,
+        domainColor: DOMAINS[domain].color,
+        dispatchers: dispatchers.map(n => ({ id: n.id, name: n.name })),
+        buses: buses.map(n => ({
+          id: n.id,
+          name: n.name,
+          psIn: `[${n.inputMapping.offset}:${n.inputMapping.offset + n.inputMapping.length - 1}]`,
+          psOut: `[${n.outputMapping.offset}:${n.outputMapping.offset + n.outputMapping.length - 1}]`,
+        })),
+        semanticLanes: [],
+        acpPsRegion: `PS[${OPENCLAW_PS_REGION.offset}:${OPENCLAW_PS_REGION.offset + OPENCLAW_PS_REGION.length - 1}]`,
+        dispatcherCount: dispatchers.length,
+      };
+
+      nodes.push({
+        id,
+        name: `OpenClaw Portal - ${DOMAINS[domain].label}`,
+        description: `Domain-local OpenClaw xACP portal for ${DOMAINS[domain].label}`,
+        inputMapping: OPENCLAW_PS_REGION,
         outputMapping: OPENCLAW_PS_REGION,
         isCurrent: false,
         isConnected: true,
-        metadata: { virtual: true, tags: ['external', 'openclaw'] },
-        domain: 'general',
-        isExternal: true,
-        role: 'openclaw-virtual',
-        x: ocSaved?.x ?? cx + ringR * 1.4,
-        y: ocSaved?.y ?? cy,
-      };
-      nodes.push(ocNode);
+        metadata: portalMetadata,
+        domain,
+        isExternal: false,
+        role: 'openclaw-portal',
+        x: saved?.x ?? avgX + 120,
+        y: saved?.y ?? avgY - 80,
+      });
     }
 
     const nodeIds = new Set(nodes.map(n => n.id));
@@ -475,20 +510,19 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
       }
     }
 
-    // ACP dispatch edges: agent-dispatcher nodes → OpenClaw virtual node
-    if (hasDispatcher && nodeIds.has(OPENCLAW_NODE_ID)) {
-      for (const n of nodes) {
-        if (n.role === 'agent-dispatcher') {
-          links.push({
-            source: n.id,
-            target: OPENCLAW_NODE_ID,
-            sourceRegion: n.outputMapping,
-            targetRegion: OPENCLAW_PS_REGION,
-            overlapSize: 0,
-            isAcpEdge: true,
-          });
-        }
-      }
+    // ACP dispatch edges: agent-dispatcher nodes -> their domain-local portal.
+    for (const n of nodes) {
+      if (n.role !== 'agent-dispatcher') continue;
+      const target = portalNodeId(n.domain);
+      if (!nodeIds.has(target)) continue;
+      links.push({
+        source: n.id,
+        target,
+        sourceRegion: n.outputMapping,
+        targetRegion: OPENCLAW_PS_REGION,
+        overlapSize: 0,
+        isAcpEdge: true,
+      });
     }
 
     svg.selectAll('*').remove();
@@ -589,49 +623,58 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
 
     // Nodes
     const node = g.append('g').attr('class', 'nodes').selectAll('g').data(nodes).join('g')
-      .attr('class', 'node')
+      .attr('class', (d: MachineNode) => d.role === 'openclaw-portal' ? 'node openclaw-portal' : 'node')
       .call(d3.drag<any, MachineNode>()
         .on('start', dragstarted)
         .on('drag', dragged)
         .on('end', dragended) as any)
       .on('dblclick', (_event: any, d: MachineNode) => {
+        if (d.role === 'openclaw-portal') return;
         loadMachineRef.current(d.id);
       });
 
-    // OpenClaw virtual node: hexagon shape, not a card
+    // OpenClaw portal nodes: domain-local hexagons with an ACP ring.
     const hexPts = (r: number) => Array.from({ length: 6 }, (_, i) => {
       const a = (i * 60 - 30) * Math.PI / 180;
       return `${r * Math.cos(a)},${r * Math.sin(a)}`;
     }).join(' ');
 
-    node.filter((d: MachineNode) => d.id === OPENCLAW_NODE_ID)
+    node.filter((d: MachineNode) => d.role === 'openclaw-portal')
       .append('polygon')
-      .attr('points', hexPts(60))
-      .attr('fill', MIG_OPENCLAW_FILL)
+      .attr('points', hexPts(62))
+      .attr('fill', 'none')
       .attr('stroke', MIG_OPENCLAW_COLOR)
-      .attr('stroke-width', 2)
-      .attr('stroke-dasharray', '5,3');
+      .attr('stroke-width', 3)
+      .attr('stroke-dasharray', '6,4');
 
-    node.filter((d: MachineNode) => d.id === OPENCLAW_NODE_ID)
+    node.filter((d: MachineNode) => d.role === 'openclaw-portal')
+      .append('polygon')
+      .attr('points', hexPts(52))
+      .attr('fill', (d: MachineNode) => DOMAINS[d.domain].fill)
+      .attr('stroke', (d: MachineNode) => DOMAINS[d.domain].color)
+      .attr('stroke-width', 2);
+
+    node.filter((d: MachineNode) => d.role === 'openclaw-portal')
       .append('text')
       .attr('text-anchor', 'middle').attr('y', -8)
-      .attr('font-size', '13px').attr('font-weight', 700)
+      .attr('font-size', '12px').attr('font-weight', 700)
       .attr('fill', MIG_OPENCLAW_COLOR)
-      .text('OpenClaw');
+      .text('OpenClaw Portal');
 
-    node.filter((d: MachineNode) => d.id === OPENCLAW_NODE_ID)
+    node.filter((d: MachineNode) => d.role === 'openclaw-portal')
       .append('text')
       .attr('text-anchor', 'middle').attr('y', 10)
-      .attr('font-size', '10px').attr('fill', MIG_OPENCLAW_COLOR).attr('opacity', 0.75)
-      .text('xACP Gateway');
+      .attr('font-size', '10px')
+      .attr('fill', (d: MachineNode) => DOMAINS[d.domain].color)
+      .text((d: MachineNode) => DOMAINS[d.domain].short.toUpperCase());
 
-    node.filter((d: MachineNode) => d.id === OPENCLAW_NODE_ID)
+    node.filter((d: MachineNode) => d.role === 'openclaw-portal')
       .append('text')
       .attr('text-anchor', 'middle').attr('y', 28)
       .attr('font-size', '9px').attr('fill', vizTheme.text.secondary)
       .text(`PS[${OPENCLAW_PS_REGION.offset}:${OPENCLAW_PS_REGION.offset + OPENCLAW_PS_REGION.length - 1}]`);
 
-    node.filter((d: MachineNode) => d.id !== OPENCLAW_NODE_ID)
+    node.filter((d: MachineNode) => d.role !== 'openclaw-portal')
       .append('rect')
       .attr('data-field', 'status-rect')
       .attr('width', 200)
@@ -646,7 +689,7 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
         : DOMAINS[d.domain].color)
       .attr('stroke-width', (d: MachineNode) => d.isCurrent ? 4 : 2.5);
 
-    node.filter((d: MachineNode) => d.id !== OPENCLAW_NODE_ID)
+    node.filter((d: MachineNode) => d.role !== 'openclaw-portal')
       .append('rect')
       .attr('width', 200)
       .attr('height', 6)
@@ -659,7 +702,7 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
         : DOMAINS[d.domain].color)
       .attr('opacity', 0.9);
 
-    node.filter((d: MachineNode) => d.isExternal && d.id !== OPENCLAW_NODE_ID)
+    node.filter((d: MachineNode) => d.isExternal && d.role !== 'openclaw-portal')
       .append('g')
       .attr('class', 'external-chip')
       .call(g => {
@@ -678,8 +721,8 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
           .text('↯ EXTERNAL');
       });
 
-    // Role chip: BUS or ACP badge on non-virtual nodes
-    node.filter((d: MachineNode) => d.role === 'interconnect' && d.id !== OPENCLAW_NODE_ID)
+    // Role chip: BUS or ACP badge on non-portal nodes
+    node.filter((d: MachineNode) => d.role === 'interconnect')
       .append('g')
       .attr('class', 'role-chip')
       .call(g => {
@@ -715,7 +758,7 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
           .text('↯ ACP');
       });
 
-    node.filter((d: MachineNode) => d.id !== OPENCLAW_NODE_ID)
+    node.filter((d: MachineNode) => d.role !== 'openclaw-portal')
       .append('text')
       .attr('x', 94).attr('y', -54)
       .attr('text-anchor', 'end')
@@ -744,7 +787,7 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
       .attr('stroke-dasharray', '6,5')
       .attr('opacity', 0.7);
 
-    node.filter((d: MachineNode) => d.id !== OPENCLAW_NODE_ID)
+    node.filter((d: MachineNode) => d.role !== 'openclaw-portal')
       .append('text')
       .attr('text-anchor', 'middle')
       .attr('y', -40)
@@ -756,7 +799,7 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
         return d.name.length > maxLen ? d.name.substring(0, maxLen) + '...' : d.name;
       });
 
-    node.filter((d: MachineNode) => d.id !== OPENCLAW_NODE_ID)
+    node.filter((d: MachineNode) => d.role !== 'openclaw-portal')
       .append('circle')
       .attr('data-field', 'status-dot')
       .attr('cx', 85)
@@ -765,7 +808,7 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
       .attr('fill', vizTheme.status.dotIdle)
       .attr('opacity', 0.9);
 
-    node.filter((d: MachineNode) => d.id !== OPENCLAW_NODE_ID)
+    node.filter((d: MachineNode) => d.role !== 'openclaw-portal')
       .append('text')
       .attr('text-anchor', 'middle')
       .attr('y', -18)
@@ -773,7 +816,7 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
       .attr('fill', vizTheme.accent.input)
       .text((d: MachineNode) => `In: [${d.inputMapping.offset}:${d.inputMapping.offset + d.inputMapping.length - 1}]`);
 
-    node.filter((d: MachineNode) => d.id !== OPENCLAW_NODE_ID)
+    node.filter((d: MachineNode) => d.role !== 'openclaw-portal')
       .append('text')
       .attr('text-anchor', 'middle')
       .attr('y', -3)
@@ -781,7 +824,7 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
       .attr('fill', vizTheme.accent.outputBright)
       .text((d: MachineNode) => `Out: [${d.outputMapping.offset}:${d.outputMapping.offset + d.outputMapping.length - 1}]`);
 
-    node.filter((d: MachineNode) => d.id !== OPENCLAW_NODE_ID)
+    node.filter((d: MachineNode) => d.role !== 'openclaw-portal')
       .append('text')
       .attr('data-field', 'last-input')
       .attr('text-anchor', 'middle')
@@ -789,7 +832,7 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
       .attr('font-size', '9px')
       .attr('fill', vizTheme.text.secondary);
 
-    node.filter((d: MachineNode) => d.id !== OPENCLAW_NODE_ID)
+    node.filter((d: MachineNode) => d.role !== 'openclaw-portal')
       .append('text')
       .attr('data-field', 'last-output')
       .attr('text-anchor', 'middle')
@@ -797,7 +840,7 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
       .attr('font-size', '9px')
       .attr('fill', vizTheme.accent.output);
 
-    node.filter((d: MachineNode) => d.id !== OPENCLAW_NODE_ID)
+    node.filter((d: MachineNode) => d.role !== 'openclaw-portal')
       .append('text')
       .attr('text-anchor', 'middle')
       .attr('y', 50)
@@ -806,8 +849,8 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
       .text((d: MachineNode) => d.sequenceCount ? `${d.sequenceCount} sequences` : '');
 
     // Invisible hit-rect drives the embedded Sequences tooltip.
-    // Skip for the OpenClaw virtual node — it has no RE machine data to fetch.
-    node.filter((d: MachineNode) => d.id !== OPENCLAW_NODE_ID)
+    // Portal nodes use a domain-level ACP tooltip instead.
+    node.filter((d: MachineNode) => d.role !== 'openclaw-portal')
       .append('rect')
       .attr('width', 200).attr('height', 140)
       .attr('x', -100).attr('y', -70)
@@ -835,9 +878,25 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
         });
       });
 
+    node.filter((d: MachineNode) => d.role === 'openclaw-portal')
+      .append('circle')
+      .attr('r', 66)
+      .attr('fill', 'transparent')
+      .style('cursor', 'pointer')
+      .on('mouseenter', (event: MouseEvent, d: MachineNode) => {
+        const rect = containerRef.current!.getBoundingClientRect();
+        setPortalTooltip({
+          node: d,
+          x: event.clientX - rect.left + 14,
+          y: event.clientY - rect.top - 10,
+        });
+      })
+      .on('mouseleave', () => setPortalTooltip(null));
+
     svg.on('click.tooltip', (event: any) => {
       if (!(event.target as Element).closest?.('g.node')) {
         setTooltip(prev => (prev?.pinned ? prev : null));
+        setPortalTooltip(null);
       }
     });
 
@@ -891,7 +950,7 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
     if (!svgRef.current) return;
     const svg = d3.select(svgRef.current);
     svg.selectAll<SVGGElement, MachineNode>('g.node').each(function(d) {
-      if (d.id === OPENCLAW_NODE_ID) return; // virtual node has no simulation state
+      if (d.role === 'openclaw-portal' || isPortalNode(d.id)) return;
 
       const info = machineStatuses[d.id];
       const status = info?.status ?? 'idle';
@@ -994,6 +1053,55 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
           onClose={() => setTooltip(null)}
         />
       )}
+
+      {portalTooltip && (() => {
+        const meta = portalTooltip.node.metadata as PortalNodeMetadata;
+        return (
+          <div
+            className="portal-tooltip"
+            style={{ left: portalTooltip.x, top: portalTooltip.y }}
+            onMouseEnter={() => setPortalTooltip(portalTooltip)}
+            onMouseLeave={() => setPortalTooltip(null)}
+          >
+            <div className="portal-tooltip-title">OpenClaw Portal</div>
+            <div className="portal-tooltip-domain" style={{ color: meta.domainColor }}>
+              {meta.domainLabel}
+            </div>
+            <div className="portal-tooltip-row">
+              <span>ACP Completion</span>
+              <strong>{meta.acpPsRegion}</strong>
+            </div>
+            <div className="portal-tooltip-section">
+              <div className="portal-tooltip-section-title">ACP Dispatchers</div>
+              <div className="portal-tooltip-list">
+                {meta.dispatchers.slice(0, 6).map(dispatcher => (
+                  <div key={dispatcher.id} className="portal-tooltip-item">{dispatcher.name}</div>
+                ))}
+                {meta.dispatchers.length > 6 && (
+                  <div className="portal-tooltip-more">+{meta.dispatchers.length - 6} more</div>
+                )}
+              </div>
+            </div>
+            <div className="portal-tooltip-section">
+              <div className="portal-tooltip-section-title">Mechanical Bus</div>
+              {meta.buses.length > 0 ? (
+                <div className="portal-tooltip-list">
+                  {meta.buses.slice(0, 4).map(bus => (
+                    <div key={bus.id} className="portal-tooltip-item">
+                      {bus.name} <span>{bus.psIn} -&gt; {bus.psOut}</span>
+                    </div>
+                  ))}
+                  {meta.buses.length > 4 && (
+                    <div className="portal-tooltip-more">+{meta.buses.length - 4} more</div>
+                  )}
+                </div>
+              ) : (
+                <div className="portal-tooltip-empty">No bus node in current ego graph</div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Domain legend — click to toggle a domain's nodes on/off */}
       <div className="graph-legend">
