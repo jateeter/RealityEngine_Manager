@@ -40,6 +40,7 @@ import {
   resolveCKBatch, checkCareKitAuth, buildCKStatusBody,
 } from './integrations/adapters/CareKitBridge.js';
 import type { CKIngestPayload } from './integrations/adapters/CareKitBridge.js';
+import { verifyOpenAIWebhookSignature } from './integrations/openaiWebhookSignature.js';
 
 // Bundled example mapping registry — served by GET /api/mqtt/example so
 // the PE visualizer's MqttConfigModal can offer a "Load example" button
@@ -167,7 +168,11 @@ const server = tlsEnabled
 const wss = new WebSocketServer({ server, path: '/ws' });
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({
+  verify: (req, _res, buf) => {
+    (req as Request & { rawBody?: string }).rawBody = buf.toString('utf8');
+  },
+}));
 
 // ── Integration registry ──────────────────────────────────────────────────
 // Provider-neutral catalog loaded at startup.  Mirrors the C++ contract
@@ -1143,6 +1148,29 @@ function extractValuesFromParsed(parsed: unknown): number[] | undefined {
   return undefined;
 }
 
+async function resolveOpenAIWebhookBody(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const data = body['data'];
+  const responseId = body['object'] === 'event'
+    && body['type'] === 'response.completed'
+    && data && typeof data === 'object'
+    && !Array.isArray(data)
+    && typeof (data as Record<string, unknown>)['id'] === 'string'
+    ? (data as Record<string, unknown>)['id'] as string
+    : '';
+  if (responseId === '') return body;
+
+  const apiKey = process.env['OPENAI_API_KEY'] ?? '';
+  if (apiKey === '') throw new Error('OPENAI_API_KEY is required to retrieve OpenAI webhook response');
+  const baseUrl = (process.env['OPENAI_BASE_URL'] ?? 'https://api.openai.com/v1').replace(/\/$/, '');
+  const resp = await axios.get(`${baseUrl}/responses/${encodeURIComponent(responseId)}`, {
+    headers: { Authorization: `Bearer ${apiKey}`, accept: 'application/json' },
+  });
+  if (!resp.data || typeof resp.data !== 'object' || Array.isArray(resp.data)) {
+    throw new Error('OpenAI response retrieve returned a non-object body');
+  }
+  return resp.data as Record<string, unknown>;
+}
+
 // POST /api/integrations/openai/webhook — receives OpenAI-shaped webhook
 // payloads (background Responses runs).  Resolves the original envelope
 // from `metadata.envelopeId / correlationId`, parses the model output
@@ -1150,11 +1178,27 @@ function extractValuesFromParsed(parsed: unknown): number[] | undefined {
 // the in-process completion path so the same source update lands
 // whether the run finished sync or async.
 app.post('/api/integrations/openai/webhook', async (req: Request, res: Response) => {
-  const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
+  const signatureError = verifyOpenAIWebhookSignature({
+    headers: req.headers as Record<string, string | string[] | undefined>,
+    rawBody: (req as Request & { rawBody?: string }).rawBody,
+  });
+  if (signatureError) {
+    res.status(400).json({ error: signatureError });
+    return;
+  }
+
+  let body = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
     ? (req.body as Record<string, unknown>)
     : null;
   if (!body) {
     res.status(400).json({ error: 'webhook body must be a JSON object' });
+    return;
+  }
+
+  try {
+    body = await resolveOpenAIWebhookBody(body);
+  } catch (err: any) {
+    res.status(502).json({ error: `webhook response retrieve failed: ${err?.message ?? err}` });
     return;
   }
 

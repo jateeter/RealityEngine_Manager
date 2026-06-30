@@ -44,6 +44,7 @@ export interface OpenAIIntegrationCfg extends IntegrationEntry {
   completionMode?: OpenAICompletionMode;
   /** For https-callback mode — public URL OpenAI hits with results. */
   callbackUrl?: string;
+  completionSourceMappingId?: string;
   sourceMappingId?: string;
   systemPrompt?: string;
   timeoutMs?: number;
@@ -97,9 +98,7 @@ export class OpenAIAdapter implements ProviderAdapter {
     const apiKey = this.cfg.apiKey ?? this.envApiKey ?? '';
     const timeoutMs = this.cfg.timeoutMs ?? 60_000;
     const systemPrompt = this.cfg.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
-    const mappingId = this.cfg.sourceMappingId
-      ?? ((this.cfg as Record<string, unknown>)['sourceMappingId'] as string)
-      ?? '';
+    const mappingId = resolveCompletionSourceMappingId(this.cfg);
     const mapping = mappingId
       ? this.deps.registry.sourceMappingIndex.get(mappingId)
       : undefined;
@@ -139,16 +138,15 @@ export class OpenAIAdapter implements ProviderAdapter {
             { role: 'system', content: systemPrompt },
             { role: 'user', content: JSON.stringify(userPayload) },
           ],
-          response_format: { type: 'json_object' },
+          text: { format: { type: 'json_object' } },
           metadata,
           stream: false,
         };
-        if (completionMode === 'https-callback' && this.cfg.callbackUrl) {
-          // The Responses API accepts a `webhook_url` for fire-and-forget
-          // background runs.  We still ship the metadata so the webhook
-          // payload carries the envelope linkage.
+        if (completionMode === 'https-callback') {
+          // OpenAI webhooks are configured per project in the dashboard.
+          // The request carries only background mode plus metadata so the
+          // signed webhook event can resolve the dispatch record.
           body['background'] = true;
-          body['webhook_url'] = this.cfg.callbackUrl;
         }
         const resp = await this.http.post(`${baseUrl}/responses`, body, { headers, timeout: timeoutMs });
         runId = typeof resp.data?.id === 'string' ? resp.data.id : undefined;
@@ -277,6 +275,17 @@ function parseJsonOrThrow(text: unknown): unknown {
   }
   const stripped = text.trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
   return JSON.parse(stripped);
+}
+
+function resolveCompletionSourceMappingId(cfg: OpenAIIntegrationCfg): string {
+  const raw = cfg as Record<string, unknown>;
+  return stringField(raw['completionSourceMappingId'])
+    ?? stringField(raw['sourceMappingId'])
+    ?? '';
+}
+
+function stringField(value: unknown): string | undefined {
+  return typeof value === 'string' && value !== '' ? value : undefined;
 }
 
 function listExpectedFields(spec: ExtractSpec): string[] {

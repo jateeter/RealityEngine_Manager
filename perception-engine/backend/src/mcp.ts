@@ -63,7 +63,7 @@ export interface McpDeps {
 
 // ── MCP server factory (one per session) ─────────────────────────────────
 
-function buildMcpServer(deps: McpDeps): McpServer {
+export function buildMcpServer(deps: McpDeps): McpServer {
   const {
     engine, store, push, startAuto, stopAuto,
     getAutoState, getLastPush, saveAndBroadcast, resetAndBroadcast,
@@ -509,15 +509,15 @@ function buildMcpServer(deps: McpDeps): McpServer {
   // version so existing consumers keep working.  Mutating tools are gated
   // by `MCP_POLICY_ENFORCE` (see mcpPolicy.ts).
 
-  // re.read_state — alias for perception_get_state.
+  // re.read_state — canonical RE state read.
   server.tool(
     're.read_state',
-    'Canonical alias for perception_get_state. Returns full PE state.',
+    'Read the Reality Engine state via GET /api/state.',
     {},
-    async () => {
-      const state = engine.getState(getLastPush(), getAutoState());
-      return { content: [{ type: 'text' as const, text: JSON.stringify(state, null, 2) }] };
-    },
+    async () => reCall(async () => {
+      const { data } = await http.get(re('/state'));
+      return data;
+    }),
   );
 
   // re.list_machines — alias for machines_list.
@@ -534,15 +534,26 @@ function buildMcpServer(deps: McpDeps): McpServer {
     }),
   );
 
-  // re.read_machine — NEW: read one machine by id (proxy to RE export endpoint).
+  // re.read_machine — canonical RE machine read.
   server.tool(
     're.read_machine',
     'Read one machine record from the Reality Engine (full JSON: metadata, sequences, perceptualMapping).',
     { machine_id: z.string().describe('Machine id (e.g. machine-agx051-...)') },
     async ({ machine_id }) => reCall(async () => {
-      const { data } = await http.get(re(`/machines/${encodeURIComponent(machine_id)}/export`));
+      const { data } = await http.get(re(`/machines/${encodeURIComponent(machine_id)}`));
       return data;
     }),
+  );
+
+  // pe.read_state — alias for perception_get_state.
+  server.tool(
+    'pe.read_state',
+    'Canonical alias for perception_get_state. Returns full PE state.',
+    {},
+    async () => {
+      const state = engine.getState(getLastPush(), getAutoState());
+      return { content: [{ type: 'text' as const, text: JSON.stringify(state, null, 2) }] };
+    },
   );
 
   // pe.list_sources — alias for sources_list.

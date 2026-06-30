@@ -129,6 +129,8 @@ describe('OpenAIAdapter — sync /v1/responses', () => {
     expect(reqBody.metadata.envelopeId).toBe('env-1');
     expect(reqBody.metadata.correlationId).toBe('corr-1');
     expect(reqBody.metadata.dispatchId).toBe('d-1');
+    expect(reqBody.text).toEqual({ format: { type: 'json_object' } });
+    expect(reqBody.response_format).toBeUndefined();
 
     // Second call → completion ingest.
     const r2 = calls[1]!;
@@ -158,6 +160,31 @@ describe('OpenAIAdapter — sync /v1/responses', () => {
 
     const r = await adapter.dispatch(envelope, record);
     expect(r.status).toBe('sent');
+  });
+
+  it('uses completionSourceMappingId from the shared registry config key', async () => {
+    const { http, calls } = stubHttp((url) => {
+      if (url.endsWith('/v1/responses')) {
+        return {
+          status: 200,
+          data: {
+            id: 'resp_cfg', model: 'gpt-4.1',
+            output_text: JSON.stringify({ completed: 1, failed: 0, confidence: 0.7, actionClass: 0 }),
+          },
+        };
+      }
+      return { status: 200, data: { success: true } };
+    });
+    const adapter = new OpenAIAdapter({ http, envApiKey: 'sk-test' });
+    await adapter.init({
+      id: 'openai-agents', kind: 'openai', enabled: true,
+      apiMode: 'responses', completionSourceMappingId: 'agent-completion-risk',
+    } as any, { registry: registryWith(mapping), completionUrl: 'http://pe.test/api/integrations/completions' });
+
+    const receipt = await adapter.dispatch(envelope, record);
+
+    expect(receipt.status).toBe('sent');
+    expect((calls[1]!.body as any).sourceMappingId).toBe('agent-completion-risk');
   });
 });
 
@@ -193,7 +220,7 @@ describe('OpenAIAdapter — apiMode: chat-completions', () => {
 // ── https-callback mode ────────────────────────────────────────────────
 
 describe('OpenAIAdapter — completionMode: https-callback', () => {
-  it('posts a background run with metadata + webhook_url and returns "queued" without committing', async () => {
+  it('posts a background run with metadata and returns "queued" without committing', async () => {
     const { http, calls } = stubHttp((url) => {
       if (url.endsWith('/v1/responses')) {
         return { status: 200, data: { id: 'resp_queued', model: 'gpt-4.1' } };
@@ -217,7 +244,8 @@ describe('OpenAIAdapter — completionMode: https-callback', () => {
     expect(calls).toHaveLength(1);
     const body = calls[0]!.body as any;
     expect(body.background).toBe(true);
-    expect(body.webhook_url).toBe('http://pe.test/api/integrations/openai/webhook');
+    expect(body.webhook_url).toBeUndefined();
+    expect(body.text).toEqual({ format: { type: 'json_object' } });
   });
 });
 
