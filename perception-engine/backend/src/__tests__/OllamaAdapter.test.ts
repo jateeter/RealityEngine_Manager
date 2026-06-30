@@ -131,6 +131,39 @@ describe('OllamaAdapter — native /api/chat', () => {
     expect(body.sourceMappingId).toBe('agent-completion-risk');
     expect(body.values).toEqual([1, 0, 0.82, 0]);
   });
+
+  it('uses completionSourceMappingId from the shared registry config key', async () => {
+    const registry = registryWith({
+      id: 'agent-completion-risk',
+      sensorIdTemplate: 'agent.{agent}.completion',
+      region: { offset: 4200, length: 4 },
+      extract: { type: 'json', pointers: ['/completed', '/failed', '/confidence', '/actionClass'] },
+      normalize: { mode: 'passthrough', clamp: true },
+      ttlMs: 300_000,
+    });
+    const { http, calls } = stubHttp((url) => {
+      if (url.endsWith('/api/chat')) {
+        return {
+          status: 200,
+          data: {
+            model: 'gpt-oss:20b',
+            message: { content: JSON.stringify({ completed: 1, failed: 0, confidence: 0.82, actionClass: 0 }) },
+          },
+        };
+      }
+      return { status: 200, data: { success: true } };
+    });
+    const adapter = new OllamaAdapter({ http });
+    await adapter.init({
+      id: 'ollama-local', kind: 'ollama', enabled: true,
+      apiMode: 'native', completionSourceMappingId: 'agent-completion-risk',
+    } as any, { registry, completionUrl: 'http://pe.test/api/integrations/completions' });
+
+    const receipt = await adapter.dispatch(envelope, dispatchRecord);
+
+    expect(receipt.status).toBe('sent');
+    expect((calls[1]!.body as any).sourceMappingId).toBe('agent-completion-risk');
+  });
 });
 
 // ── openai-compat /v1/chat/completions ──────────────────────────────────

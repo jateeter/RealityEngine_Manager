@@ -39,6 +39,7 @@ export interface OllamaIntegrationCfg extends IntegrationEntry {
   model?: string;
   apiMode?: OllamaApiMode;
   /** Source-mapping id to commit completions through. */
+  completionSourceMappingId?: string;
   sourceMappingId?: string;
   /** Optional system prompt override. */
   systemPrompt?: string;
@@ -89,9 +90,7 @@ export class OllamaAdapter implements ProviderAdapter {
 
   async dispatch(envelope: TriggerEnvelope, _record: DispatchRecord): Promise<DispatchReceipt> {
     const t0 = this.now();
-    const mappingId = this.cfg.sourceMappingId
-      ?? (this.cfg as Record<string, unknown>)['sourceMappingId'] as string
-      ?? '';
+    const mappingId = resolveCompletionSourceMappingId(this.cfg);
     const mapping = mappingId
       ? this.deps.registry.sourceMappingIndex.get(mappingId)
       : undefined;
@@ -233,6 +232,17 @@ function parseJsonOrThrow(text: unknown): unknown {
   // Be tolerant of accidental markdown fences (some Ollama models still emit them).
   const stripped = text.trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
   return JSON.parse(stripped);
+}
+
+function resolveCompletionSourceMappingId(cfg: OllamaIntegrationCfg): string {
+  const raw = cfg as Record<string, unknown>;
+  return stringField(raw['completionSourceMappingId'])
+    ?? stringField(raw['sourceMappingId'])
+    ?? '';
+}
+
+function stringField(value: unknown): string | undefined {
+  return typeof value === 'string' && value !== '' ? value : undefined;
 }
 
 /** Enumerate the fields the model should populate, derived from the extract spec. */
