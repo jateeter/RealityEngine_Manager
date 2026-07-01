@@ -1,16 +1,18 @@
 /**
  * theme-settings.spec.ts — Playwright e2e tests for the theme / settings system.
  *
+ * Settings are now opened via the SetupToolsMenu (⚙ "Setup tools" button → menu item).
+ *
  * Tests cover:
- *   - Gear button is present in the header
- *   - Clicking gear opens the settings modal
- *   - Escape closes the modal and returns focus to gear button
+ *   - Setup tools button is present in the header
+ *   - Clicking it opens the dropdown menu
+ *   - Selecting "Visualizer Settings" from the menu opens the settings modal
+ *   - Escape closes the modal and returns focus to the setup-tools trigger
  *   - Theme radio selection changes data-theme on <html>
- *   - Dark → Light → Nord → back to Dark round-trip via UI
+ *   - Dark → Nord → Dark round-trip via UI
  *   - Theme persists across a page reload (localStorage)
- *   - Settings sliders update visualizer settings store
  *   - Done button closes the modal
- *   - Modal is accessible (aria-modal, aria-labelledby, role=dialog)
+ *   - Modal is accessible (aria-modal, aria-labelledby)
  */
 
 import { test, expect, type Page } from '@playwright/test';
@@ -24,8 +26,11 @@ async function openApp(page: Page) {
   await page.waitForLoadState('networkidle');
 }
 
+/** Open the SetupToolsMenu dropdown, then click "Visualizer Settings". */
 async function openSettings(page: Page) {
-  await page.getByRole('button', { name: /Visualizer settings/i }).click();
+  await page.getByRole('button', { name: /setup tools/i }).click();
+  await page.waitForSelector('[role="menu"]', { timeout: 3_000 });
+  await page.getByRole('menuitem', { name: /visualizer settings/i }).click();
   await page.waitForSelector('dialog.settings-dialog[open]', { timeout: 5_000 });
 }
 
@@ -39,14 +44,29 @@ async function closeWithDone(page: Page) {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-test.describe('Settings gear button', () => {
-  test('gear button is visible in the header', async ({ page }) => {
+test.describe('SetupToolsMenu', () => {
+  test('setup tools button is visible in the header', async ({ page }) => {
     await openApp(page);
-    const gearBtn = page.getByRole('button', { name: /Visualizer settings/i });
-    await expect(gearBtn).toBeVisible();
+    const trigger = page.getByRole('button', { name: /setup tools/i });
+    await expect(trigger).toBeVisible();
   });
 
-  test('gear button opens the settings modal', async ({ page }) => {
+  test('clicking trigger opens the dropdown menu', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /setup tools/i }).click();
+    await expect(page.getByRole('menu')).toBeVisible();
+    await expect(page.getByRole('button', { name: /setup tools/i })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  test('Escape closes the dropdown menu', async ({ page }) => {
+    await openApp(page);
+    await page.getByRole('button', { name: /setup tools/i }).click();
+    await page.waitForSelector('[role="menu"]');
+    await page.keyboard.press('Escape');
+    await expect(page.locator('[role="menu"]')).not.toBeVisible();
+  });
+
+  test('"Visualizer Settings" menu item opens the settings modal', async ({ page }) => {
     await openApp(page);
     await openSettings(page);
     await expect(page.locator('dialog.settings-dialog')).toBeVisible();
@@ -82,14 +102,14 @@ test.describe('Settings modal', () => {
     await expect(page.locator('dialog.settings-dialog')).not.toBeVisible();
   });
 
-  test('focus returns to gear button after closing', async ({ page }) => {
+  test('focus returns to setup-tools trigger after closing', async ({ page }) => {
     await page.keyboard.press('Escape');
     await page.waitForFunction(
       () => !document.querySelector('dialog.settings-dialog[open]'),
       { timeout: 5_000 },
     );
-    const gearBtn = page.getByRole('button', { name: /Visualizer settings/i });
-    await expect(gearBtn).toBeFocused();
+    const trigger = page.getByRole('button', { name: /setup tools/i });
+    await expect(trigger).toBeFocused();
   });
 
   test('theme radio buttons are rendered for all built-in themes', async ({ page }) => {
