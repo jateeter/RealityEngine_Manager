@@ -22,7 +22,40 @@ export function SettingsModal({ open, onClose, triggerRef }: Props) {
   }));
   const headingId = useId();
 
-  // Open/close native dialog
+  // Stable ref for onClose — avoids stale-closure in the DOM cancel listener (RC-3)
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+
+  // Synchronous dismiss: close DOM element first, then sync React state and return focus.
+  // Calling el.close() here (not in a deferred effect) eliminates the render-cycle gap
+  // that left the dialog visible after button clicks (RC-2).
+  const handleClose = useCallback(() => {
+    dialogRef.current?.close();
+    onCloseRef.current();
+    triggerRef.current?.focus();
+  }, [triggerRef]);  // onClose consumed via stable ref, not as dep
+
+  // Close on backdrop click (click lands on the <dialog> element itself, not its children)
+  const handleBackdropClick = useCallback((e: React.MouseEvent<HTMLDialogElement>) => {
+    if (e.target === dialogRef.current) handleClose();
+  }, [handleClose]);
+
+  // Escape: prevent the browser from closing the dialog natively (RC-1) so that
+  // React owns the full close path. Without preventDefault the DOM and React state
+  // can briefly diverge, making the dialog unresponsive to the next open request.
+  useEffect(() => {
+    const el = dialogRef.current;
+    if (!el) return;
+    const handler = (e: Event) => {
+      e.preventDefault();
+      handleClose();
+    };
+    el.addEventListener('cancel', handler);
+    return () => el.removeEventListener('cancel', handler);
+  }, [handleClose]);
+
+  // Open/close driven by prop — also serves as a fallback for programmatic open=false
+  // (e.g. route unmount). The normal close path goes through handleClose above.
   useEffect(() => {
     const el = dialogRef.current;
     if (!el) return;
@@ -32,26 +65,6 @@ export function SettingsModal({ open, onClose, triggerRef }: Props) {
       if (el.open) el.close();
     }
   }, [open]);
-
-  // Return focus to trigger on close
-  const handleClose = useCallback(() => {
-    onClose();
-    triggerRef.current?.focus();
-  }, [onClose, triggerRef]);
-
-  // Close on backdrop click
-  const handleBackdropClick = useCallback((e: React.MouseEvent<HTMLDialogElement>) => {
-    if (e.target === dialogRef.current) handleClose();
-  }, [handleClose]);
-
-  // Escape key is handled natively by <dialog>; sync state
-  useEffect(() => {
-    const el = dialogRef.current;
-    if (!el) return;
-    const handler = () => handleClose();
-    el.addEventListener('cancel', handler);
-    return () => el.removeEventListener('cancel', handler);
-  }, [handleClose]);
 
   const handleThemeChange = (id: ThemeId) => {
     setThemeId(id);

@@ -4,7 +4,7 @@ import { useVisualizerStore } from '../store';
 import { Machine, HealthStatus, EngineActive, PEState } from '../types';
 import { EngineSwitcher } from '../components/EngineSwitcher';
 import { MachineGraphView } from '../components/MachineGraphView';
-import { SettingsModal } from '../components/SettingsModal';
+import { SetupToolsMenu } from '../components/SetupToolsMenu';
 import {
   classifyMachine,
   DOMAINS,
@@ -169,8 +169,6 @@ const RealityEnginePanelView: React.FC = () => {
   const [sortMode,    setSortMode]    = useState<'name' | 'recent' | 'sequences'>('name');
   const [isLoading,   setIsLoading]   = useState(false);
   const [showHelp,     setShowHelp]     = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
-  const settingsGearRef = useRef<HTMLButtonElement>(null);
   const [expanded,    setExpanded]    = useState<Set<string>>(() => new Set<string>());
   const [focusedId,   setFocusedId]   = useState<string | null>(null);
 
@@ -501,15 +499,7 @@ const RealityEnginePanelView: React.FC = () => {
             ?
           </button>
 
-          <button
-            ref={settingsGearRef}
-            className={`rep-help-btn rep-settings-btn${showSettings ? ' is-active' : ''}`}
-            onClick={() => setShowSettings(v => !v)}
-            aria-label="Visualizer settings"
-            title="Visualizer settings"
-          >
-            ⚙
-          </button>
+          <SetupToolsMenu />
         </div>
 
       </header>
@@ -843,13 +833,6 @@ const RealityEnginePanelView: React.FC = () => {
           </div>
         </div>
       )}
-
-      {/* ── Settings modal ─────────────────────────────────────────────── */}
-      <SettingsModal
-        open={showSettings}
-        onClose={() => setShowSettings(false)}
-        triggerRef={settingsGearRef}
-      />
 
     </div>
   );
