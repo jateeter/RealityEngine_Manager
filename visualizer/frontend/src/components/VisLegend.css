@@ -190,6 +190,186 @@
   border-color: var(--re-cyan);
 }
 
+/* ── Graph filter section ─────────────────────────────────────────────────── */
+
+.vis-legend-filter-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.vis-legend-filter-title {
+  font-size: 10px;
+  color: var(--re-text-2);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 600;
+}
+
+/* Node-type chips row */
+.vis-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 2px;
+}
+
+.vis-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  font-size: 9px;
+  font-weight: 600;
+  font-family: inherit;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-radius: 2px;
+  border: 1px solid var(--re-border-bright);
+  background: var(--re-bg-3);
+  color: var(--re-text-2);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+  white-space: nowrap;
+}
+.vis-filter-chip:hover {
+  background: var(--re-bg-4);
+  color: var(--re-text-1);
+  border-color: var(--re-border-glow);
+}
+.vis-filter-chip[aria-pressed="true"] {
+  background: rgba(0, 200, 239, 0.14);
+  border-color: var(--re-cyan);
+  color: var(--re-cyan);
+}
+.vis-filter-chip[aria-pressed="false"] {
+  opacity: 0.5;
+}
+
+/* Focus-view toggle rows */
+.vis-filter-focus-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 10px;
+  color: var(--re-text-1);
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  padding: 2px 0;
+}
+.vis-filter-focus-row:hover {
+  color: var(--re-text-0, #fff);
+}
+
+/* Semantic lane select */
+.vis-filter-lane-select {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  padding: 3px 6px;
+  font-size: 9px;
+  font-family: inherit;
+  background: var(--re-bg-3);
+  border: 1px solid var(--re-border-bright);
+  border-radius: 2px;
+  color: var(--re-text-1);
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.12s ease;
+}
+.vis-filter-lane-select:focus {
+  border-color: var(--re-cyan);
+}
+
+/* Lane tag-cloud (multi-select) */
+.vis-filter-lane-tags {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 72px;
+  overflow-y: auto;
+  margin-top: 2px;
+}
+
+.vis-filter-lane-tag {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9px;
+  color: var(--re-text-2);
+  cursor: pointer;
+  padding: 1px 0;
+}
+.vis-filter-lane-tag:hover {
+  color: var(--re-text-1);
+}
+.vis-filter-lane-tag input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 9px;
+  height: 9px;
+  border: 1px solid var(--re-border-bright);
+  border-radius: 1px;
+  background: var(--re-bg-3);
+  cursor: pointer;
+  flex-shrink: 0;
+  position: relative;
+  transition: border-color 0.1s ease, background 0.1s ease;
+}
+.vis-filter-lane-tag input[type="checkbox"]:checked {
+  background: rgba(155, 109, 255, 0.8);
+  border-color: #9b6dff;
+}
+.vis-filter-lane-tag input[type="checkbox"]:checked::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 2px;
+  width: 3px;
+  height: 5px;
+  border: 1.5px solid #fff;
+  border-top: none;
+  border-left: none;
+  transform: rotate(45deg);
+}
+
+/* Filter-active status count */
+.vis-filter-status {
+  font-size: 9px;
+  color: var(--re-cyan);
+  letter-spacing: 0.04em;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Reset-all-filters button */
+.vis-reset-filters-btn {
+  padding: 4px 8px;
+  font-size: 9px;
+  font-weight: 700;
+  font-family: inherit;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 2px;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+  white-space: nowrap;
+}
+.vis-reset-filters-btn:hover {
+  background: rgba(239, 68, 68, 0.18);
+  border-color: #ef4444;
+}
+
+/* Expand legend width when filter section is shown */
+.vis-legend-panel.open .vis-legend-content {
+  max-width: 240px;
+}
+
 /* Reset-layout button */
 .vis-reset-layout-btn {
   padding: 5px 10px;

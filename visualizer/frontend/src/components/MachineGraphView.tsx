@@ -12,7 +12,15 @@ import {
   classifyMachine, DOMAINS, DOMAIN_ORDER, DomainId,
   getNodeRole, NodeRole, OPENCLAW_PS_REGION,
   portalNodeId, isPortalNode, PortalNodeMetadata,
+  domainLabel as getDomainLabel,
 } from './machineDomains';
+import {
+  composeFilters,
+  ALL_FILTER_NODE_TYPES,
+  FILTER_NODE_TYPE_LABELS,
+  semanticLaneKey,
+  semanticLaneLabel,
+} from './graphFilters';
 import { vizTheme } from '../styles/vizTheme';
 import { Graph3DView } from './Graph3DView';
 import { Graph3DToggle } from './Graph3DToggle';
@@ -224,6 +232,63 @@ export const MachineGraphView: React.FC = () => {
   const loadMachineRef = useRef(loadMachine);
   useEffect(() => { loadMachineRef.current = loadMachine; }, [loadMachine]);
 
+  // Graph filter state
+  const graphFilters       = useVisualizerStore(state => state.graphFilters);
+  const graphFiltersRef    = useRef(graphFilters);
+  useEffect(() => { graphFiltersRef.current = graphFilters; }, [graphFilters]);
+  const toggleNodeType     = useVisualizerStore(state => state.toggleNodeType);
+  const setPortalFocus     = useVisualizerStore(state => state.setPortalFocus);
+  const setMqttFocus       = useVisualizerStore(state => state.setMqttFocus);
+  const toggleSemanticLane = useVisualizerStore(state => state.toggleSemanticLane);
+  const setMqttMachineIds  = useVisualizerStore(state => state.setMqttMachineIds);
+  const resetGraphFilters  = useVisualizerStore(state => state.resetGraphFilters);
+
+  // All semantic lanes available in the current graph — populated after layout build
+  const [availableSemanticLanes, setAvailableSemanticLanes] = useState<Array<{ key: string; label: string }>>([]);
+
+  // Snapshot of all sim nodes/edges for filter recomputation without layout rebuild
+  const simNodesRef = useRef<Array<{ id: string; role?: string; domain?: string; inputMapping?: { offset: number; length: number } }>>([]);
+  const simEdgesRef = useRef<Array<{ source: any; target: any }>>([]);
+
+  // ── MQTT machine IDs fetch ─────────────────────────────────────────────────
+  useEffect(() => {
+    fetch('/api/pe/mqtt/mappings')
+      .then(r => r.ok ? r.json() : null)
+      .then((data: any) => {
+        if (!data) return;
+        const mappings: any[] = Array.isArray(data) ? data : (data.mappings ?? []);
+        const ids = new Set<string>(
+          mappings
+            .map((m: any) => m.machineId ?? m.machine_id ?? m.machine ?? null)
+            .filter(Boolean),
+        );
+        if (ids.size > 0) setMqttMachineIds(ids);
+      })
+      .catch(() => {/* MQTT mappings optional */});
+  // Re-fetch when engine switches
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const handler = () => {
+      fetch('/api/pe/mqtt/mappings')
+        .then(r => r.ok ? r.json() : null)
+        .then((data: any) => {
+          if (!data) return;
+          const mappings: any[] = Array.isArray(data) ? data : (data.mappings ?? []);
+          const ids = new Set<string>(
+            mappings
+              .map((m: any) => m.machineId ?? m.machine_id ?? m.machine ?? null)
+              .filter(Boolean),
+          );
+          if (ids.size > 0) setMqttMachineIds(ids);
+        })
+        .catch(() => {});
+    };
+    window.addEventListener('re:engine-switched', handler);
+    return () => window.removeEventListener('re:engine-switched', handler);
+  }, [setMqttMachineIds]);
+
   // ── Data fetch ─────────────────────────────────────────────────────────────
   const fetchGraphData = useCallback(async () => {
     try {
@@ -379,6 +444,58 @@ export const MachineGraphView: React.FC = () => {
       .style('opacity', (d: DomainId) => allSelected || selected.has(d) ? 1 : 0);
   }, []);
 
+  // ── Graph filter application ────────────────────────────────────────────────
+  // Called whenever graphFilters changes. Computes visible node/edge sets then
+  // applies opacity via D3 selections without rebuilding the layout.
+  const applyGraphFilter = useCallback(() => {
+    if (!svgRef.current) return;
+    const filters = graphFiltersRef.current;
+    const nodes = simNodesRef.current as any[];
+    const edges = simEdgesRef.current as any[];
+    if (nodes.length === 0) return;
+
+    const { visibleNodeIds, visibleEdgeIds } = composeFilters(nodes, edges, filters);
+    const isFiltered = visibleNodeIds.size < nodes.length;
+
+    const hiddenOpacity   = 0.04;
+    const visibleOpacity  = 1;
+
+    if (nodeSelRef.current) {
+      nodeSelRef.current
+        .style('opacity', (d: any) =>
+          visibleNodeIds.has(d.id) ? visibleOpacity : hiddenOpacity)
+        .style('pointer-events', (d: any) =>
+          visibleNodeIds.has(d.id) ? 'all' : 'none');
+    }
+
+    if (linkSelRef.current) {
+      linkSelRef.current.style('display', (_d: any, i: number) =>
+        !isFiltered || visibleEdgeIds.has(i) ? null : 'none',
+      );
+    }
+    if (linkLabelSelRef.current) {
+      linkLabelSelRef.current.style('display', (_d: any, i: number) =>
+        !isFiltered || visibleEdgeIds.has(i) ? null : 'none',
+      );
+    }
+
+    // Hull and label visibility: show domain if ≥1 visible node in it
+    const visibleDomains = new Set(
+      nodes.filter(n => visibleNodeIds.has(n.id)).map(n => n.domain ?? 'general'),
+    );
+    if (!isFiltered) {
+      // Revert to domain-checkbox control when no graph filters active
+      applyDomainFilter();
+      return;
+    }
+    d3.select(svgRef.current)
+      .selectAll<SVGPathElement, { domainId: DomainId }>('path.domain-hull')
+      .style('opacity', d => visibleDomains.has(d.domainId) ? 1 : 0);
+    d3.select(svgRef.current)
+      .selectAll<SVGTextElement, DomainId>('.domain-labels text')
+      .style('opacity', (d: DomainId) => visibleDomains.has(d) ? 1 : 0);
+  }, [applyDomainFilter]);
+
   // ── Layout effect — only runs on structural changes, NOT on each step ──────
   useEffect(() => {
     if (!svgRef.current || !graphData || graphData.nodes.length === 0) return;
@@ -496,6 +613,10 @@ export const MachineGraphView: React.FC = () => {
       };
     });
 
+    // Snapshot nodes/edges for filter recomputation
+    simNodesRef.current = simNodes;
+    simEdgesRef.current = simEdges;
+
     // ── Per-domain OpenClaw portal nodes ─────────────────────────────────────
     // One virtual portal per domain that has agent-dispatchers. Sits inside the
     // domain hull and carries metadata for the portal tooltip panel.
@@ -580,6 +701,30 @@ export const MachineGraphView: React.FC = () => {
         } as SimEdge);
       }
     }
+
+    // Update snapshots to include portal nodes/edges
+    simNodesRef.current = simNodes;
+    simEdgesRef.current = simEdges;
+
+    // Collect all unique semantic lanes across all portal nodes
+    const lanesSeen = new Set<string>();
+    const allLanes: Array<{ key: string; label: string }> = [];
+    for (const n of simNodes) {
+      if (!isPortalNode(n.id)) continue;
+      const meta = n.metadata as PortalNodeMetadata;
+      if (!meta?.semanticLanes) continue;
+      for (const lane of meta.semanticLanes) {
+        const key = semanticLaneKey(lane.fromDomain, lane.toDomain);
+        if (lanesSeen.has(key)) continue;
+        lanesSeen.add(key);
+        allLanes.push({
+          key,
+          label: semanticLaneLabel(key, d => getDomainLabel(d as DomainId)),
+        });
+      }
+    }
+    allLanes.sort((a, b) => a.label.localeCompare(b.label));
+    setAvailableSemanticLanes(allLanes);
 
     // Domain anchors pull same-domain nodes toward a shared quadrant so the
     // hulls emerge as visible bubbles rather than tangled blobs in the center.
@@ -1223,6 +1368,8 @@ export const MachineGraphView: React.FC = () => {
     // Apply current domain visibility to the freshly created elements so arcs
     // for unchecked domains don't flash visible until the filter effect re-runs.
     applyDomainFilter();
+    // Apply any active graph filters immediately
+    applyGraphFilter();
 
     return () => { simulation.stop(); };
     // layoutEpoch is intentionally included so Reset Layout triggers a rebuild
@@ -1298,6 +1445,11 @@ export const MachineGraphView: React.FC = () => {
     applyDomainFilter();
   }, [selectedDomains, applyDomainFilter]);
 
+  // ── Graph filter visibility ─────────────────────────────────────────────────
+  useEffect(() => {
+    applyGraphFilter();
+  }, [graphFilters, applyGraphFilter]);
+
   // Compose live per-step result for the hovered machine.  Walks
   // sequenceResults across all of this machine's CES sequences and
   // unions the activated and matched vector IDs so the tooltip graph
@@ -1350,6 +1502,18 @@ export const MachineGraphView: React.FC = () => {
     acc[d] = graphData.nodes.filter(n => classifyMachine(n).domain === d).length;
     return acc;
   }, {} as Record<DomainId, number>);
+
+  // Compute active filter count and visible node count for status display
+  const activeFilterCount = (
+    (graphFilters.enabledNodeTypes.size < ALL_FILTER_NODE_TYPES.length ? 1 : 0) +
+    (graphFilters.portalFocusActive ? 1 : 0) +
+    (graphFilters.mqttFocusActive ? 1 : 0) +
+    (graphFilters.selectedSemanticLanes.size > 0 ? 1 : 0)
+  );
+  const totalNodeCount = simNodesRef.current.length;
+  const visibleNodeCount = activeFilterCount > 0
+    ? composeFilters(simNodesRef.current as any[], simEdgesRef.current as any[], graphFilters).visibleNodeIds.size
+    : totalNodeCount;
 
   const isCompact = graphData.nodes.length > COMPACT_MODE_THRESHOLD;
 
@@ -1479,6 +1643,94 @@ export const MachineGraphView: React.FC = () => {
                   <span style={{ color: OPENCLAW_STROKE }}>OpenClaw Domain Portal</span>
                 </div>
               )}
+              {/* ── Node-type filter chips ── */}
+              <div className="vis-legend-divider" />
+              <div className="vis-legend-filter-header">
+                <span className="vis-legend-filter-title">Node types</span>
+                {activeFilterCount > 0 && (
+                  <span className="vis-filter-status" aria-live="polite">
+                    {visibleNodeCount}/{totalNodeCount}
+                  </span>
+                )}
+              </div>
+              <div className="vis-filter-chips" role="group" aria-label="Node type filters">
+                {ALL_FILTER_NODE_TYPES.map(type => {
+                  const pressed = graphFilters.enabledNodeTypes.has(type);
+                  return (
+                    <button
+                      key={type}
+                      className="vis-filter-chip"
+                      role="button"
+                      aria-pressed={pressed}
+                      onClick={() => toggleNodeType(type)}
+                      title={`${pressed ? 'Hide' : 'Show'} ${FILTER_NODE_TYPE_LABELS[type]}`}
+                    >
+                      {FILTER_NODE_TYPE_LABELS[type]}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* ── Focus views ── */}
+              <div className="vis-legend-divider" />
+              <span className="vis-legend-filter-title">Focus views</span>
+              <label className="vis-filter-focus-row">
+                <input
+                  type="checkbox"
+                  className="vis-legend-domain-cb"
+                  checked={graphFilters.portalFocusActive}
+                  onChange={e => setPortalFocus(e.target.checked)}
+                  aria-label="OpenClaw Portals only"
+                />
+                <span style={{ color: OPENCLAW_STROKE, fontSize: 10 }}>⬡ OpenClaw Portals only</span>
+              </label>
+              <label className="vis-filter-focus-row">
+                <input
+                  type="checkbox"
+                  className="vis-legend-domain-cb"
+                  checked={graphFilters.mqttFocusActive}
+                  onChange={e => setMqttFocus(e.target.checked)}
+                  aria-label="MQTT sources only"
+                />
+                <span style={{ fontSize: 10 }}>⟁ MQTT sources only</span>
+              </label>
+
+              {/* ── Bus semantic lanes ── */}
+              {availableSemanticLanes.length > 0 && (
+                <>
+                  <div className="vis-legend-divider" />
+                  <span className="vis-legend-filter-title">Bus semantics</span>
+                  <div className="vis-filter-lane-tags" role="group" aria-label="Semantic lane filters">
+                    {availableSemanticLanes.map(lane => (
+                      <label key={lane.key} className="vis-filter-lane-tag">
+                        <input
+                          type="checkbox"
+                          checked={graphFilters.selectedSemanticLanes.has(lane.key)}
+                          onChange={() => toggleSemanticLane(lane.key)}
+                          aria-label={`Semantic lane: ${lane.label}`}
+                        />
+                        <span>{lane.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {/* ── Reset filters ── */}
+              {activeFilterCount > 0 && (
+                <>
+                  <div className="vis-legend-divider" />
+                  <button
+                    className="vis-reset-filters-btn"
+                    onClick={resetGraphFilters}
+                    title="Clear all graph filters"
+                    aria-label="Reset all graph filters"
+                  >
+                    ✕ Reset filters
+                  </button>
+                </>
+              )}
+
               <div className="vis-legend-divider" />
               <div className="vis-legend-domain-header">
                 <span style={{ fontSize: '10px', color: vizTheme.text.secondary, textTransform: 'uppercase', letterSpacing: 1 }}>Domains</span>

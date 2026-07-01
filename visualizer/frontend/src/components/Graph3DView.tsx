@@ -26,6 +26,7 @@ import {
   portalNodeId,
   isPortalNode,
 } from './machineDomains';
+import { composeFilters } from './graphFilters';
 import { vizTheme } from '../styles/vizTheme';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -418,6 +419,7 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
   const selectedDomains = useVisualizerStore(state => state.selectedDomains);
   const selectedDomainsRef = useRef(selectedDomains);
   useEffect(() => { selectedDomainsRef.current = selectedDomains; }, [selectedDomains]);
+  const graphFilters = useVisualizerStore(state => state.graphFilters);
   // Keep a reference to all nodes so domain filter can rebuild graphData
   const allNodesRef = useRef<MachineNode3D[]>([]);
   const allLinksRef = useRef<MachineEdge3D[]>([]);
@@ -508,16 +510,37 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
     return mountMachinesGraph();
   }, [graphData, mode, eventNodes, eventEdges]);
 
-  // ── Update nodes, links, and bubbles when domain filter changes ──────────
+  // ── Update nodes, links, and bubbles when domain filter or graph filter changes ──────────
   useEffect(() => {
     const graph = graphRef.current;
     if (!graph || mode !== 'machines') return;
 
     const selected = new Set(selectedDomains);
+    const allNodes = allNodesRef.current;
+    const allLinks = allLinksRef.current;
 
-    const visibleNodes = allNodesRef.current.filter(n => selected.has(n.domain));
+    // Apply graph filters first, then domain filter
+    const { visibleNodeIds, visibleEdgeIds } = composeFilters(
+      allNodes.map(n => ({
+        id: n.id,
+        role: n.role,
+        domain: n.domain,
+        inputMapping: n.inputMapping,
+      })),
+      allLinks.map((e, i) => ({
+        source: typeof e.source === 'object' ? (e.source as any).id : e.source,
+        target: typeof e.target === 'object' ? (e.target as any).id : e.target,
+        _idx: i,
+      })),
+      graphFilters,
+    );
+
+    const visibleNodes = allNodes.filter(n =>
+      selected.has(n.domain) && visibleNodeIds.has(n.id),
+    );
     const visibleIds = new Set(visibleNodes.map(n => n.id));
-    const visibleLinks = allLinksRef.current.filter(e => {
+    const visibleLinks = allLinks.filter((e, i) => {
+      if (!visibleEdgeIds.has(i)) return false;
       const srcId = typeof e.source === 'object' ? (e.source as any).id : e.source;
       const tgtId = typeof e.target === 'object' ? (e.target as any).id : e.target;
       return visibleIds.has(srcId) && visibleIds.has(tgtId);
@@ -528,7 +551,7 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
     // Rebuild bubbles for the new selection — simpler than toggling visibility
     // since buildDomainHulls now skips non-selected domains entirely.
     buildDomainHulls(graph, allNodesRef.current);
-  }, [selectedDomains, mode]);
+  }, [selectedDomains, graphFilters, mode]);
 
   // ── Mount machines graph ────────────────────────────────────────────────────
   function mountMachinesGraph() {
