@@ -27,7 +27,7 @@ import {
   isPortalNode,
 } from './machineDomains';
 import { composeFilters } from './graphFilters';
-import { vizTheme } from '../styles/vizTheme';
+import { useTheme } from '../contexts/ThemeContext';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -61,8 +61,6 @@ interface MachineEdge3D {
   isAcpEdge?: boolean;
 }
 
-const G3D_BUS_COLOR      = '#60b4f8';
-const G3D_OPENCLAW_COLOR = '#ff6b35';
 
 interface MachineGraphData {
   nodes: Array<{
@@ -392,6 +390,8 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
   eventEdges,
   onMachineHover,
 }) => {
+  const { tokens: themeTokens } = useTheme();
+
   const onMachineHoverRef = useRef(onMachineHover);
   useEffect(() => { onMachineHoverRef.current = onMachineHover; }, [onMachineHover]);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -631,13 +631,15 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
     const visibleIds = new Set(visibleNodes.map(n => n.id));
     const visibleLinks = links.filter(e => visibleIds.has(e.source) && visibleIds.has(e.target));
 
-    // 2D edge style constants (match MachineGraphView)
-    const EDGE_COLOR = '#8ab4cc';       // EDGE_IDLE_COLOR from 2D view
-    const ARROW_COLOR = '#8ab4cc';      // same bright blue-grey for arrowheads
+    // Edge colors mirror the 2D view's theme tokens (captured at build time via closure)
+    const edgeColor  = themeTokens.edge.idle;
+    const arrowColor = themeTokens.edge.arrowhead;
+    const ocColor    = themeTokens.openclaw.node;
+    const busColor   = themeTokens.bus.interconnectStroke;
 
     // Create the 3D force graph
     const graph = new ForceGraph3D(container)
-      .backgroundColor(vizTheme.bg.page)
+      .backgroundColor(themeTokens.bg.page)
       .graphData({ nodes: visibleNodes, links: visibleLinks })
       .nodeId('id')
       // The built-in mouse-pinned label is suppressed — the parent renders a
@@ -650,13 +652,13 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
       .onNodeHover(() => {})
       .nodeColor((node: any) => {
         const n = node as MachineNode3D;
-        if (isPortalNode(n.id)) return G3D_OPENCLAW_COLOR;
+        if (isPortalNode(n.id)) return ocColor;
         const step = currentStepRef.current;
         const state = getMachineColorState(step?.machineResults[n.id]);
-        if (state === 'fired') return '#ef4444';
-        if (state === 'active') return vizTheme.accent.input;
-        if (n.role === 'agent-dispatcher') return G3D_OPENCLAW_COLOR;
-        if (n.role === 'interconnect')     return G3D_BUS_COLOR;
+        if (state === 'fired') return themeTokens.card.firedStroke;
+        if (state === 'active') return themeTokens.accent.input;
+        if (n.role === 'agent-dispatcher') return ocColor;
+        if (n.role === 'interconnect')     return busColor;
         return domainColorHex(n.domain);
       })
       .nodeOpacity(0.92)
@@ -669,12 +671,12 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
       })
       .linkSource('source')
       .linkTarget('target')
-      .linkColor((link: any) => link.isAcpEdge ? G3D_OPENCLAW_COLOR : EDGE_COLOR)
+      .linkColor((link: any) => link.isAcpEdge ? ocColor : edgeColor)
       .linkOpacity(0.8)
       .linkWidth((link: any) => link.isAcpEdge ? 1.5 : 2.5)
       .linkDirectionalArrowLength(8)
       .linkDirectionalArrowRelPos(1)
-      .linkDirectionalArrowColor((link: any) => link.isAcpEdge ? G3D_OPENCLAW_COLOR : ARROW_COLOR)
+      .linkDirectionalArrowColor((link: any) => link.isAcpEdge ? ocColor : arrowColor)
       .linkDirectionalParticles(0)
       .onNodeClick((node: any) => {
         const n = node as MachineNode3D;
@@ -914,12 +916,12 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
     const C_DEFAULT = '#64748b';
 
     const graph = new ForceGraph3D(container)
-      .backgroundColor(vizTheme.bg.page)
+      .backgroundColor(themeTokens.bg.page)
       .graphData({ nodes, links })
       .nodeId('id')
       .nodeLabel((node: any) => {
         const n = node as typeof nodes[0];
-        return `<div style="background:${vizTheme.bg.panel};color:${vizTheme.text.primary};padding:6px 10px;border-radius:4px;font-size:11px">
+        return `<div style="background:${themeTokens.bg.panel};color:${themeTokens.text.primary};padding:6px 10px;border-radius:4px;font-size:11px">
           ${n.label}
         </div>`;
       })
@@ -999,8 +1001,8 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
       <div style={{
         width: '100%', height: '100%',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        color: vizTheme.text.secondary, fontSize: 14,
-        background: vizTheme.bg.page,
+        color: themeTokens.text.secondary, fontSize: 14,
+        background: themeTokens.bg.page,
       }}>
         {error}
       </div>
@@ -1012,8 +1014,8 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
       <div style={{
         width: '100%', height: '100%',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        color: vizTheme.text.secondary, fontSize: 14,
-        background: vizTheme.bg.page,
+        color: themeTokens.text.secondary, fontSize: 14,
+        background: themeTokens.bg.page,
       }}>
         Loading 3D graph...
       </div>
@@ -1028,7 +1030,7 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
           width: '100%',
           height: '100%',
           position: 'relative',
-          background: vizTheme.bg.page,
+          background: themeTokens.bg.page,
         }}
       />
       {domainTooltip && ReactDOM.createPortal(
