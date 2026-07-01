@@ -17,10 +17,10 @@ import {
 import {
   composeFilters,
   ALL_FILTER_NODE_TYPES,
-  FILTER_NODE_TYPE_LABELS,
   semanticLaneKey,
   semanticLaneLabel,
 } from './graphFilters';
+import { GraphFilterPanel } from './GraphFilterPanel';
 import { vizTheme } from '../styles/vizTheme';
 import { useTheme } from '../contexts/ThemeContext';
 import { Graph3DView } from './Graph3DView';
@@ -213,6 +213,7 @@ export const MachineGraphView: React.FC = () => {
   const linkSelRef      = useRef<d3.Selection<SVGPathElement, any, SVGGElement, unknown> | null>(null);
   const linkLabelSelRef = useRef<d3.Selection<SVGTextElement, any, SVGGElement, unknown> | null>(null);
   const stepTextRef     = useRef<d3.Selection<SVGTextElement, MachineNode, SVGGElement, unknown> | null>(null);
+  const mqttBadgeSelRef = useRef<d3.Selection<SVGGElement, MachineNode, SVGGElement, unknown> | null>(null);
   const simRef          = useRef<d3.Simulation<MachineNode & d3.SimulationNodeDatum, undefined> | null>(null);
   const zoomTransformRef  = useRef<d3.ZoomTransform | null>(null);
   const compactModeRef    = useRef(false);
@@ -250,16 +251,12 @@ export const MachineGraphView: React.FC = () => {
   const loadMachineRef = useRef(loadMachine);
   useEffect(() => { loadMachineRef.current = loadMachine; }, [loadMachine]);
 
-  // Graph filter state
+  // Graph filter state (toggle actions live in GraphFilterPanel; MachineGraphView
+  // only needs the state for D3 visibility updates and MQTT badge sync)
   const graphFilters       = useVisualizerStore(state => state.graphFilters);
   const graphFiltersRef    = useRef(graphFilters);
   useEffect(() => { graphFiltersRef.current = graphFilters; }, [graphFilters]);
-  const toggleNodeType     = useVisualizerStore(state => state.toggleNodeType);
-  const setPortalFocus     = useVisualizerStore(state => state.setPortalFocus);
-  const setMqttFocus       = useVisualizerStore(state => state.setMqttFocus);
-  const toggleSemanticLane = useVisualizerStore(state => state.toggleSemanticLane);
   const setMqttMachineIds  = useVisualizerStore(state => state.setMqttMachineIds);
-  const resetGraphFilters  = useVisualizerStore(state => state.resetGraphFilters);
 
   // All semantic lanes available in the current graph — populated after layout build
   const [availableSemanticLanes, setAvailableSemanticLanes] = useState<Array<{ key: string; label: string }>>([]);
@@ -532,10 +529,11 @@ export const MachineGraphView: React.FC = () => {
 
     const svg    = d3.select(svgRef.current);
     svg.selectAll('*').remove();
-    nodeSelRef.current  = null;
-    linkSelRef.current  = null;
+    nodeSelRef.current      = null;
+    linkSelRef.current      = null;
     linkLabelSelRef.current = null;
-    stepTextRef.current = null;
+    stepTextRef.current     = null;
+    mqttBadgeSelRef.current = null;
     simRef.current?.stop();
     simRef.current = null;
 
@@ -1072,7 +1070,8 @@ export const MachineGraphView: React.FC = () => {
         .attr('stroke', (d: MachineNode) => DOMAINS[(d.domain ?? 'general')].color)
         .attr('stroke-width', 2);
 
-      stepTextRef.current = null;
+      stepTextRef.current     = null;
+      mqttBadgeSelRef.current = null;
     } else {
       // ── Full mode: cards with name + mapping labels ───────────────────────
 
@@ -1248,6 +1247,35 @@ export const MachineGraphView: React.FC = () => {
         .attr('fill', 'white');
 
       stepTextRef.current = stepText as any;
+
+      // ── MQTT badge — upper-left of standard/dispatcher cards ─────────────
+      // Created once; visibility is toggled by a separate effect when
+      // mqttMachineIds changes so the badge tracks real-time MQTT source data.
+      const mqttBadge = node
+        .filter((d: any) => d.role !== 'interconnect' && !isPortalNode(d.id))
+        .append<SVGGElement>('g')
+        .attr('class', 'mqtt-badge')
+        .attr('transform', 'translate(-78, -46)')
+        .attr('display', 'none')
+        .attr('pointer-events', 'none');
+
+      mqttBadge.append('rect')
+        .attr('width', 34)
+        .attr('height', 13)
+        .attr('rx', 4)
+        .attr('fill', '#0284c7')
+        .attr('opacity', 0.92);
+
+      mqttBadge.append('text')
+        .attr('text-anchor', 'middle')
+        .attr('x', 17)
+        .attr('y', 9.5)
+        .attr('font-size', '7px')
+        .attr('font-weight', 700)
+        .attr('fill', '#fff')
+        .text('MQTT');
+
+      mqttBadgeSelRef.current = mqttBadge as any;
     }
 
     // ── Drag — pin on drop ────────────────────────────────────────────────
@@ -1480,6 +1508,17 @@ export const MachineGraphView: React.FC = () => {
     applyGraphFilter();
   }, [graphFilters, applyGraphFilter]);
 
+  // ── MQTT badge visibility ───────────────────────────────────────────────────
+  // Show the "MQTT" badge on each card that has a known MQTT source binding.
+  // Runs whenever the mqttMachineIds set changes (populated at mount from
+  // /api/pe/mqtt/mappings, not on every filter toggle).
+  useEffect(() => {
+    const sel = mqttBadgeSelRef.current;
+    if (!sel) return;
+    const ids = graphFilters.mqttMachineIds;
+    sel.attr('display', (d: MachineNode) => ids.has(d.id) ? null : 'none');
+  }, [graphFilters.mqttMachineIds]);
+
   // Compose live per-step result for the hovered machine.  Walks
   // sequenceResults across all of this machine's CES sequences and
   // unions the activated and matched vector IDs so the tooltip graph
@@ -1673,93 +1712,12 @@ export const MachineGraphView: React.FC = () => {
                   <span style={{ color: themeTokens.openclaw.node }}>OpenClaw Domain Portal</span>
                 </div>
               )}
-              {/* ── Node-type filter chips ── */}
-              <div className="vis-legend-divider" />
-              <div className="vis-legend-filter-header">
-                <span className="vis-legend-filter-title">Node types</span>
-                {activeFilterCount > 0 && (
-                  <span className="vis-filter-status" aria-live="polite">
-                    {visibleNodeCount}/{totalNodeCount}
-                  </span>
-                )}
-              </div>
-              <div className="vis-filter-chips" role="group" aria-label="Node type filters">
-                {ALL_FILTER_NODE_TYPES.map(type => {
-                  const pressed = graphFilters.enabledNodeTypes.has(type);
-                  return (
-                    <button
-                      key={type}
-                      className="vis-filter-chip"
-                      role="button"
-                      aria-pressed={pressed}
-                      onClick={() => toggleNodeType(type)}
-                      title={`${pressed ? 'Hide' : 'Show'} ${FILTER_NODE_TYPE_LABELS[type]}`}
-                    >
-                      {FILTER_NODE_TYPE_LABELS[type]}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* ── Focus views ── */}
-              <div className="vis-legend-divider" />
-              <span className="vis-legend-filter-title">Focus views</span>
-              <label className="vis-filter-focus-row">
-                <input
-                  type="checkbox"
-                  className="vis-legend-domain-cb"
-                  checked={graphFilters.portalFocusActive}
-                  onChange={e => setPortalFocus(e.target.checked)}
-                  aria-label="OpenClaw Portals only"
-                />
-                <span style={{ color: themeTokens.openclaw.node, fontSize: 10 }}>⬡ OpenClaw Portals only</span>
-              </label>
-              <label className="vis-filter-focus-row">
-                <input
-                  type="checkbox"
-                  className="vis-legend-domain-cb"
-                  checked={graphFilters.mqttFocusActive}
-                  onChange={e => setMqttFocus(e.target.checked)}
-                  aria-label="MQTT sources only"
-                />
-                <span style={{ fontSize: 10 }}>⟁ MQTT sources only</span>
-              </label>
-
-              {/* ── Bus semantic lanes ── */}
-              {availableSemanticLanes.length > 0 && (
-                <>
-                  <div className="vis-legend-divider" />
-                  <span className="vis-legend-filter-title">Bus semantics</span>
-                  <div className="vis-filter-lane-tags" role="group" aria-label="Semantic lane filters">
-                    {availableSemanticLanes.map(lane => (
-                      <label key={lane.key} className="vis-filter-lane-tag">
-                        <input
-                          type="checkbox"
-                          checked={graphFilters.selectedSemanticLanes.has(lane.key)}
-                          onChange={() => toggleSemanticLane(lane.key)}
-                          aria-label={`Semantic lane: ${lane.label}`}
-                        />
-                        <span>{lane.label}</span>
-                      </label>
-                    ))}
-                  </div>
-                </>
-              )}
-
-              {/* ── Reset filters ── */}
-              {activeFilterCount > 0 && (
-                <>
-                  <div className="vis-legend-divider" />
-                  <button
-                    className="vis-reset-filters-btn"
-                    onClick={resetGraphFilters}
-                    title="Clear all graph filters"
-                    aria-label="Reset all graph filters"
-                  >
-                    ✕ Reset filters
-                  </button>
-                </>
-              )}
+              {/* ── Filter panel (node-type chips, focus views, semantic lanes, reset) ── */}
+              <GraphFilterPanel
+                availableSemanticLanes={availableSemanticLanes}
+                visibleNodeCount={visibleNodeCount}
+                totalNodeCount={totalNodeCount}
+              />
 
               <div className="vis-legend-divider" />
               <div className="vis-legend-domain-header">
