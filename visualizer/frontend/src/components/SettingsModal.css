@@ -1,5 +1,13 @@
 /* ── Settings dialog backdrop & container ──────────────────────────────────── */
 
+/* Hide when not opened via showModal() — prevents the dialog box rendering as
+   a visible artifact on page load. The browser UA rule `dialog:not([open])
+   { display: none }` is overridden by our display:flex below, so we restore
+   it explicitly here with higher specificity. */
+.settings-dialog:not([open]) {
+  display: none;
+}
+
 .settings-dialog {
   padding: 0;
   border: 1px solid var(--re-border-bright, #1a3352);
