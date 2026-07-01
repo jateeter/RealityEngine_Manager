@@ -5,6 +5,41 @@ import type { DomainId } from './components/machineDomains';
 import { DOMAIN_ORDER } from './components/machineDomains';
 import type { FilterNodeType } from './components/graphFilters';
 import { ALL_FILTER_NODE_TYPES } from './components/graphFilters';
+import type { ThemeId } from './styles/themes/index';
+
+// ── Visualizer settings ───────────────────────────────────────────────────────
+
+export interface VisualizerSettings {
+  themeId:             ThemeId;
+  compactThreshold:    number;
+  edgeOpacity:         number;
+  semanticLaneOpacity: number;
+  domainHullOpacity:   number;
+  animationSpeed:      'slow' | 'normal' | 'fast';
+  reduceMotion:        boolean;
+  autoOpenLegend:      boolean;
+  showCorpusChip:      boolean;
+  showEdgeLabels:      boolean;
+  threeDDefault:       boolean;
+  nodeLabelCutoff:     number;
+}
+
+const DEFAULT_SETTINGS: VisualizerSettings = {
+  themeId:             'dark',
+  compactThreshold:    100,
+  edgeOpacity:         0.80,
+  semanticLaneOpacity: 0.14,
+  domainHullOpacity:   0.75,
+  animationSpeed:      'normal',
+  reduceMotion:        false,
+  autoOpenLegend:      false,
+  showCorpusChip:      true,
+  showEdgeLabels:      false,
+  threeDDefault:       false,
+  nodeLabelCutoff:     22,
+};
+
+// ── Graph filter state ────────────────────────────────────────────────────────
 
 export interface GraphFilterState {
   enabledNodeTypes: Set<FilterNodeType>;
@@ -24,6 +59,9 @@ const DEFAULT_GRAPH_FILTERS: GraphFilterState = {
 
 interface VisualizerState {
   currentView: 'selection' | 'interconnection' | 'perceptual-engine';
+
+  settings: VisualizerSettings;
+  updateSettings: (patch: Partial<VisualizerSettings>) => void;
 
   machines: Machine[];
   currentMachineId: string | null;
@@ -67,6 +105,11 @@ export const useVisualizerStore = create<VisualizerState>((set, get) => ({
   graphZoomState: null,
   selectedDomains: [...DOMAIN_ORDER],
   graphFilters: { ...DEFAULT_GRAPH_FILTERS },
+  settings: { ...DEFAULT_SETTINGS },
+
+  updateSettings: (patch) => set(state => ({
+    settings: { ...state.settings, ...patch },
+  })),
 
   setCurrentView: (view) => set({ currentView: view }),
   setMachines: (machines) => set({ machines }),

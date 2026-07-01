@@ -22,6 +22,7 @@ import {
   semanticLaneLabel,
 } from './graphFilters';
 import { vizTheme } from '../styles/vizTheme';
+import { useTheme } from '../contexts/ThemeContext';
 import { Graph3DView } from './Graph3DView';
 import { Graph3DToggle } from './Graph3DToggle';
 import './MachineGraphView.css';
@@ -114,18 +115,15 @@ function getMachineColorState(
   return 'idle';
 }
 
-const CARD_FIRED_FILL   = '#2d0808';
-const CARD_FIRED_STROKE = '#ef4444';
-
-// Off-white blue-grey — visible against the deep navy background.
-const EDGE_IDLE_COLOR = '#8ab4cc';
-
-// Role-specific visual constants
-const BUS_STROKE       = '#60b4f8';    // mechanical bus / interconnect nodes
-const OPENCLAW_STROKE  = '#ff6b35';    // OpenClaw gateway
-const OPENCLAW_FILL    = 'rgba(255,107,53,0.12)';
-const ACP_EDGE_COLOR   = '#ff6b35';
-const BUS_EDGE_COLOR   = '#60b4f8';
+// Default (dark-theme) fallbacks — overridden at runtime via colorsRef
+const CARD_FIRED_FILL_DEFAULT   = '#2d0808';
+const CARD_FIRED_STROKE_DEFAULT = '#ef4444';
+const EDGE_IDLE_COLOR_DEFAULT   = '#8ab4cc';
+const BUS_STROKE_DEFAULT        = '#60b4f8';
+const OPENCLAW_STROKE_DEFAULT   = '#ff6b35';
+const OPENCLAW_FILL_DEFAULT     = 'rgba(255,107,53,0.12)';
+const ACP_EDGE_COLOR_DEFAULT    = '#ff6b35';
+const BUS_EDGE_COLOR_DEFAULT    = '#60b4f8';
 
 function hexagonPoints(r: number): string {
   return Array.from({ length: 6 }, (_, i) => {
@@ -187,6 +185,26 @@ function saveLayout(nodes: d3.SimulationNodeDatum[]): void {
 // ---------------------------------------------------------------------------
 
 export const MachineGraphView: React.FC = () => {
+  const { tokens: themeTokens, themeId } = useTheme();
+
+  // Theme-reactive color snapshot — updated before every layout rebuild
+  interface GraphColors {
+    cardFiredFill:   string; cardFiredStroke: string;
+    edgeIdle:        string; busStroke:       string;
+    openclawStroke:  string; openclawFill:    string;
+    acpEdge:         string; busEdge:         string;
+  }
+  const colorsRef = useRef<GraphColors>({
+    cardFiredFill:   CARD_FIRED_FILL_DEFAULT,
+    cardFiredStroke: CARD_FIRED_STROKE_DEFAULT,
+    edgeIdle:        EDGE_IDLE_COLOR_DEFAULT,
+    busStroke:       BUS_STROKE_DEFAULT,
+    openclawStroke:  OPENCLAW_STROKE_DEFAULT,
+    openclawFill:    OPENCLAW_FILL_DEFAULT,
+    acpEdge:         ACP_EDGE_COLOR_DEFAULT,
+    busEdge:         BUS_EDGE_COLOR_DEFAULT,
+  });
+
   const svgRef       = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -498,6 +516,18 @@ export const MachineGraphView: React.FC = () => {
 
   // ── Layout effect — only runs on structural changes, NOT on each step ──────
   useEffect(() => {
+    // Sync theme-reactive colors into the closure-accessible ref before any D3 work
+    colorsRef.current = {
+      cardFiredFill:   themeTokens.card.firedFill,
+      cardFiredStroke: themeTokens.card.firedStroke,
+      edgeIdle:        themeTokens.edge.idle,
+      busStroke:       themeTokens.bus.interconnectStroke,
+      openclawStroke:  themeTokens.openclaw.edge,
+      openclawFill:    themeTokens.openclaw.fill,
+      acpEdge:         themeTokens.openclaw.edge,
+      busEdge:         themeTokens.bus.interconnectStroke,
+    };
+
     if (!svgRef.current || !graphData || graphData.nodes.length === 0) return;
 
     const svg    = d3.select(svgRef.current);
@@ -520,10 +550,10 @@ export const MachineGraphView: React.FC = () => {
     // Arrowhead markers — compact mode uses smaller tips (circles are smaller than cards).
     const defs = svg.append('defs');
     ([
-      { id: 'mgv-arrow',        fill: EDGE_IDLE_COLOR,      mw: compact ? 6 : 10 },
-      { id: 'mgv-arrow-active', fill: vizTheme.edge.active, mw: compact ? 5 :  7 },
-      { id: 'mgv-arrow-acp',    fill: ACP_EDGE_COLOR,       mw: compact ? 5 :  7 },
-      { id: 'mgv-arrow-bus',    fill: BUS_EDGE_COLOR,       mw: compact ? 5 :  7 },
+      { id: 'mgv-arrow',        fill: colorsRef.current.edgeIdle,     mw: compact ? 6 : 10 },
+      { id: 'mgv-arrow-active', fill: themeTokens.edge.active,       mw: compact ? 5 :  7 },
+      { id: 'mgv-arrow-acp',    fill: colorsRef.current.acpEdge,     mw: compact ? 5 :  7 },
+      { id: 'mgv-arrow-bus',    fill: colorsRef.current.busEdge,     mw: compact ? 5 :  7 },
     ] as const).forEach(({ id, fill, mw }) => {
       defs.append('marker')
         .attr('id', id)
@@ -903,7 +933,7 @@ export const MachineGraphView: React.FC = () => {
         `edge${d.isAcpEdge ? ' acp-edge' : ''}${d.isBusEdge ? ' bus-edge' : ''}`)
       .attr('fill', 'none')
       .attr('stroke', (d: any) =>
-        d.isAcpEdge ? ACP_EDGE_COLOR : d.isBusEdge ? BUS_EDGE_COLOR : EDGE_IDLE_COLOR)
+        d.isAcpEdge ? colorsRef.current.acpEdge : d.isBusEdge ? colorsRef.current.busEdge : colorsRef.current.edgeIdle)
       .attr('stroke-width', (d: any) =>
         d.isAcpEdge ? 1.8 : d.isBusEdge ? 3 : 2.5)
       .attr('stroke-dasharray', (d: any) =>
@@ -952,7 +982,7 @@ export const MachineGraphView: React.FC = () => {
           const meta = d.metadata as PortalNodeMetadata;
           return `${meta.domainColor}22`;
         })
-        .attr('stroke', OPENCLAW_STROKE)
+        .attr('stroke', colorsRef.current.openclawStroke)
         .attr('stroke-width', 2.5)
         .attr('stroke-dasharray', '5,3');
 
@@ -969,7 +999,7 @@ export const MachineGraphView: React.FC = () => {
         .attr('y', -28)
         .attr('font-size', '8px')
         .attr('font-weight', 700)
-        .attr('fill', OPENCLAW_STROKE)
+        .attr('fill', colorsRef.current.openclawStroke)
         .attr('pointer-events', 'none')
         .text((d: any) => (d.metadata as PortalNodeMetadata).domainLabel.split(' ')[0]);
 
@@ -978,7 +1008,7 @@ export const MachineGraphView: React.FC = () => {
         .attr('text-anchor', 'middle')
         .attr('y', -18)
         .attr('font-size', '7px')
-        .attr('fill', OPENCLAW_STROKE)
+        .attr('fill', colorsRef.current.openclawStroke)
         .attr('opacity', 0.75)
         .attr('pointer-events', 'none')
         .text((d: any) => `⬡ ×${(d.metadata as PortalNodeMetadata).dispatcherCount}`);
@@ -988,14 +1018,14 @@ export const MachineGraphView: React.FC = () => {
         .append('polygon')
         .attr('points', diamondPoints(COMPACT_R + 4, COMPACT_R + 4))
         .attr('fill', 'rgba(96,180,248,0.10)')
-        .attr('stroke', BUS_STROKE)
+        .attr('stroke', colorsRef.current.busStroke)
         .attr('stroke-width', 2);
 
       node.filter((d: any) => d.role === 'interconnect')
         .append('polygon')
         .attr('points', diamondPoints(COMPACT_R - 2, COMPACT_R - 2))
         .attr('fill', 'none')
-        .attr('stroke', BUS_STROKE)
+        .attr('stroke', colorsRef.current.busStroke)
         .attr('stroke-width', 1)
         .attr('opacity', 0.45);
 
@@ -1004,7 +1034,7 @@ export const MachineGraphView: React.FC = () => {
         .attr('text-anchor', 'middle')
         .attr('y', COMPACT_R + 14)
         .attr('font-size', '7px')
-        .attr('fill', BUS_STROKE)
+        .attr('fill', colorsRef.current.busStroke)
         .attr('pointer-events', 'none')
         .text('BUS');
 
@@ -1013,7 +1043,7 @@ export const MachineGraphView: React.FC = () => {
         .append('circle')
         .attr('r', COMPACT_R + 3)
         .attr('fill', 'none')
-        .attr('stroke', OPENCLAW_STROKE)
+        .attr('stroke', colorsRef.current.openclawStroke)
         .attr('stroke-width', 1.5)
         .attr('stroke-dasharray', '4,2')
         .attr('opacity', 0.8);
@@ -1023,7 +1053,7 @@ export const MachineGraphView: React.FC = () => {
         .append('polygon')
         .attr('points', hexagonPoints(5))
         .attr('transform', `translate(${COMPACT_R - 1},${-COMPACT_R + 1})`)
-        .attr('fill', OPENCLAW_STROKE)
+        .attr('fill', colorsRef.current.openclawStroke)
         .attr('opacity', 0.9);
 
       // Standard nodes — skip portals
@@ -1054,7 +1084,7 @@ export const MachineGraphView: React.FC = () => {
           const meta = d.metadata as PortalNodeMetadata;
           return `${meta.domainColor}18`;
         })
-        .attr('stroke', OPENCLAW_STROKE)
+        .attr('stroke', colorsRef.current.openclawStroke)
         .attr('stroke-width', 2)
         .attr('stroke-dasharray', '7,3');
 
@@ -1071,7 +1101,7 @@ export const MachineGraphView: React.FC = () => {
         .attr('y', -16)
         .attr('font-size', '10px')
         .attr('font-weight', 700)
-        .attr('fill', OPENCLAW_STROKE)
+        .attr('fill', colorsRef.current.openclawStroke)
         .text(() => `⬡ OpenClaw Portal`);
 
       node.filter((d: any) => isPortalNode(d.id))
@@ -1099,14 +1129,14 @@ export const MachineGraphView: React.FC = () => {
         .append('polygon')
         .attr('points', diamondPoints(100, 60))
         .attr('fill', 'rgba(96,180,248,0.08)')
-        .attr('stroke', BUS_STROKE)
+        .attr('stroke', colorsRef.current.busStroke)
         .attr('stroke-width', 2.5);
 
       node.filter((d: any) => d.role === 'interconnect')
         .append('polygon')
         .attr('points', diamondPoints(88, 50))
         .attr('fill', 'none')
-        .attr('stroke', BUS_STROKE)
+        .attr('stroke', colorsRef.current.busStroke)
         .attr('stroke-width', 1)
         .attr('opacity', 0.35);
 
@@ -1116,7 +1146,7 @@ export const MachineGraphView: React.FC = () => {
         .attr('y', -10)
         .attr('font-size', '11px')
         .attr('font-weight', 700)
-        .attr('fill', BUS_STROKE)
+        .attr('fill', colorsRef.current.busStroke)
         .text((d: MachineNode) => d.name.length > 22 ? d.name.slice(0, 22) + '…' : d.name);
 
       node.filter((d: any) => d.role === 'interconnect')
@@ -1124,7 +1154,7 @@ export const MachineGraphView: React.FC = () => {
         .attr('text-anchor', 'middle')
         .attr('y', 8)
         .attr('font-size', '9px')
-        .attr('fill', BUS_STROKE)
+        .attr('fill', colorsRef.current.busStroke)
         .attr('letter-spacing', '0.5px')
         .text('MECHANICAL BUS');
 
@@ -1145,7 +1175,7 @@ export const MachineGraphView: React.FC = () => {
         .attr('y', -54)
         .attr('rx', 10)
         .attr('fill', 'none')
-        .attr('stroke', OPENCLAW_STROKE)
+        .attr('stroke', colorsRef.current.openclawStroke)
         .attr('stroke-width', 1.5)
         .attr('stroke-dasharray', '5,3')
         .attr('opacity', 0.65);
@@ -1161,7 +1191,7 @@ export const MachineGraphView: React.FC = () => {
         .attr('fill', vizTheme.bg.cardIdle)
         .attr('stroke', (d: MachineNode) =>
           d.role === 'agent-dispatcher'
-            ? OPENCLAW_STROKE
+            ? colorsRef.current.openclawStroke
             : DOMAINS[(d.domain ?? 'general')].color)
         .attr('stroke-width', 2.5);
 
@@ -1170,7 +1200,7 @@ export const MachineGraphView: React.FC = () => {
         .append('polygon')
         .attr('points', hexagonPoints(10))
         .attr('transform', 'translate(70,-40)')
-        .attr('fill', OPENCLAW_STROKE)
+        .attr('fill', colorsRef.current.openclawStroke)
         .attr('opacity', 0.9);
 
       node.filter((d: any) => d.role === 'agent-dispatcher')
@@ -1372,9 +1402,9 @@ export const MachineGraphView: React.FC = () => {
     applyGraphFilter();
 
     return () => { simulation.stop(); };
-    // layoutEpoch is intentionally included so Reset Layout triggers a rebuild
+    // layoutEpoch forces rebuild on user reset; themeId forces rebuild on theme change
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graphData, dimensions, layoutEpoch]);
+  }, [graphData, dimensions, layoutEpoch, themeId]);
 
   // ── State update effect — updates node and edge appearance on each step ──────
   // Does NOT touch the simulation or positions.
@@ -1412,15 +1442,15 @@ export const MachineGraphView: React.FC = () => {
     nodeShape
       .attr('fill', (d: MachineNode) => {
         const state = getMachineColorState(currentStep?.machineResults[d.id]);
-        if (state === 'fired')  return CARD_FIRED_FILL;
-        if (state === 'active') return vizTheme.bg.cardActive;
-        return vizTheme.bg.cardIdle;
+        if (state === 'fired')  return colorsRef.current.cardFiredFill;
+        if (state === 'active') return themeTokens.bg.cardActive;
+        return themeTokens.bg.cardIdle;
       })
       .attr('stroke', (d: MachineNode) => {
         const state = getMachineColorState(currentStep?.machineResults[d.id]);
-        if (state === 'fired')  return CARD_FIRED_STROKE;
-        if (state === 'active') return vizTheme.accent.input;
-        if ((d as any).role === 'agent-dispatcher') return OPENCLAW_STROKE;
+        if (state === 'fired')  return colorsRef.current.cardFiredStroke;
+        if (state === 'active') return themeTokens.accent.input;
+        if ((d as any).role === 'agent-dispatcher') return colorsRef.current.openclawStroke;
         return DOMAINS[(d.domain ?? 'general')].color;
       })
       .attr('stroke-width', (d: MachineNode) => {
@@ -1553,11 +1583,11 @@ export const MachineGraphView: React.FC = () => {
               <span style={{ color: vizTheme.text.muted }}>/ {corpusTotal}</span>
             )}
             <span style={{ color: vizTheme.text.muted }}>·</span>
-            <span style={{ color: BUS_STROKE }}>{busNodeCount} bus</span>
+            <span style={{ color: themeTokens.bus.interconnectStroke }}>{busNodeCount} bus</span>
             {dispatcherCount > 0 && (
               <>
-                <span style={{ color: vizTheme.text.muted }}>·</span>
-                <span style={{ color: OPENCLAW_STROKE }}>{dispatcherCount} ACP</span>
+                <span style={{ color: themeTokens.text.muted }}>·</span>
+                <span style={{ color: themeTokens.openclaw.node }}>{dispatcherCount} ACP</span>
               </>
             )}
           </div>
@@ -1590,15 +1620,15 @@ export const MachineGraphView: React.FC = () => {
           <div className="vis-legend-content">
             <div className="vis-legend-items">
               <div className="vis-legend-item">
-                <span className="vis-legend-dot" style={{ background: CARD_FIRED_FILL, border: `1.5px solid ${CARD_FIRED_STROKE}` }} />
+                <span className="vis-legend-dot" style={{ background: themeTokens.card.firedFill, border: `1.5px solid ${themeTokens.card.firedStroke}` }} />
                 <span>Output fired</span>
               </div>
               <div className="vis-legend-item">
-                <span className="vis-legend-dot" style={{ background: vizTheme.bg.cardActive, border: `1.5px solid ${vizTheme.accent.input}` }} />
+                <span className="vis-legend-dot" style={{ background: themeTokens.bg.cardActive, border: `1.5px solid ${themeTokens.accent.input}` }} />
                 <span>Event active</span>
               </div>
               <div className="vis-legend-item">
-                <span className="vis-legend-dot" style={{ background: vizTheme.bg.cardIdle, border: `1px solid ${vizTheme.outline.idle}` }} />
+                <span className="vis-legend-dot" style={{ background: themeTokens.bg.cardIdle, border: `1px solid ${themeTokens.outline.idle}` }} />
                 <span>Idle</span>
               </div>
               <div className="vis-legend-divider" />
@@ -1607,40 +1637,40 @@ export const MachineGraphView: React.FC = () => {
                 <span>Data flow</span>
               </div>
               <div className="vis-legend-item">
-                <span className="vis-legend-dash" style={{ borderColor: BUS_EDGE_COLOR, borderWidth: '2px' }} />
-                <span style={{ color: BUS_STROKE }}>Mechanical bus flow</span>
+                <span className="vis-legend-dash" style={{ borderColor: themeTokens.bus.interconnectStroke, borderWidth: '2px' }} />
+                <span style={{ color: themeTokens.bus.interconnectStroke }}>Mechanical bus flow</span>
               </div>
               <div className="vis-legend-item">
-                <span className="vis-legend-dash" style={{ borderColor: ACP_EDGE_COLOR, borderStyle: 'dashed' }} />
-                <span style={{ color: OPENCLAW_STROKE }}>ACP dispatch</span>
+                <span className="vis-legend-dash" style={{ borderColor: themeTokens.openclaw.edge, borderStyle: 'dashed' }} />
+                <span style={{ color: themeTokens.openclaw.node }}>ACP dispatch</span>
               </div>
               <div className="vis-legend-divider" />
-              <div className="vis-legend-item" style={{ fontSize: '10px', color: vizTheme.text.secondary, letterSpacing: '0.5px', fontWeight: 600, textTransform: 'uppercase' }}>
+              <div className="vis-legend-item" style={{ fontSize: '10px', color: themeTokens.text.secondary, letterSpacing: '0.5px', fontWeight: 600, textTransform: 'uppercase' }}>
                 Node Roles
               </div>
               <div className="vis-legend-item">
                 <span style={{
                   display: 'inline-block', width: 12, height: 12, flexShrink: 0,
-                  background: 'rgba(96,180,248,0.10)', border: `1.5px solid ${BUS_STROKE}`,
+                  background: themeTokens.bus.interconnectFill, border: `1.5px solid ${themeTokens.bus.interconnectStroke}`,
                   clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)',
                 }} />
-                <span style={{ color: BUS_STROKE }}>Interconnect (Mech. Bus) · {busNodeCount}</span>
+                <span style={{ color: themeTokens.bus.interconnectStroke }}>Interconnect (Mech. Bus) · {busNodeCount}</span>
               </div>
               <div className="vis-legend-item">
                 <span style={{
                   display: 'inline-block', width: 12, height: 12, flexShrink: 0, borderRadius: '50%',
-                  background: 'rgba(255,107,53,0.08)', border: `1.5px dashed ${OPENCLAW_STROKE}`,
+                  background: themeTokens.openclaw.fill, border: `1.5px dashed ${themeTokens.openclaw.edge}`,
                 }} />
-                <span style={{ color: OPENCLAW_STROKE }}>Agent Dispatcher (ACP) · {dispatcherCount}</span>
+                <span style={{ color: themeTokens.openclaw.node }}>Agent Dispatcher (ACP) · {dispatcherCount}</span>
               </div>
               {dispatcherCount > 0 && (
                 <div className="vis-legend-item">
                   <span style={{
                     display: 'inline-block', width: 12, height: 12, flexShrink: 0,
-                    background: OPENCLAW_FILL, border: `1.5px dashed ${OPENCLAW_STROKE}`,
+                    background: themeTokens.openclaw.fill, border: `1.5px dashed ${themeTokens.openclaw.edge}`,
                     clipPath: 'polygon(50% 0%, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%)',
                   }} />
-                  <span style={{ color: OPENCLAW_STROKE }}>OpenClaw Domain Portal</span>
+                  <span style={{ color: themeTokens.openclaw.node }}>OpenClaw Domain Portal</span>
                 </div>
               )}
               {/* ── Node-type filter chips ── */}
@@ -1682,7 +1712,7 @@ export const MachineGraphView: React.FC = () => {
                   onChange={e => setPortalFocus(e.target.checked)}
                   aria-label="OpenClaw Portals only"
                 />
-                <span style={{ color: OPENCLAW_STROKE, fontSize: 10 }}>⬡ OpenClaw Portals only</span>
+                <span style={{ color: themeTokens.openclaw.node, fontSize: 10 }}>⬡ OpenClaw Portals only</span>
               </label>
               <label className="vis-filter-focus-row">
                 <input

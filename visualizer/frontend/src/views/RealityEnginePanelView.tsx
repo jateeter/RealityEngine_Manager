@@ -4,6 +4,7 @@ import { useVisualizerStore } from '../store';
 import { Machine, HealthStatus, EngineActive, PEState } from '../types';
 import { EngineSwitcher } from '../components/EngineSwitcher';
 import { MachineGraphView } from '../components/MachineGraphView';
+import { SettingsModal } from '../components/SettingsModal';
 import {
   classifyMachine,
   DOMAINS,
@@ -167,7 +168,9 @@ const RealityEnginePanelView: React.FC = () => {
   const [filterMode,  setFilterMode]  = useState<'all' | 'examples' | 'custom'>('all');
   const [sortMode,    setSortMode]    = useState<'name' | 'recent' | 'sequences'>('name');
   const [isLoading,   setIsLoading]   = useState(false);
-  const [showHelp,    setShowHelp]    = useState(false);
+  const [showHelp,     setShowHelp]     = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const settingsGearRef = useRef<HTMLButtonElement>(null);
   const [expanded,    setExpanded]    = useState<Set<string>>(() => new Set<string>());
   const [focusedId,   setFocusedId]   = useState<string | null>(null);
 
@@ -496,6 +499,16 @@ const RealityEnginePanelView: React.FC = () => {
             title="Keyboard shortcuts and navigation"
           >
             ?
+          </button>
+
+          <button
+            ref={settingsGearRef}
+            className={`rep-help-btn rep-settings-btn${showSettings ? ' is-active' : ''}`}
+            onClick={() => setShowSettings(v => !v)}
+            aria-label="Visualizer settings"
+            title="Visualizer settings"
+          >
+            ⚙
           </button>
         </div>
 
@@ -830,6 +843,13 @@ const RealityEnginePanelView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* ── Settings modal ─────────────────────────────────────────────── */}
+      <SettingsModal
+        open={showSettings}
+        onClose={() => setShowSettings(false)}
+        triggerRef={settingsGearRef}
+      />
 
     </div>
   );
