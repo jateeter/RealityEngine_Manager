@@ -24,7 +24,7 @@ import {
   isPortalNode,
   portalNodeId,
 } from './machineDomains';
-import { buildPeSourceGroups } from './peSourceArcs';
+import { buildPeSourceGroups, routeArcsToBuses, type ArcTargetInfo } from './peSourceArcs';
 import { vizTheme } from '../styles/vizTheme';
 import { Graph3DView } from './Graph3DView';
 import { Graph3DToggle } from './Graph3DToggle';
@@ -83,6 +83,7 @@ interface MachineLink {
   isPeSourceEdge?: boolean;
   peOrigin?: string;
   peSourceCount?: number;
+  peMachineCount?: number;
 }
 
 interface PortalTooltipState {
@@ -621,16 +622,32 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
           x: saved?.x ?? cx + ringR * 1.7 * Math.cos(angle),
           y: saved?.y ?? cy + ringR * 1.7 * Math.sin(angle),
         });
-        for (const [targetId, t] of gr.perTarget) {
+        // Phase 2: aggregate onto the domain bus (>=3 targets) or, for
+        // OpenClaw-fed groups, terminate on the domain portal (the ACP
+        // completion "return" arc).
+        const targetInfo = new Map<string, ArcTargetInfo>();
+        for (const targetId of gr.perTarget.keys()) {
+          const tn = nodes.find(nn => nn.id === targetId);
+          if (!tn) continue;
+          const bus = nodes.find(nn => nn.domain === tn.domain && nn.role === 'interconnect');
+          const pid = portalNodeId(tn.domain);
+          targetInfo.set(targetId, {
+            domain: tn.domain,
+            busId: bus?.id,
+            portalId: nodeIds.has(pid) ? pid : undefined,
+          });
+        }
+        for (const arc of routeArcsToBuses(gr.perTarget, targetInfo, origin)) {
           links.push({
             source: id,
-            target: targetId,
+            target: arc.terminatorId,
             sourceRegion: gr.envelope,
-            targetRegion: t.targetRegion,
-            overlapSize: t.overlap,
+            targetRegion: arc.targetRegion,
+            overlapSize: arc.overlap,
             isPeSourceEdge: true,
             peOrigin: origin,
-            peSourceCount: t.count,
+            peSourceCount: arc.count,
+            peMachineCount: arc.machineIds.length,
           });
         }
       }
@@ -682,7 +699,7 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
     };
 
     const linkPath = link.append('path')
-      .attr('class', 'link-path')
+      .attr('class', (d: MachineLink) => d.isPeSourceEdge ? 'link-path pe-source-edge' : 'link-path')
       .attr('fill', 'none')
       .attr('stroke', (d: MachineLink) => {
         if (d.isPeSourceEdge) return peSourceColor(d.peOrigin ?? 'sensor');
@@ -733,13 +750,18 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
       .attr('fill', vizTheme.edge.label)
       .attr('text-anchor', 'middle')
       .text((d: MachineLink) => d.isPeSourceEdge
-        ? `${d.peSourceCount ?? 0} src → [${d.targetRegion.offset}:${d.targetRegion.offset + d.targetRegion.length - 1}]`
+        ? ((d.peMachineCount ?? 1) > 1
+            ? `${d.peSourceCount ?? 0} src ⇒ ${d.peMachineCount} machines`
+            : `${d.peSourceCount ?? 0} src → [${d.targetRegion.offset}:${d.targetRegion.offset + d.targetRegion.length - 1}]`)
         : `[${d.sourceRegion.offset}:${d.sourceRegion.offset + d.sourceRegion.length - 1}] → [${d.targetRegion.offset}:${d.targetRegion.offset + d.targetRegion.length - 1}]`
       );
 
     // Nodes
     const node = g.append('g').attr('class', 'nodes').selectAll('g').data(nodes).join('g')
-      .attr('class', (d: MachineNode) => d.role === 'openclaw-portal' ? 'node openclaw-portal' : 'node')
+      .attr('class', (d: MachineNode) =>
+        d.role === 'openclaw-portal' ? 'node openclaw-portal'
+        : d.role === 'pe-source'     ? 'node pe-source'
+        : 'node')
       .call(d3.drag<any, MachineNode>()
         .on('start', dragstarted)
         .on('drag', dragged)
@@ -1139,6 +1161,46 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
     });
   }, [machineStatuses]);
 
+  // ── PE-source arc pulse (Manager#27 Phase 3) ──────────────────────────────
+  // Flare feed-forward arcs whose stimulated elements are non-zero in the
+  // current step's perceptual space — the observable trace of a source
+  // (MQTT message, ACP completion, provider push) actually writing.
+  useEffect(() => {
+    if (!svgRef.current || perceptualSpace.length === 0) return;
+    const svg = d3.select(svgRef.current);
+    const hotSources = new Set<string>();
+    svg.selectAll<SVGPathElement, MachineLink>('path.link-path')
+      .filter((d: MachineLink) => !!d?.isPeSourceEdge)
+      .each(function (d: MachineLink) {
+        const { offset, length } = d.targetRegion;
+        let hot = false;
+        const end = Math.min(offset + length, perceptualSpace.length);
+        for (let i = offset; i < end; i++) {
+          if (perceptualSpace[i] !== 0) { hot = true; break; }
+        }
+        if (!hot) return;
+        hotSources.add(typeof d.source === 'string' ? d.source : d.source.id);
+        d3.select(this)
+          .interrupt('pe-pulse')
+          .transition('pe-pulse').duration(120)
+          .attr('stroke-width', 4.5)
+          .attr('opacity', 1)
+          .transition().duration(480)
+          .attr('stroke-width', 1.6)
+          .attr('opacity', 0.7);
+      });
+    if (hotSources.size > 0) {
+      svg.selectAll<SVGGElement, MachineNode>('g.node')
+        .filter((d: MachineNode) => d.role === 'pe-source' && hotSources.has(d.id))
+        .select('rect')
+        .interrupt('pe-pulse')
+        .transition('pe-pulse').duration(120)
+        .attr('stroke-width', 4)
+        .transition().duration(480)
+        .attr('stroke-width', 2);
+    }
+  }, [perceptualSpace]);
+
   const currentMachine = machines.find(m => m.id === currentMachineId);
 
   return (
@@ -1358,6 +1420,9 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
         </div>
         <div className="legend-item" style={{ color: '#64748b', fontSize: '10px' }}>
           Double-click a machine to open it
+        </div>
+        <div className="legend-item" style={{ color: '#64748b', fontSize: '10px' }}>
+          Source arcs pulse when their elements are non-zero in the current step
         </div>
       </div>
     </div>

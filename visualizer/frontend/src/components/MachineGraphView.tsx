@@ -21,6 +21,7 @@ import {
   semanticLaneLabel,
 } from './graphFilters';
 import { GraphFilterPanel } from './GraphFilterPanel';
+import { buildPeSourceGroups, routeArcsToBuses, peSourceColor, peSourceNodeId, type ArcTargetInfo } from './peSourceArcs';
 import { vizTheme } from '../styles/vizTheme';
 import { useTheme } from '../contexts/ThemeContext';
 import { Graph3DView } from './Graph3DView';
@@ -37,7 +38,7 @@ interface MachineNode {
   metadata: Record<string, any>;
   // Domain classification — drives cluster hulls and per-node color accents.
   domain?: DomainId;
-  role?: NodeRole | 'openclaw-virtual';
+  role?: NodeRole | 'openclaw-virtual' | 'pe-source';
 }
 
 interface MachineEdge {
@@ -49,6 +50,10 @@ interface MachineEdge {
   isAcpEdge?: boolean;
   isBusEdge?: boolean;
   isCrossDomain?: boolean;
+  isPeSourceEdge?: boolean;
+  peOrigin?: string;
+  peSourceCount?: number;
+  peMachineCount?: number;
 }
 
 interface MachineGraphData {
@@ -226,6 +231,38 @@ export const MachineGraphView: React.FC = () => {
 
   const [graphData,   setGraphData]   = useState<MachineGraphData | null>(null);
   const [currentStep, setCurrentStep] = useState<SimulationStep | null>(null);
+
+  // PE sources — feed-forward provenance arcs (Manager#27).
+  const [peSources, setPeSources] = useState<Array<{
+    type: string; active: boolean; origin?: string;
+    region?: { offset: number; length: number };
+  }>>([]);
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const r = await fetch('/api/pe/sources');
+        if (!r.ok) return;
+        const j = await r.json();
+        if (cancelled) return;
+        const raw: any[] = Array.isArray(j.sources) ? j.sources : [];
+        // Arc-relevant fields only; identity-stable so the poll never
+        // rebuilds the d3 simulation for a no-op.
+        const next = raw.map(src => ({
+          type: src.type, active: src.active, origin: src.origin, region: src.region,
+        }));
+        setPeSources(prev =>
+          JSON.stringify(prev) === JSON.stringify(next) ? prev : next);
+      } catch { /* PE unreachable — keep last known sources */ }
+    };
+    load();
+    const t = setInterval(load, 20_000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, []);
+  const peSensorSources = useMemo(
+    () => peSources.filter(s => s.type === 'sensor' && s.active && !!s.region),
+    [peSources],
+  );
   const [error,       setError]       = useState<string | null>(null);
   const [dimensions,  setDimensions]  = useState({ width: 1200, height: 600 });
   const [legendOpen,  setLegendOpen]  = useState(false);
@@ -552,6 +589,7 @@ export const MachineGraphView: React.FC = () => {
       { id: 'mgv-arrow-active', fill: themeTokens.edge.active,       mw: compact ? 5 :  7 },
       { id: 'mgv-arrow-acp',    fill: colorsRef.current.acpEdge,     mw: compact ? 5 :  7 },
       { id: 'mgv-arrow-bus',    fill: colorsRef.current.busEdge,     mw: compact ? 5 :  7 },
+      { id: 'mgv-arrow-pe',     fill: '#94a3b8',                     mw: compact ? 5 :  7 },
     ] as const).forEach(({ id, fill, mw }) => {
       defs.append('marker')
         .attr('id', id)
@@ -730,7 +768,73 @@ export const MachineGraphView: React.FC = () => {
       }
     }
 
-    // Update snapshots to include portal nodes/edges
+    // ── PE-source provenance nodes (Manager#27) ─────────────────────────────
+    // Integration-fed sensor sources grouped per provenance, with feed-forward
+    // arcs into stimulated machines — aggregated onto domain buses (>=3
+    // targets) or the domain OpenClaw portal for openclaw-fed groups.
+    if (peSensorSources.length > 0) {
+      const arcMachines = simNodes
+        .filter(n => !isPortalNode(n.id))
+        .map(n => ({ id: n.id, perceptualMapping: { input: n.inputMapping } }));
+      const peGroups = buildPeSourceGroups(peSensorSources, arcMachines);
+      let gi = 0;
+      for (const [origin, gr] of peGroups) {
+        const peId = peSourceNodeId(origin);
+        const angle = (gi++ / Math.max(1, peGroups.size)) * 2 * Math.PI - Math.PI / 2;
+        const peNode = Object.assign(
+          {} as MachineNode & d3.SimulationNodeDatum,
+          {
+            id:            peId,
+            name:          `PE Sources · ${origin}`,
+            description:   `${gr.sourceCount} ${origin} source(s) writing [${gr.envelope.offset}:${gr.envelope.offset + gr.envelope.length - 1}]`,
+            inputMapping:  gr.envelope,
+            outputMapping: gr.envelope,
+            metadata:      { peOrigin: origin, peSourceCount: gr.sourceCount },
+            role:          'pe-source' as const,
+            x: innerWidth / 2 + innerWidth * 0.46 * Math.cos(angle),
+            y: innerHeight / 2 + innerHeight * 0.46 * Math.sin(angle),
+            fx: null, fy: null,
+          },
+        );
+        simNodes.push(peNode);
+        nodeById.set(peId, peNode);
+
+        const targetInfo = new Map<string, ArcTargetInfo>();
+        for (const targetId of gr.perTarget.keys()) {
+          const tn = nodeById.get(targetId);
+          if (!tn) continue;
+          const dom = (tn.domain ?? 'general') as DomainId;
+          const bus = simNodes.find(n =>
+            n.role === 'interconnect' && (n.domain ?? 'general') === dom);
+          const pid = portalNodeId(dom);
+          targetInfo.set(targetId, {
+            domain: dom,
+            busId: bus?.id,
+            portalId: nodeById.has(pid) ? pid : undefined,
+          });
+        }
+        for (const arc of routeArcsToBuses(gr.perTarget, targetInfo, origin)) {
+          const terminator = nodeById.get(arc.terminatorId);
+          if (!terminator) continue;
+          simEdges.push({
+            source:         peNode as any,
+            target:         terminator as any,
+            sourceRegion:   gr.envelope,
+            targetRegion:   arc.targetRegion,
+            overlap:        false,
+            isAcpEdge:      false,
+            isBusEdge:      false,
+            isCrossDomain:  false,
+            isPeSourceEdge: true,
+            peOrigin:       origin,
+            peSourceCount:  arc.count,
+            peMachineCount: arc.machineIds.length,
+          } as SimEdge);
+        }
+      }
+    }
+
+    // Update snapshots to include portal and PE-source nodes/edges
     simNodesRef.current = simNodes;
     simEdgesRef.current = simEdges;
 
@@ -928,18 +1032,20 @@ export const MachineGraphView: React.FC = () => {
       .data(simEdges)
       .join('path')
       .attr('class', (d: any) =>
-        `edge${d.isAcpEdge ? ' acp-edge' : ''}${d.isBusEdge ? ' bus-edge' : ''}`)
+        `edge${d.isAcpEdge ? ' acp-edge' : ''}${d.isBusEdge ? ' bus-edge' : ''}${d.isPeSourceEdge ? ' pe-source-edge' : ''}`)
       .attr('fill', 'none')
       .attr('stroke', (d: any) =>
-        d.isAcpEdge ? colorsRef.current.acpEdge : d.isBusEdge ? colorsRef.current.busEdge : colorsRef.current.edgeIdle)
+        d.isPeSourceEdge ? peSourceColor(d.peOrigin ?? 'sensor')
+        : d.isAcpEdge ? colorsRef.current.acpEdge : d.isBusEdge ? colorsRef.current.busEdge : colorsRef.current.edgeIdle)
       .attr('stroke-width', (d: any) =>
-        d.isAcpEdge ? 1.8 : d.isBusEdge ? 3 : 2.5)
+        d.isPeSourceEdge ? 1.6 : d.isAcpEdge ? 1.8 : d.isBusEdge ? 3 : 2.5)
       .attr('stroke-dasharray', (d: any) =>
-        d.isAcpEdge ? '6,4' : '7,3')
+        d.isPeSourceEdge ? '2,3' : d.isAcpEdge ? '6,4' : '7,3')
       .attr('opacity', (d: any) =>
-        d.isAcpEdge ? 0.75 : d.isBusEdge ? 0.65 : 0.8)
+        d.isPeSourceEdge ? 0.7 : d.isAcpEdge ? 0.75 : d.isBusEdge ? 0.65 : 0.8)
       .attr('marker-end', (d: any) =>
-        d.isAcpEdge ? 'url(#mgv-arrow-acp)' : d.isBusEdge ? 'url(#mgv-arrow-bus)' : 'url(#mgv-arrow)');
+        d.isPeSourceEdge ? 'url(#mgv-arrow-pe)'
+        : d.isAcpEdge ? 'url(#mgv-arrow-acp)' : d.isBusEdge ? 'url(#mgv-arrow-bus)' : 'url(#mgv-arrow)');
 
     linkSelRef.current = link as any;
 
@@ -951,6 +1057,11 @@ export const MachineGraphView: React.FC = () => {
       .attr('font-size', '10px')
       .attr('fill', vizTheme.edge.label)
       .text((d: any) => {
+        if (d.isPeSourceEdge) {
+          return (d.peMachineCount ?? 1) > 1
+            ? `${d.peSourceCount ?? 0} src ⇒ ${d.peMachineCount} machines`
+            : `${d.peSourceCount ?? 0} src → [${d.targetRegion.offset}:${d.targetRegion.offset + d.targetRegion.length}]`;
+        }
         const sr = d.sourceRegion ?? (d.source as any).outputMapping;
         const tr = d.targetRegion ?? (d.target as any).inputMapping;
         return sr && tr
@@ -965,9 +1076,38 @@ export const MachineGraphView: React.FC = () => {
       .selectAll<SVGGElement, MachineNode & d3.SimulationNodeDatum>('g')
       .data(simNodes)
       .join('g')
-      .attr('class', 'node');
+      .attr('class', (d: any) => d.role === 'pe-source' ? 'node pe-source' : 'node');
 
     nodeSelRef.current = node as any;
+
+    // ── PE-source provenance pills (both modes) ──────────────────────────────
+    const peNodeSel = node.filter((d: any) => d.role === 'pe-source');
+    peNodeSel.append('rect')
+      .attr('width', compact ? 96 : 130).attr('height', compact ? 36 : 50)
+      .attr('x', compact ? -48 : -65).attr('y', compact ? -18 : -25)
+      .attr('rx', 10)
+      .attr('fill', (d: any) => `${peSourceColor(d.metadata?.peOrigin ?? 'sensor')}1a`)
+      .attr('stroke', (d: any) => peSourceColor(d.metadata?.peOrigin ?? 'sensor'))
+      .attr('stroke-width', 2)
+      .attr('stroke-dasharray', '4,3');
+    peNodeSel.append('text')
+      .attr('text-anchor', 'middle').attr('y', compact ? -4 : -8)
+      .attr('font-size', compact ? '7px' : '9px').attr('font-weight', 700)
+      .attr('fill', (d: any) => peSourceColor(d.metadata?.peOrigin ?? 'sensor'))
+      .attr('pointer-events', 'none')
+      .text('⇥ PE SOURCES');
+    peNodeSel.append('text')
+      .attr('text-anchor', 'middle').attr('y', compact ? 8 : 8)
+      .attr('font-size', compact ? '9px' : '12px').attr('font-weight', 700)
+      .attr('fill', vizTheme.text.primary)
+      .attr('pointer-events', 'none')
+      .text((d: any) => String(d.metadata?.peOrigin ?? 'sensor').toUpperCase());
+    peNodeSel.filter(() => !compact).append('text')
+      .attr('text-anchor', 'middle').attr('y', 20)
+      .attr('font-size', '9px')
+      .attr('fill', vizTheme.text.secondary)
+      .attr('pointer-events', 'none')
+      .text((d: any) => `${d.metadata?.peSourceCount ?? 0} src`);
 
     if (compact) {
       // ── Compact mode: role-differentiated shapes ─────────────────────────
@@ -1180,7 +1320,7 @@ export const MachineGraphView: React.FC = () => {
         .attr('opacity', 0.65);
 
       // Standard cards for non-virtual standard + agent-dispatcher nodes
-      node.filter((d: any) => d.role !== 'interconnect' && !isPortalNode(d.id))
+      node.filter((d: any) => d.role !== 'interconnect' && d.role !== 'pe-source' && !isPortalNode(d.id))
         .append('rect')
         .attr('width', 160)
         .attr('height', 100)
@@ -1213,7 +1353,7 @@ export const MachineGraphView: React.FC = () => {
         .attr('pointer-events', 'none')
         .text('ACP');
 
-      node.filter((d: any) => d.role !== 'interconnect' && !isPortalNode(d.id))
+      node.filter((d: any) => d.role !== 'interconnect' && d.role !== 'pe-source' && !isPortalNode(d.id))
         .append('text')
         .attr('text-anchor', 'middle')
         .attr('y', -20)
@@ -1222,7 +1362,7 @@ export const MachineGraphView: React.FC = () => {
         .attr('fill', vizTheme.text.primary)
         .text((d: MachineNode) => d.name);
 
-      node.filter((d: any) => d.role !== 'interconnect' && !isPortalNode(d.id))
+      node.filter((d: any) => d.role !== 'interconnect' && d.role !== 'pe-source' && !isPortalNode(d.id))
         .append('text')
         .attr('text-anchor', 'middle')
         .attr('y', 0)
@@ -1230,7 +1370,7 @@ export const MachineGraphView: React.FC = () => {
         .attr('fill', vizTheme.accent.input)
         .text((d: MachineNode) => `In: [${d.inputMapping.offset}:${d.inputMapping.offset + d.inputMapping.length}]`);
 
-      node.filter((d: any) => d.role !== 'interconnect' && !isPortalNode(d.id))
+      node.filter((d: any) => d.role !== 'interconnect' && d.role !== 'pe-source' && !isPortalNode(d.id))
         .append('text')
         .attr('text-anchor', 'middle')
         .attr('y', 15)
@@ -1239,7 +1379,7 @@ export const MachineGraphView: React.FC = () => {
         .text((d: MachineNode) => `Out: [${d.outputMapping.offset}:${d.outputMapping.offset + d.outputMapping.length}]`);
 
       const stepText = node
-        .filter((d: any) => !isPortalNode(d.id))
+        .filter((d: any) => d.role !== 'pe-source' && !isPortalNode(d.id))
         .append<SVGTextElement>('text')
         .attr('text-anchor', 'middle')
         .attr('y', 35)
@@ -1252,7 +1392,7 @@ export const MachineGraphView: React.FC = () => {
       // Created once; visibility is toggled by a separate effect when
       // mqttMachineIds changes so the badge tracks real-time MQTT source data.
       const mqttBadge = node
-        .filter((d: any) => d.role !== 'interconnect' && !isPortalNode(d.id))
+        .filter((d: any) => d.role !== 'interconnect' && d.role !== 'pe-source' && !isPortalNode(d.id))
         .append<SVGGElement>('g')
         .attr('class', 'mqtt-badge')
         .attr('transform', 'translate(-78, -46)')
@@ -1432,7 +1572,47 @@ export const MachineGraphView: React.FC = () => {
     return () => { simulation.stop(); };
     // layoutEpoch forces rebuild on user reset; themeId forces rebuild on theme change
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graphData, dimensions, layoutEpoch, themeId]);
+  }, [graphData, dimensions, layoutEpoch, themeId, peSensorSources]);
+
+  // ── PE-source arc pulse (Manager#27 Phase 3) ──────────────────────────────
+  // Flare feed-forward arcs whose stimulated elements are non-zero in the
+  // current step's perceptual space — the observable trace of a source
+  // (MQTT message, ACP completion, provider push) actually writing.
+  useEffect(() => {
+    const ps = currentStep?.perceptualSpace;
+    if (!svgRef.current || !ps || ps.length === 0) return;
+    const svg = d3.select(svgRef.current);
+    const hotSources = new Set<string>();
+    svg.selectAll<SVGPathElement, MachineEdge>('path.pe-source-edge')
+      .each(function (d: MachineEdge) {
+        const { offset, length } = d.targetRegion;
+        let hot = false;
+        const end = Math.min(offset + length, ps.length);
+        for (let i = offset; i < end; i++) {
+          if (ps[i] !== 0) { hot = true; break; }
+        }
+        if (!hot) return;
+        hotSources.add(typeof d.source === 'string' ? d.source : (d.source as any).id);
+        d3.select(this)
+          .interrupt('pe-pulse')
+          .transition('pe-pulse').duration(120)
+          .attr('stroke-width', 4.5)
+          .attr('opacity', 1)
+          .transition().duration(480)
+          .attr('stroke-width', 1.6)
+          .attr('opacity', 0.7);
+      });
+    if (hotSources.size > 0) {
+      svg.selectAll<SVGGElement, MachineNode>('g.node.pe-source')
+        .filter((d: any) => hotSources.has(d.id))
+        .select('rect')
+        .interrupt('pe-pulse')
+        .transition('pe-pulse').duration(120)
+        .attr('stroke-width', 4)
+        .transition().duration(480)
+        .attr('stroke-width', 2);
+    }
+  }, [currentStep]);
 
   // ── State update effect — updates node and edge appearance on each step ──────
   // Does NOT touch the simulation or positions.

@@ -12,6 +12,20 @@
  * Side-effect-free so it can be unit-tested without DOM/D3/React.
  */
 
+/** Provenance colors shared by graph views. Fallback for unknown origins. */
+export const PE_SOURCE_COLORS: Record<string, string> = {
+  mqtt:      '#22c55e',
+  openclaw:  '#ff6b35',
+  acp:       '#ff6b35',
+  ollama:    '#a78bfa',
+  openai:    '#10a37f',
+  healthkit: '#f472b6',
+  signal:    '#facc15',
+  sensor:    '#94a3b8',
+};
+export const peSourceColor = (origin: string) => PE_SOURCE_COLORS[origin] ?? '#94a3b8';
+export const peSourceNodeId = (origin: string) => `pe-source:${origin}`;
+
 export interface PeArcSource {
   type: string;
   active: boolean;
@@ -87,4 +101,105 @@ export function buildPeSourceGroups(
     if (touched) groups.get(origin)!.sourceCount++;
   }
   return groups;
+}
+
+// ── Phase 2: domain-bus / portal arc routing ─────────────────────────────────
+
+export interface ArcTargetInfo {
+  domain: string;
+  /** Domain interconnect bus node id, when one is present in the graph. */
+  busId?: string;
+  /** Domain OpenClaw portal node id, when one is present in the graph. */
+  portalId?: string;
+}
+
+export interface RoutedArc {
+  /** Node the arc terminates on — a machine, a domain bus, or a portal. */
+  terminatorId: string;
+  overlap: number;
+  count: number;
+  /** Stimulated machines represented by this arc (1 when direct). */
+  machineIds: string[];
+  targetRegion: { offset: number; length: number };
+}
+
+const OPENCLAW_ORIGINS = new Set(['openclaw', 'acp']);
+
+/**
+ * Route a provenance group's per-machine arcs onto domain aggregation
+ * points. Per domain: OpenClaw-fed groups terminate on the domain's
+ * OpenClaw portal when present (the completion "return" arc); otherwise,
+ * when at least `minFanIn` machines of one domain are stimulated and the
+ * domain has an interconnect bus, one arc terminates on the bus. Everything
+ * else stays a direct machine arc. A machine that *is* the bus/portal is
+ * always direct.
+ */
+export function routeArcsToBuses(
+  perTarget: Map<string, PeArcTarget>,
+  targetInfo: Map<string, ArcTargetInfo>,
+  origin: string,
+  minFanIn = 3,
+): RoutedArc[] {
+  const byDomain = new Map<string, Array<[string, PeArcTarget]>>();
+  const direct: RoutedArc[] = [];
+
+  for (const [machineId, t] of perTarget) {
+    const info = targetInfo.get(machineId);
+    if (!info) {
+      direct.push({ terminatorId: machineId, overlap: t.overlap, count: t.count,
+        machineIds: [machineId], targetRegion: t.targetRegion });
+      continue;
+    }
+    const list = byDomain.get(info.domain) ?? [];
+    list.push([machineId, t]);
+    byDomain.set(info.domain, list);
+  }
+
+  const routed: RoutedArc[] = [...direct];
+  for (const [domain, entries] of byDomain) {
+    const info = targetInfo.get(entries[0][0])!;
+    const isOpenClaw = OPENCLAW_ORIGINS.has(origin);
+    const terminator = isOpenClaw && info.portalId
+      ? info.portalId
+      : entries.length >= minFanIn && info.busId
+        ? info.busId
+        : null;
+
+    // The aggregation point may itself be a stimulated machine — keep it direct.
+    const aggregatable = terminator
+      ? entries.filter(([id]) => id !== terminator)
+      : [];
+
+    if (!terminator || aggregatable.length === 0) {
+      for (const [id, t] of entries) {
+        routed.push({ terminatorId: id, overlap: t.overlap, count: t.count,
+          machineIds: [id], targetRegion: t.targetRegion });
+      }
+      continue;
+    }
+
+    let overlap = 0;
+    let count = 0;
+    let envMin = Infinity;
+    let envMax = -Infinity;
+    const machineIds: string[] = [];
+    for (const [id, t] of aggregatable) {
+      overlap += t.overlap;
+      count += t.count;
+      envMin = Math.min(envMin, t.targetRegion.offset);
+      envMax = Math.max(envMax, t.targetRegion.offset + t.targetRegion.length);
+      machineIds.push(id);
+    }
+    routed.push({ terminatorId: terminator, overlap, count, machineIds,
+      targetRegion: { offset: envMin, length: envMax - envMin } });
+
+    for (const [id, t] of entries) {
+      if (id === terminator) {
+        routed.push({ terminatorId: id, overlap: t.overlap, count: t.count,
+          machineIds: [id], targetRegion: t.targetRegion });
+      }
+    }
+    void domain;
+  }
+  return routed;
 }
