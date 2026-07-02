@@ -7,6 +7,7 @@ import * as http from 'http';
 import * as https from 'https';
 import { readFileSync, existsSync } from 'fs';
 import { auditMiddleware, loadAuditConfig, logAuditEvent } from './auditLogger.js';
+import { scanCorpus, resolveSelection, loadMachines } from './corpus.js';
 
 const PORT = parseInt(process.env.VIZ_PORT || '3001', 10);
 const auditConfig = loadAuditConfig('visualizer-backend');
@@ -21,6 +22,8 @@ const keyPath  = process.env.TLS_KEY_PATH;
 const tlsEnabled = !!(certPath && keyPath && existsSync(certPath) && existsSync(keyPath));
 const RATE_LIMIT_MAX = parseInt(process.env.VIZ_RATE_LIMIT_MAX || '200', 10);
 const MACHINES_RATE_LIMIT_MAX = parseInt(process.env.VIZ_MACHINES_RATE_LIMIT_MAX || '120', 10);
+// Machine corpus root for the Load Machines modal (Manager#31).
+const MACHINES_DIR = process.env.MACHINES_DIR || '../RealityEngine_Machines/machines';
 
 // ── Multi-engine registry ─────────────────────────────────────────────────
 
@@ -473,6 +476,96 @@ app.post('/api/machines/json/import', async (req: Request, res: Response) => {
 });
 
 // Machines — list and detail
+// ── Machine corpus catalog + domain-scoped load (Manager#31) ────────────────
+
+// Identity keys for corpus-vs-engine presence checks: corpus files carry no
+// machine id (engines assign one at import), so match by name as well.
+async function activeEngineMachineKeys(): Promise<Set<string>> {
+  const r = await axios.get(`${activeReUrl()}/api/machines`);
+  const machines: any[] = Array.isArray(r.data?.machines) ? r.data.machines : [];
+  const keys = new Set<string>();
+  for (const m of machines) {
+    if (m.id) keys.add(String(m.id));
+    if (m.name) keys.add(String(m.name));
+  }
+  return keys;
+}
+
+app.get('/api/corpus/tree', async (_req: Request, res: Response) => {
+  try {
+    const scan = scanCorpus(MACHINES_DIR);
+    let loadedIds = new Set<string>();
+    try { loadedIds = await activeEngineMachineKeys(); } catch { /* engine down — tree still useful */ }
+    const annotate = (node: any): any => ({
+      ...node,
+      loadedCount:
+        node.machines.filter((m: any) => loadedIds.has(m.id) || loadedIds.has(m.name)).length +
+        (node.children ?? []).reduce(
+          (n: number, c: any) => n + annotate(c).loadedCount, 0),
+      machines: node.machines.map((m: any) => ({ ...m, loaded: loadedIds.has(m.id) || loadedIds.has(m.name) })),
+      children: (node.children ?? []).map(annotate),
+    });
+    res.json({
+      machinesDir: scan.machinesDir,
+      scannedAt: scan.scannedAt,
+      totalMachines: scan.totalMachines,
+      engineMachineCount: loadedIds.size,
+      tree: scan.tree.map(annotate),
+    });
+  } catch (error: any) { upstreamError(res, error, 'corpusTree'); }
+});
+
+app.post('/api/corpus/load', async (req: Request, res: Response) => {
+  const body = req.body ?? {};
+  const nodeKeys: string[] = Array.isArray(body.domains) ? body.domains.map(String) : [];
+  const machineIds: string[] = Array.isArray(body.machineIds) ? body.machineIds.map(String) : [];
+  if (nodeKeys.length === 0 && machineIds.length === 0) {
+    res.status(400).json({ error: 'domains (tree node keys) or machineIds required' });
+    return;
+  }
+  try {
+    const scan = scanCorpus(MACHINES_DIR);
+    const selection = resolveSelection(scan, nodeKeys, machineIds);
+    if (selection.length === 0) {
+      res.status(404).json({ error: 'selection matched no corpus machines' });
+      return;
+    }
+    const existing = await activeEngineMachineKeys();
+    const reUrl = activeReUrl();
+    const results = await loadMachines(
+      selection,
+      existing,
+      async raw => {
+        await axios.post(`${reUrl}/api/machines`, raw, {
+          headers: { 'Content-Type': 'application/json' },
+        });
+      },
+      body.replace === true,
+    );
+
+    let peBootstrap: unknown = null;
+    if (body.bootstrapPeSources === true) {
+      try {
+        const r = await axios.post(`${activePeUrl()}/api/sources/bootstrap-from-machines`, {});
+        peBootstrap = r.data;
+      } catch (e: any) {
+        peBootstrap = { error: String(e?.message ?? e).slice(0, 200) };
+      }
+    }
+
+    responseCache.delete('machines:list');
+    const summary = {
+      loaded: results.filter(r => r.status === 'loaded').length,
+      skipped: results.filter(r => r.status === 'skipped').length,
+      failed: results.filter(r => r.status === 'failed').length,
+    };
+    logAuditEvent(auditConfig, 'corpus-load', {
+      engine: reUrl, ...summary, domains: nodeKeys, machineIds: machineIds.length,
+    });
+    res.json({ engine: reUrl, ...summary, results, peBootstrap });
+  } catch (error: any) { upstreamError(res, error, 'corpusLoad'); }
+});
+
 app.get('/api/machines', rateLimit(MACHINES_RATE_LIMIT_MAX), async (req: Request, res: Response) => {
   const cacheKey = 'machines:list';
   const cached = getCached(cacheKey);
