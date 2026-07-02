@@ -24,6 +24,7 @@ import {
   isPortalNode,
   portalNodeId,
 } from './machineDomains';
+import { buildPeSourceGroups } from './peSourceArcs';
 import { vizTheme } from '../styles/vizTheme';
 import { Graph3DView } from './Graph3DView';
 import { Graph3DToggle } from './Graph3DToggle';
@@ -67,7 +68,9 @@ interface MachineNode extends d3.SimulationNodeDatum {
   isExternal: boolean;
   severity?: string;
   status?: 'idle' | 'processing' | 'active';
-  role?: NodeRole | 'openclaw-portal';
+  role?: NodeRole | 'openclaw-portal' | 'pe-source';
+  peOrigin?: string;
+  peSourceCount?: number;
 }
 
 interface MachineLink {
@@ -77,6 +80,9 @@ interface MachineLink {
   targetRegion: { offset: number; length: number };
   overlapSize: number;
   isAcpEdge?: boolean;
+  isPeSourceEdge?: boolean;
+  peOrigin?: string;
+  peSourceCount?: number;
 }
 
 interface PortalTooltipState {
@@ -88,6 +94,32 @@ interface PortalTooltipState {
 const MIG_BUS_COLOR      = '#60b4f8';
 const MIG_OPENCLAW_COLOR = '#ff6b35';
 const MIG_OPENCLAW_FILL  = 'rgba(255,107,53,0.10)';
+
+// PE-source provenance colors (Manager#27). Fallback for unknown origins.
+const MIG_PE_SOURCE_COLORS: Record<string, string> = {
+  mqtt:      '#22c55e',
+  openclaw:  '#ff6b35',
+  acp:       '#ff6b35',
+  ollama:    '#a78bfa',
+  openai:    '#10a37f',
+  healthkit: '#f472b6',
+  signal:    '#facc15',
+  sensor:    '#94a3b8',
+};
+const peSourceColor = (origin: string) => MIG_PE_SOURCE_COLORS[origin] ?? '#94a3b8';
+const peSourceNodeId = (origin: string) => `pe-source:${origin}`;
+
+// Card nodes get the 200x140 machine card; portals and PE-source pills do not.
+const isCardNode = (d: { role?: NodeRole | 'openclaw-portal' | 'pe-source' }) =>
+  d.role !== 'openclaw-portal' && d.role !== 'pe-source';
+
+// Minimal slice of a PE source needed to draw feed-forward arcs.
+interface PESourceLite {
+  type: string;
+  active: boolean;
+  origin?: string;
+  region?: { offset: number; length: number };
+}
 
 // Raw per-step payload from the engine. Only the fields the tooltip needs are
 // typed; the WebSocket frame carries more.
@@ -196,6 +228,41 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
     lastOutput?: number[];
   }>>({});
   const [is3D, setIs3D] = useState(false);
+
+  // PE sources — feed-forward provenance arcs (Manager#27).
+  const [peSources, setPeSources] = useState<PESourceLite[]>([]);
+  const [showPeSources, setShowPeSources] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const r = await fetch('/api/pe/sources');
+        if (!r.ok) return;
+        const j = await r.json();
+        if (cancelled) return;
+        const raw: PESourceLite[] = Array.isArray(j.sources) ? j.sources : [];
+        // Keep only arc-relevant fields and preserve array identity when the
+        // topology hasn't changed, so the 20s poll never restarts the d3
+        // simulation for a no-op (lastValue churn etc. is irrelevant here).
+        const next = raw.map(src => ({
+          type: src.type, active: src.active, origin: src.origin, region: src.region,
+        }));
+        setPeSources(prev =>
+          JSON.stringify(prev) === JSON.stringify(next) ? prev : next);
+      } catch { /* PE unreachable — keep last known sources */ }
+    };
+    load();
+    const t = setInterval(load, 20_000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, []);
+  const peSensorSources = useMemo(
+    () => peSources.filter(s => s.type === 'sensor' && s.active && s.region),
+    [peSources],
+  );
+  const peOriginsPresent = useMemo(
+    () => Array.from(new Set(peSensorSources.map(s => s.origin ?? 'sensor'))).sort(),
+    [peSensorSources],
+  );
 
   // ── Embedded Sequences tooltip state (shared with MachineGraphView) ────────
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
@@ -525,6 +592,50 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
       });
     }
 
+    // PE-source provenance nodes (Manager#27): integration-fed sensor sources
+    // (MQTT / OpenClaw / Ollama / HealthKit / bare signals) whose region
+    // overlaps an ego machine's input mapping, grouped per provenance and
+    // drawn as feed-forward arcs into the machines they stimulate.
+    // Test/simulated sources are excluded: they exist per-machine and would
+    // add one arc per machine without conveying interconnection.
+    if (showPeSources && peSensorSources.length > 0) {
+      const peGroups = buildPeSourceGroups(peSensorSources, egoMachines);
+      let gi = 0;
+      for (const [origin, gr] of peGroups) {
+        const id = peSourceNodeId(origin);
+        const saved = nodePositionsRef.current.get(id);
+        const angle = (gi++ / Math.max(1, peGroups.size)) * 2 * Math.PI - Math.PI / 2;
+        nodes.push({
+          id,
+          name: `PE Sources · ${origin}`,
+          description: `${gr.sourceCount} ${origin} source(s) feeding this neighbourhood`,
+          inputMapping: gr.envelope,
+          outputMapping: gr.envelope,
+          isCurrent: false,
+          isConnected: true,
+          domain: 'general' as DomainId,
+          isExternal: false,
+          role: 'pe-source',
+          peOrigin: origin,
+          peSourceCount: gr.sourceCount,
+          x: saved?.x ?? cx + ringR * 1.7 * Math.cos(angle),
+          y: saved?.y ?? cy + ringR * 1.7 * Math.sin(angle),
+        });
+        for (const [targetId, t] of gr.perTarget) {
+          links.push({
+            source: id,
+            target: targetId,
+            sourceRegion: gr.envelope,
+            targetRegion: t.targetRegion,
+            overlapSize: t.overlap,
+            isPeSourceEdge: true,
+            peOrigin: origin,
+            peSourceCount: t.count,
+          });
+        }
+      }
+    }
+
     svg.selectAll('*').remove();
     svg.attr('width', width).attr('height', height);
     const g = svg.append('g');
@@ -574,20 +685,23 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
       .attr('class', 'link-path')
       .attr('fill', 'none')
       .attr('stroke', (d: MachineLink) => {
+        if (d.isPeSourceEdge) return peSourceColor(d.peOrigin ?? 'sensor');
         if (d.isAcpEdge) return MIG_OPENCLAW_COLOR;
         const { s, t } = endpointNodes(d);
         if (s?.role === 'interconnect' || t?.role === 'interconnect') return MIG_BUS_COLOR;
         return (s?.isCurrent || t?.isCurrent) ? vizTheme.edge.active : vizTheme.edge.idle;
       })
       .attr('stroke-width', (d: MachineLink) => {
+        if (d.isPeSourceEdge) return 1.6;
         if (d.isAcpEdge) return 1.8;
         const { s, t } = endpointNodes(d);
         if (s?.role === 'interconnect' || t?.role === 'interconnect') return 3;
         return (s?.isCurrent || t?.isCurrent) ? 3 : 2;
       })
-      .attr('stroke-dasharray', (d: MachineLink) => d.isAcpEdge ? '6,4' : null)
+      .attr('stroke-dasharray', (d: MachineLink) => d.isPeSourceEdge ? '2,3' : d.isAcpEdge ? '6,4' : null)
       .attr('opacity', 0.7)
       .attr('marker-end', (d: MachineLink) => {
+        if (d.isPeSourceEdge) return 'url(#arrowhead-pe)';
         if (d.isAcpEdge) return 'url(#arrowhead-acp)';
         const { s, t } = endpointNodes(d);
         if (s?.role === 'interconnect' || t?.role === 'interconnect') return 'url(#arrowhead-bus)';
@@ -595,7 +709,7 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
       });
 
     svg.append('defs').selectAll('marker')
-      .data(['arrowhead', 'arrowhead-active', 'arrowhead-acp', 'arrowhead-bus'])
+      .data(['arrowhead', 'arrowhead-active', 'arrowhead-acp', 'arrowhead-bus', 'arrowhead-pe'])
       .join('marker')
       .attr('id', markerType => markerType)
       .attr('viewBox', '0 -5 10 10')
@@ -610,6 +724,7 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
         markerType === 'arrowhead-active' ? vizTheme.edge.active
         : markerType === 'arrowhead-acp'  ? MIG_OPENCLAW_COLOR
         : markerType === 'arrowhead-bus'  ? MIG_BUS_COLOR
+        : markerType === 'arrowhead-pe'   ? '#94a3b8'
         : vizTheme.edge.arrowhead);
 
     const linkLabel = link.append('text')
@@ -617,8 +732,9 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
       .attr('font-size', '10px')
       .attr('fill', vizTheme.edge.label)
       .attr('text-anchor', 'middle')
-      .text((d: MachineLink) =>
-        `[${d.sourceRegion.offset}:${d.sourceRegion.offset + d.sourceRegion.length - 1}] → [${d.targetRegion.offset}:${d.targetRegion.offset + d.targetRegion.length - 1}]`
+      .text((d: MachineLink) => d.isPeSourceEdge
+        ? `${d.peSourceCount ?? 0} src → [${d.targetRegion.offset}:${d.targetRegion.offset + d.targetRegion.length - 1}]`
+        : `[${d.sourceRegion.offset}:${d.sourceRegion.offset + d.sourceRegion.length - 1}] → [${d.targetRegion.offset}:${d.targetRegion.offset + d.targetRegion.length - 1}]`
       );
 
     // Nodes
@@ -629,7 +745,7 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
         .on('drag', dragged)
         .on('end', dragended) as any)
       .on('dblclick', (_event: any, d: MachineNode) => {
-        if (d.role === 'openclaw-portal') return;
+        if (d.role === 'openclaw-portal' || d.role === 'pe-source') return;
         loadMachineRef.current(d.id);
       });
 
@@ -674,7 +790,33 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
       .attr('font-size', '9px').attr('fill', vizTheme.text.secondary)
       .text(`PS[${OPENCLAW_PS_REGION.offset}:${OPENCLAW_PS_REGION.offset + OPENCLAW_PS_REGION.length - 1}]`);
 
-    node.filter((d: MachineNode) => d.role !== 'openclaw-portal')
+    // PE-source provenance nodes: dashed pill tagged with origin + count.
+    const peNode = node.filter((d: MachineNode) => d.role === 'pe-source');
+    peNode.append('rect')
+      .attr('width', 150).attr('height', 56)
+      .attr('x', -75).attr('y', -28).attr('rx', 12)
+      .attr('fill', (d: MachineNode) => `${peSourceColor(d.peOrigin ?? 'sensor')}1a`)
+      .attr('stroke', (d: MachineNode) => peSourceColor(d.peOrigin ?? 'sensor'))
+      .attr('stroke-width', 2)
+      .attr('stroke-dasharray', '4,3');
+    peNode.append('text')
+      .attr('text-anchor', 'middle').attr('y', -10)
+      .attr('font-size', '9px').attr('font-weight', 700)
+      .attr('fill', (d: MachineNode) => peSourceColor(d.peOrigin ?? 'sensor'))
+      .text('⇥ PE SOURCES');
+    peNode.append('text')
+      .attr('text-anchor', 'middle').attr('y', 4)
+      .attr('font-size', '12px').attr('font-weight', 700)
+      .attr('fill', vizTheme.text.primary)
+      .text((d: MachineNode) => (d.peOrigin ?? 'sensor').toUpperCase());
+    peNode.append('text')
+      .attr('text-anchor', 'middle').attr('y', 18)
+      .attr('font-size', '9px')
+      .attr('fill', vizTheme.text.secondary)
+      .text((d: MachineNode) =>
+        `${d.peSourceCount ?? 0} src · [${d.inputMapping.offset}:${d.inputMapping.offset + d.inputMapping.length - 1}]`);
+
+    node.filter((d: MachineNode) => isCardNode(d))
       .append('rect')
       .attr('data-field', 'status-rect')
       .attr('width', 200)
@@ -689,7 +831,7 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
         : DOMAINS[d.domain].color)
       .attr('stroke-width', (d: MachineNode) => d.isCurrent ? 4 : 2.5);
 
-    node.filter((d: MachineNode) => d.role !== 'openclaw-portal')
+    node.filter((d: MachineNode) => isCardNode(d))
       .append('rect')
       .attr('width', 200)
       .attr('height', 6)
@@ -702,7 +844,7 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
         : DOMAINS[d.domain].color)
       .attr('opacity', 0.9);
 
-    node.filter((d: MachineNode) => d.isExternal && d.role !== 'openclaw-portal')
+    node.filter((d: MachineNode) => d.isExternal && isCardNode(d))
       .append('g')
       .attr('class', 'external-chip')
       .call(g => {
@@ -758,7 +900,7 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
           .text('↯ ACP');
       });
 
-    node.filter((d: MachineNode) => d.role !== 'openclaw-portal')
+    node.filter((d: MachineNode) => isCardNode(d))
       .append('text')
       .attr('x', 94).attr('y', -54)
       .attr('text-anchor', 'end')
@@ -787,7 +929,7 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
       .attr('stroke-dasharray', '6,5')
       .attr('opacity', 0.7);
 
-    node.filter((d: MachineNode) => d.role !== 'openclaw-portal')
+    node.filter((d: MachineNode) => isCardNode(d))
       .append('text')
       .attr('text-anchor', 'middle')
       .attr('y', -40)
@@ -799,7 +941,7 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
         return d.name.length > maxLen ? d.name.substring(0, maxLen) + '...' : d.name;
       });
 
-    node.filter((d: MachineNode) => d.role !== 'openclaw-portal')
+    node.filter((d: MachineNode) => isCardNode(d))
       .append('circle')
       .attr('data-field', 'status-dot')
       .attr('cx', 85)
@@ -808,7 +950,7 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
       .attr('fill', vizTheme.status.dotIdle)
       .attr('opacity', 0.9);
 
-    node.filter((d: MachineNode) => d.role !== 'openclaw-portal')
+    node.filter((d: MachineNode) => isCardNode(d))
       .append('text')
       .attr('text-anchor', 'middle')
       .attr('y', -18)
@@ -816,7 +958,7 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
       .attr('fill', vizTheme.accent.input)
       .text((d: MachineNode) => `In: [${d.inputMapping.offset}:${d.inputMapping.offset + d.inputMapping.length - 1}]`);
 
-    node.filter((d: MachineNode) => d.role !== 'openclaw-portal')
+    node.filter((d: MachineNode) => isCardNode(d))
       .append('text')
       .attr('text-anchor', 'middle')
       .attr('y', -3)
@@ -824,7 +966,7 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
       .attr('fill', vizTheme.accent.outputBright)
       .text((d: MachineNode) => `Out: [${d.outputMapping.offset}:${d.outputMapping.offset + d.outputMapping.length - 1}]`);
 
-    node.filter((d: MachineNode) => d.role !== 'openclaw-portal')
+    node.filter((d: MachineNode) => isCardNode(d))
       .append('text')
       .attr('data-field', 'last-input')
       .attr('text-anchor', 'middle')
@@ -832,7 +974,7 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
       .attr('font-size', '9px')
       .attr('fill', vizTheme.text.secondary);
 
-    node.filter((d: MachineNode) => d.role !== 'openclaw-portal')
+    node.filter((d: MachineNode) => isCardNode(d))
       .append('text')
       .attr('data-field', 'last-output')
       .attr('text-anchor', 'middle')
@@ -840,7 +982,7 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
       .attr('font-size', '9px')
       .attr('fill', vizTheme.accent.output);
 
-    node.filter((d: MachineNode) => d.role !== 'openclaw-portal')
+    node.filter((d: MachineNode) => isCardNode(d))
       .append('text')
       .attr('text-anchor', 'middle')
       .attr('y', 50)
@@ -850,7 +992,7 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
 
     // Invisible hit-rect drives the embedded Sequences tooltip.
     // Portal nodes use a domain-level ACP tooltip instead.
-    node.filter((d: MachineNode) => d.role !== 'openclaw-portal')
+    node.filter((d: MachineNode) => isCardNode(d))
       .append('rect')
       .attr('width', 200).attr('height', 140)
       .attr('x', -100).attr('y', -70)
@@ -943,14 +1085,14 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
     };
   // Per-step status updates are applied in-place by the effect below.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [machines, currentMachineId, dimensions, classifications, enabledDomains]);
+  }, [machines, currentMachineId, dimensions, classifications, enabledDomains, peSensorSources, showPeSources]);
 
   // ── Lightweight per-step recolor — never rebuilds the simulation ──────────
   useEffect(() => {
     if (!svgRef.current) return;
     const svg = d3.select(svgRef.current);
     svg.selectAll<SVGGElement, MachineNode>('g.node').each(function(d) {
-      if (d.role === 'openclaw-portal' || isPortalNode(d.id)) return;
+      if (d.role === 'openclaw-portal' || d.role === 'pe-source' || isPortalNode(d.id)) return;
 
       const info = machineStatuses[d.id];
       const status = info?.status ?? 'idle';
@@ -1190,6 +1332,26 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
           <div style={{ width: 24, height: 3, background: MIG_BUS_COLOR, opacity: 0.7 }} />
           <span style={{ color: MIG_BUS_COLOR }}>Mech. Bus Flow</span>
         </div>
+        <div className="legend-divider" />
+        <div className="legend-section-title">PE Sources</div>
+        <button
+          className={`legend-item legend-toggle ${showPeSources ? 'enabled' : 'disabled'}`}
+          onClick={() => setShowPeSources(v => !v)}
+          title="Feed-forward arcs from integration-fed PE sources (MQTT, OpenClaw, Ollama, ...) into machines whose input regions they cover"
+        >
+          <div className="legend-box" style={{
+            borderColor: '#94a3b8', borderWidth: 2, borderStyle: 'dashed',
+            borderRadius: 12, backgroundColor: 'rgba(148,163,184,0.12)',
+          }} />
+          <span className="legend-label">Source Feed-forward</span>
+          <span className="legend-count">{peSensorSources.length}</span>
+        </button>
+        {showPeSources && peOriginsPresent.map(origin => (
+          <div key={origin} className="legend-item" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ width: 24, height: 2, borderTop: `2px dashed ${peSourceColor(origin)}`, opacity: 0.9 }} />
+            <span style={{ color: peSourceColor(origin), fontSize: 11 }}>{origin}</span>
+          </div>
+        ))}
         <div className="legend-divider" />
         <div className="legend-item" style={{ color: '#64748b', fontSize: '10px' }}>
           Hover a machine for its sequences · click to pin
