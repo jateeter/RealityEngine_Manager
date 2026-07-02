@@ -15,12 +15,21 @@ export interface Region {
   length: number;
 }
 
+/**
+ * Provenance of a source — which integration or ingress feeds it.
+ * Well-known values: 'mqtt', 'openclaw', 'ollama', 'openai', 'healthkit',
+ * 'signal' (bare POST /api/signals). Absent on test/simulated sources and
+ * manually created sensor sources; consumers should fall back to `type`.
+ */
+export type SourceOrigin = string;
+
 export interface TestSourceConfig {
   type: 'test';
   id: string;
   name: string;
   region: Region;
   active: boolean;
+  origin?: SourceOrigin;
   machineId: string;
   machineName: string;
   sequenceName: string;
@@ -44,6 +53,7 @@ export interface SimulatedSourceConfig {
   name: string;
   region: Region;
   active: boolean;
+  origin?: SourceOrigin;
   pattern: SimPattern;
   frequency: number;
   amplitude: number;
@@ -56,6 +66,7 @@ export interface SensorSourceConfig {
   name: string;
   region: Region;
   active: boolean;
+  origin?: SourceOrigin;
   sensorId: string;
   lastValue: number[];
   lastUpdated: number | null;

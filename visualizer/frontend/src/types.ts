@@ -165,6 +165,7 @@ export interface PETestSource {
   name: string;
   region: PERegion;
   active: boolean;
+  origin?: string;
   machineId: string;
   machineName: string;
   sequenceName: string;
@@ -178,6 +179,7 @@ export interface PESimulatedSource {
   name: string;
   region: PERegion;
   active: boolean;
+  origin?: string;
   pattern: string;
   frequency: number;
   amplitude: number;
@@ -190,6 +192,7 @@ export interface PESensorSource {
   name: string;
   region: PERegion;
   active: boolean;
+  origin?: string;
   sensorId: string;
   lastValue: number[];
   lastUpdated: number | null;

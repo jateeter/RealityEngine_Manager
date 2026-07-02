@@ -366,6 +366,7 @@ function ingestMqttSignal(payload: IngestPayload): void {
       name: `mqtt:${payload.topic}`,
       region: { offset: payload.offset, length: payload.length },
       active: true,
+      origin: 'mqtt',
       sensorId: payload.sensorId,
       lastValue: payload.values.slice(),
       lastUpdated: Date.now(),
@@ -982,6 +983,7 @@ app.patch('/api/dispatch/records/:id', (req: Request, res: Response) => {
 
 interface SignalIngestBody {
   sensorId?: string;
+  origin?: string;
   name?: string;
   region?: { offset: number; length: number };
   values?: number[];
@@ -1043,6 +1045,7 @@ async function ingestSignal(body: SignalIngestBody): Promise<SignalIngestResult>
         sensorId,
         region: { offset: region!.offset, length: region!.length },
         active: body.active !== false,
+        origin: body.origin ?? 'signal',
         lastValue: values,
         lastUpdated: Date.now(),
         ttlMs: typeof body.ttlMs === 'number' ? body.ttlMs : 30_000,
@@ -1061,6 +1064,7 @@ async function ingestSignal(body: SignalIngestBody): Promise<SignalIngestResult>
       sensorId,
       region: { offset: region!.offset, length: region!.length },
       active: true,
+      origin: body.origin ?? 'signal',
       lastValue: values,
       lastUpdated: Date.now(),
       ttlMs: typeof body.ttlMs === 'number' ? body.ttlMs : 30_000,
@@ -1298,6 +1302,7 @@ app.post('/api/integrations/openai/webhook', async (req: Request, res: Response)
     values: signal.values,
     active: signal.active,
     ttlMs: signal.ttlMs,
+    origin: ctx.provider,
     triggerPush: false,
     compactPush: true,
   });
@@ -1409,6 +1414,7 @@ app.post('/api/integrations/carekit/ingest', async (req: Request, res: Response)
       values: r.values,
       active: true,
       ttlMs: r.ttlMs,
+      origin: 'healthkit',
       triggerPush: false,
       compactPush: true,
     });
@@ -1727,6 +1733,7 @@ async function handleHealthKitIngest(req: Request, res: Response): Promise<void>
       values: sample.values,
       active: true,
       ttlMs: sample.ttlMs,
+      origin: 'healthkit',
       triggerPush: false,
       compactPush: false,
     });
@@ -1768,6 +1775,7 @@ app.post('/api/integrations/completions', async (req: Request, res: Response) =>
     values: signal.values,
     active: signal.active,
     ttlMs: signal.ttlMs,
+    origin: ctx.provider,
     triggerPush: signal.triggerPush,
     compactPush: signal.compactPush,
   } satisfies SignalIngestBody as SignalIngestBody);
