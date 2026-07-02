@@ -14,13 +14,15 @@ export type FilterNodeType =
   | 'standard'
   | 'interconnect'
   | 'agent-dispatcher'
-  | 'openclaw-virtual';
+  | 'openclaw-virtual'
+  | 'pe-source';
 
 export const ALL_FILTER_NODE_TYPES: FilterNodeType[] = [
   'standard',
   'interconnect',
   'agent-dispatcher',
   'openclaw-virtual',
+  'pe-source',
 ];
 
 export const FILTER_NODE_TYPE_LABELS: Record<FilterNodeType, string> = {
@@ -28,13 +30,14 @@ export const FILTER_NODE_TYPE_LABELS: Record<FilterNodeType, string> = {
   'interconnect':      'Interconnects',
   'agent-dispatcher':  'Agent Dispatchers',
   'openclaw-virtual':  'Portals',
+  'pe-source':         'PE Sources',
 };
 
 // ── Minimal shape requirements ────────────────────────────────────────────────
 
 export interface FilterableNode {
   id: string;
-  role?: NodeRole | 'openclaw-virtual';
+  role?: NodeRole | 'openclaw-virtual' | 'pe-source';
   domain?: string;
   inputMapping?: { offset: number; length: number };
 }

@@ -61,7 +61,7 @@ test.describe('Graph Legend Filters', () => {
     await openLegend(page);
 
     const chips = page.locator('.vis-filter-chip');
-    await expect(chips).toHaveCount(4); // standard, interconnect, agent-dispatcher, portals
+    await expect(chips).toHaveCount(5); // standard, interconnect, agent-dispatcher, portals, pe-sources
 
     // All chips should start pressed (all types visible)
     for (const chip of await chips.all()) {

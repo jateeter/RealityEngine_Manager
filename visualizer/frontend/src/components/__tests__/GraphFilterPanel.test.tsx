@@ -95,14 +95,14 @@ beforeEach(() => {
 // ── Tests ──────────────────────────────────────────────────────────────────────
 
 describe('GraphFilterPanel — node-type chips', () => {
-  it('renders a chip for each of the 4 node-type categories', () => {
+  it('renders a chip for each of the 5 node-type categories', () => {
     renderPanel();
     const chips = screen.getAllByRole('button', { hidden: false });
     const chipLabels = chips.map(c => c.textContent);
     for (const type of ALL_FILTER_NODE_TYPES) {
       expect(chipLabels).toContain(FILTER_NODE_TYPE_LABELS[type]);
     }
-    expect(ALL_FILTER_NODE_TYPES).toHaveLength(4);
+    expect(ALL_FILTER_NODE_TYPES).toHaveLength(5);
   });
 
   it('all chips start with aria-pressed="true" (all types enabled)', () => {
