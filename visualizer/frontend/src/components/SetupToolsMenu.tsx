@@ -2,9 +2,10 @@ import React, {
   useCallback, useEffect, useRef, useState,
 } from 'react';
 import { SettingsModal } from './SettingsModal';
+import { LoadMachinesModal } from './LoadMachinesModal';
 import './SetupToolsMenu.css';
 
-type MenuItemId = 'settings';
+type MenuItemId = 'settings' | 'load-machines';
 
 interface MenuItem {
   id: MenuItemId;
@@ -14,11 +15,13 @@ interface MenuItem {
 
 const MENU_ITEMS: MenuItem[] = [
   { id: 'settings', label: 'Visualizer Settings', icon: '⚙' },
+  { id: 'load-machines', label: 'Load Machines…', icon: '⬇' },
 ];
 
 export function SetupToolsMenu() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [loadMachinesOpen, setLoadMachinesOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -31,6 +34,7 @@ export function SetupToolsMenu() {
   const openItem = useCallback((id: MenuItemId) => {
     setMenuOpen(false);
     if (id === 'settings') setSettingsOpen(true);
+    if (id === 'load-machines') setLoadMachinesOpen(true);
   }, []);
 
   // Click-outside dismissal
@@ -136,6 +140,10 @@ export function SetupToolsMenu() {
         onClose={() => setSettingsOpen(false)}
         triggerRef={triggerRef}
       />
+
+      {loadMachinesOpen && (
+        <LoadMachinesModal onClose={() => setLoadMachinesOpen(false)} />
+      )}
     </div>
   );
 }
