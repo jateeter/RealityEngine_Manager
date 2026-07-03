@@ -495,7 +495,9 @@ app.get('/api/corpus/tree', async (_req: Request, res: Response) => {
   try {
     const scan = scanCorpus(MACHINES_DIR);
     let loadedIds = new Set<string>();
-    try { loadedIds = await activeEngineMachineKeys(); } catch { /* engine down — tree still useful */ }
+    let engineReachable = true;
+    try { loadedIds = await activeEngineMachineKeys(); }
+    catch { engineReachable = false; /* engine down — tree still useful */ }
     const annotate = (node: any): any => ({
       ...node,
       loadedCount:
@@ -510,6 +512,7 @@ app.get('/api/corpus/tree', async (_req: Request, res: Response) => {
       scannedAt: scan.scannedAt,
       totalMachines: scan.totalMachines,
       engineMachineCount: loadedIds.size,
+      engineReachable,
       tree: scan.tree.map(annotate),
     });
   } catch (error: any) { upstreamError(res, error, 'corpusTree'); }
@@ -530,18 +533,44 @@ app.post('/api/corpus/load', async (req: Request, res: Response) => {
       res.status(404).json({ error: 'selection matched no corpus machines' });
       return;
     }
-    const existing = await activeEngineMachineKeys();
-    const reUrl = activeReUrl();
-    const results = await loadMachines(
-      selection,
-      existing,
-      async raw => {
-        await axios.post(`${reUrl}/api/machines`, raw, {
-          headers: { 'Content-Type': 'application/json' },
-        });
-      },
-      body.replace === true,
-    );
+    // Loads target the active engine; --all-engines is an explicit opt-in
+    // that repeats the load against every registry instance (Manager#31
+    // Phase 4 guardrail: never implicit).
+    const targets: Array<{ id: string; re_url: string }> =
+      body.allEngines === true && engineInstances.length > 0
+        ? engineInstances.map(i => ({ id: i.id, re_url: i.re_url }))
+        : [{ id: activeEngineId ?? 'active', re_url: activeReUrl() }];
+
+    const perEngine: Array<Record<string, unknown>> = [];
+    let results: Awaited<ReturnType<typeof loadMachines>> = [];
+    for (const t of targets) {
+      const r = await axios.get(`${t.re_url}/api/machines`);
+      const machines: any[] = Array.isArray(r.data?.machines) ? r.data.machines : [];
+      const existing = new Set<string>();
+      for (const m of machines) {
+        if (m.id) existing.add(String(m.id));
+        if (m.name) existing.add(String(m.name));
+      }
+      const engineResults = await loadMachines(
+        selection,
+        existing,
+        async raw => {
+          await axios.post(`${t.re_url}/api/machines`, raw, {
+            headers: { 'Content-Type': 'application/json' },
+          });
+        },
+        body.replace === true,
+      );
+      perEngine.push({
+        engine: t.id,
+        re_url: t.re_url,
+        loaded: engineResults.filter(x => x.status === 'loaded').length,
+        skipped: engineResults.filter(x => x.status === 'skipped').length,
+        failed: engineResults.filter(x => x.status === 'failed').length,
+      });
+      results = engineResults; // active/last engine's detail records
+    }
+    const reUrl = targets[targets.length - 1].re_url;
 
     let peBootstrap: unknown = null;
     if (body.bootstrapPeSources === true) {
@@ -562,7 +591,7 @@ app.post('/api/corpus/load', async (req: Request, res: Response) => {
     logAuditEvent(auditConfig, 'corpus-load', {
       engine: reUrl, ...summary, domains: nodeKeys, machineIds: machineIds.length,
     });
-    res.json({ engine: reUrl, ...summary, results, peBootstrap });
+    res.json({ engine: reUrl, ...summary, results, engines: perEngine, peBootstrap });
   } catch (error: any) { upstreamError(res, error, 'corpusLoad'); }
 });
 

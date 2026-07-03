@@ -11,6 +11,7 @@ This repo contains the user-facing Manager application and the TypeScript Percep
 ## Codebase Map
 
 - `visualizer/backend/src/`: Express backend, registry client, runtime proxying, audit logging, WebSocket bridge, and MQTT proxy endpoints.
+- `visualizer/backend/src/corpus.ts`: machine-corpus catalog (`GET /api/corpus/tree`) and domain-scoped load orchestration (`POST /api/corpus/load`) for the Load Machines modal; `MACHINES_DIR` env selects the corpus root. Backend unit tests run with `npm test` (vitest).
 - `visualizer/frontend/src/`: React/Vite Visualizer, engine switcher, graph views, MQTT controls, machine views, and PE Manager UI.
 - `visualizer/frontend/e2e/`: Playwright UI and multi-engine parity tests.
 - `perception-engine/backend/src/`: TypeScript PE implementation.
