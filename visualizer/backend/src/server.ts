@@ -480,7 +480,7 @@ app.post('/api/machines/json/import', async (req: Request, res: Response) => {
 
 // Identity keys for corpus-vs-engine presence checks: corpus files carry no
 // machine id (engines assign one at import), so match by name as well.
-async function activeEngineMachineKeys(): Promise<Set<string>> {
+async function activeEngineMachineKeys(): Promise<{ keys: Set<string>; count: number }> {
   const r = await axios.get(`${activeReUrl()}/api/machines`);
   const machines: any[] = Array.isArray(r.data?.machines) ? r.data.machines : [];
   const keys = new Set<string>();
@@ -488,16 +488,20 @@ async function activeEngineMachineKeys(): Promise<Set<string>> {
     if (m.id) keys.add(String(m.id));
     if (m.name) keys.add(String(m.name));
   }
-  return keys;
+  return { keys, count: machines.length };
 }
 
 app.get('/api/corpus/tree', async (_req: Request, res: Response) => {
   try {
     const scan = scanCorpus(MACHINES_DIR);
     let loadedIds = new Set<string>();
+    let engineCount = 0;
     let engineReachable = true;
-    try { loadedIds = await activeEngineMachineKeys(); }
-    catch { engineReachable = false; /* engine down — tree still useful */ }
+    try {
+      const em = await activeEngineMachineKeys();
+      loadedIds = em.keys;
+      engineCount = em.count;
+    } catch { engineReachable = false; /* engine down — tree still useful */ }
     const annotate = (node: any): any => ({
       ...node,
       loadedCount:
@@ -511,7 +515,7 @@ app.get('/api/corpus/tree', async (_req: Request, res: Response) => {
       machinesDir: scan.machinesDir,
       scannedAt: scan.scannedAt,
       totalMachines: scan.totalMachines,
-      engineMachineCount: loadedIds.size,
+      engineMachineCount: engineCount,
       engineReachable,
       tree: scan.tree.map(annotate),
     });

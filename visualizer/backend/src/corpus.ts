@@ -118,7 +118,13 @@ function groupByCategory(
 }
 
 export function scanCorpus(machinesDir: string, force = false): CorpusScan {
-  const dir = resolve(machinesDir);
+  // Accept either convention: the machines/ directory itself, or the
+  // RealityEngine_Machines repo root (startUniverse exports MACHINES_DIR as
+  // the repo root) — descend into machines/ when it exists.
+  let dir = resolve(machinesDir);
+  try {
+    if (statSync(join(dir, 'machines')).isDirectory()) dir = join(dir, 'machines');
+  } catch { /* already the machines directory */ }
   if (!force && cache && cache.machinesDir === dir && Date.now() - cache.scannedAt < SCAN_TTL_MS) {
     return cache;
   }
