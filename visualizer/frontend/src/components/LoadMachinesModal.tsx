@@ -31,6 +31,7 @@ interface CorpusTreeResponse {
   machinesDir: string;
   totalMachines: number;
   engineMachineCount: number;
+  engineReachable?: boolean;
   tree: CorpusTreeNode[];
 }
 
@@ -52,6 +53,8 @@ export function LoadMachinesModal({ onClose }: LoadMachinesModalProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set(['domains']));
   const [query, setQuery] = useState('');
   const [bootstrapPe, setBootstrapPe] = useState(false);
+  const [allEngines, setAllEngines] = useState(false);
+  const [engineCount, setEngineCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [summary, setSummary] = useState<LoadSummary | null>(null);
 
@@ -71,7 +74,9 @@ export function LoadMachinesModal({ onClose }: LoadMachinesModalProps) {
     fetch('/api/engines')
       .then(r => (r.ok ? r.json() : null))
       .then(d => {
-        const active = d?.instances?.find((i: any) => i.id === d.activeId) ?? d?.instances?.[0];
+        const instances = d?.instances ?? [];
+        setEngineCount(instances.length);
+        const active = instances.find((i: any) => i.id === d.activeId) ?? instances[0];
         if (active) setActiveEngine(`${active.id} (${active.runtime ?? '?'})`);
       })
       .catch(() => { /* registry-less single-engine mode */ });
@@ -98,7 +103,7 @@ export function LoadMachinesModal({ onClose }: LoadMachinesModalProps) {
     setLoading(true);
     setSummary(null);
     try {
-      const body = { ...selectionToRequest(sel), bootstrapPeSources: bootstrapPe };
+      const body = { ...selectionToRequest(sel), bootstrapPeSources: bootstrapPe, allEngines };
       const r = await fetch('/api/corpus/load', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -188,6 +193,12 @@ export function LoadMachinesModal({ onClose }: LoadMachinesModalProps) {
           )}
         </div>
 
+        {catalog?.engineReachable === false && (
+          <div className="lmm-error">
+            Active engine unreachable — loading is disabled until an engine responds.
+          </div>
+        )}
+
         <input
           className="lmm-filter"
           type="search"
@@ -220,10 +231,20 @@ export function LoadMachinesModal({ onClose }: LoadMachinesModalProps) {
             />
             Bootstrap PE test sources after load
           </label>
+          {engineCount > 1 && (
+            <label className="lmm-bootstrap" title="Repeat the load against every registry engine instead of only the active one">
+              <input
+                type="checkbox"
+                checked={allEngines}
+                onChange={e => setAllEngines(e.target.checked)}
+              />
+              All {engineCount} engines
+            </label>
+          )}
           <span className="lmm-count">{selected} selected</span>
           <button
             className="lmm-load-btn"
-            disabled={selected === 0 || loading}
+            disabled={selected === 0 || loading || catalog?.engineReachable === false}
             onClick={doLoad}
           >
             {loading ? 'Loading…' : 'Load into engine'}

@@ -240,10 +240,10 @@ export async function loadMachines(
       try {
         const raw = readFileSync(m.file, 'utf8');
         await postMachine(raw);
-        results.push({ id: m.id, relFile: m.relFile, status: 'loaded' });
+        results.push({ id: identity, relFile: m.relFile, status: 'loaded' });
       } catch (e: any) {
         results.push({
-          id: m.id,
+          id: identity,
           relFile: m.relFile,
           status: 'failed',
           error: String(e?.response?.status ?? e?.message ?? e).slice(0, 200),
