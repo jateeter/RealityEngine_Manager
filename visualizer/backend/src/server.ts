@@ -6,6 +6,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import * as http from 'http';
 import * as https from 'https';
 import { readFileSync, existsSync } from 'fs';
+import { fileURLToPath } from 'url';
 import { auditMiddleware, loadAuditConfig, logAuditEvent } from './auditLogger.js';
 import { scanCorpus, resolveSelection, loadMachines } from './corpus.js';
 
@@ -22,8 +23,12 @@ const keyPath  = process.env.TLS_KEY_PATH;
 const tlsEnabled = !!(certPath && keyPath && existsSync(certPath) && existsSync(keyPath));
 const RATE_LIMIT_MAX = parseInt(process.env.VIZ_RATE_LIMIT_MAX || '200', 10);
 const MACHINES_RATE_LIMIT_MAX = parseInt(process.env.VIZ_MACHINES_RATE_LIMIT_MAX || '120', 10);
-// Machine corpus root for the Load Machines modal (Manager#31).
-const MACHINES_DIR = process.env.MACHINES_DIR || '../RealityEngine_Machines/machines';
+// Machine corpus root for the Load Machines modal (Manager#31). The default
+// anchors on this module's location (dist/server.js), not the process CWD,
+// so native starts resolve the sibling repo regardless of launch directory;
+// scanCorpus accepts either the repo root or its machines/ subdirectory.
+const MACHINES_DIR = process.env.MACHINES_DIR
+  || fileURLToPath(new URL('../../../../RealityEngine_Machines', import.meta.url));
 
 // ── Multi-engine registry ─────────────────────────────────────────────────
 
