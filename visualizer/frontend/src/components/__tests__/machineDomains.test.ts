@@ -64,4 +64,25 @@ describe('classifyMachine', () => {
     const m = { name: 'Unknown Machine', metadata: {} };
     expect(classifyMachine(m).domain).toBe('general');
   });
+
+  it('classifies energy machines by metadata.category', () => {
+    const m = {
+      name: 'Community Microgrid Cluster Rooftop Solar Fleet Availability Monitor',
+      metadata: { category: 'energy', domain: 'New Energy - Community Microgrid Cluster' },
+    };
+    expect(classifyMachine(m).domain).toBe('energy');
+  });
+
+  it('classifies energy machines by ENX id prefix', () => {
+    const m = { id: 'machine-enx001-rooftop-solar-fleet-availability-monitor', name: 'Rooftop Solar Fleet', metadata: {} };
+    expect(classifyMachine(m).domain).toBe('energy');
+  });
+
+  it('classifies energy interconnects by microgrid keywords', () => {
+    const m = {
+      name: 'Energy ENX-001-010 Interconnect',
+      metadata: { domain: 'New Energy - Community Microgrid Cluster' },
+    };
+    expect(classifyMachine(m).domain).toBe('energy');
+  });
 });
