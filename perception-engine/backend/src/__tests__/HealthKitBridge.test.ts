@@ -4,7 +4,7 @@
  * Covers:
  *   • deriveHKSensorId  — template, fallback, per-device suffix
  *   • resolveHKBatch    — happy path, unmapped samples, auth bypass
- *   • checkBridgeAuth   — 404/401/open cases
+ *   • checkBridgeAuth   — 401/open/env-token/per-bridge-override cases
  *   • compactHKIdentifier (via deriveHKSensorId fallback)
  */
 
@@ -119,6 +119,35 @@ describe('resolveHKBatch — happy path', () => {
     expect(r.origin.type).toBe('HKQuantityTypeIdentifierHeartRate');
     expect(r.origin.sourceName).toBe('Apple Watch');
     expect(r.origin.unit).toBe('count/min');
+  });
+
+  it('stores a pre-normalized values[] vector as-is (canonical contract)', () => {
+    const bpMapping = {
+      id: 'healthkit:HKCorrelationTypeIdentifierBloodPressure',
+      name: 'Blood Pressure',
+      region: { offset: 4320, length: 4 },
+      ttlMs: 3_600_000,
+    };
+    const registry = registryWith({ integrations: [], sourceMappings: [bpMapping] });
+    const payload: HKBridgePayload = {
+      bridgeId: 'hk-home',
+      samples: [{ type: 'HKCorrelationTypeIdentifierBloodPressure', values: [0.72, 0.48, 0.24, 0.99], unit: 'mm[Hg]' }],
+    };
+    const { resolved, unmapped } = resolveHKBatch(payload, registry);
+    expect(unmapped).toHaveLength(0);
+    expect(resolved).toHaveLength(1);
+    expect(resolved[0]!.values).toEqual([0.72, 0.48, 0.24, 0.99]);
+  });
+
+  it('prefers values[] over a scalar value when both are present', () => {
+    const registry = registryWith({ integrations: [], sourceMappings: [heartRateMapping] });
+    const payload: HKBridgePayload = {
+      bridgeId: 'hk-home',
+      samples: [{ type: 'HKQuantityTypeIdentifierHeartRate', values: [0.5], value: 80 }],
+    };
+    const { resolved } = resolveHKBatch(payload, registry);
+    // Pre-normalized vector bypasses the mapping's normalize block.
+    expect(resolved[0]!.values).toEqual([0.5]);
   });
 
   it('resolves multiple sample types in one batch', () => {
@@ -249,51 +278,74 @@ describe('resolveHKBatch — unmapped samples', () => {
 // ── checkBridgeAuth ─────────────────────────────────────────────────────────
 
 describe('checkBridgeAuth', () => {
-  it('returns 404 when bridgeId is not in the registry', () => {
+  it('accepts an unknown bridgeId when no token is configured (native parity)', () => {
     const registry = registryWith({
       integrations: [{ id: 'other', kind: 'healthkit', enabled: true }],
       sourceMappings: [],
     });
-    const result = checkBridgeAuth(registry, 'missing', 'key');
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.status).toBe(404);
+    const result = checkBridgeAuth(registry, 'missing', {}, '');
+    expect(result.ok).toBe(true);
   });
 
-  it('returns 401 when the key does not match', () => {
+  it('requires the env token for unknown bridgeIds when one is configured', () => {
+    const registry = registryWith({ integrations: [], sourceMappings: [] });
+    const denied = checkBridgeAuth(registry, 'missing', {}, 'envtok');
+    expect(denied.ok).toBe(false);
+    if (!denied.ok) expect(denied.status).toBe(401);
+    expect(checkBridgeAuth(registry, 'missing', { bodyToken: 'envtok' }, 'envtok').ok).toBe(true);
+  });
+
+  it('returns 401 when neither credential channel matches', () => {
     const registry = registryWith({
       integrations: [{ id: 'hk', kind: 'healthkit', enabled: true, apiKey: 'correct' }],
       sourceMappings: [],
     });
-    const result = checkBridgeAuth(registry, 'hk', 'wrong');
+    const result = checkBridgeAuth(registry, 'hk', { bearer: 'wrong', bodyToken: 'also-wrong' }, '');
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.status).toBe(401);
   });
 
-  it('returns ok when the key matches', () => {
+  it('accepts a matching Bearer token', () => {
     const registry = registryWith({
       integrations: [{ id: 'hk', kind: 'healthkit', enabled: true, apiKey: 'secret' }],
       sourceMappings: [],
     });
-    const result = checkBridgeAuth(registry, 'hk', 'secret');
-    expect(result.ok).toBe(true);
+    expect(checkBridgeAuth(registry, 'hk', { bearer: 'secret' }, '').ok).toBe(true);
   });
 
-  it('returns ok when no apiKey is configured (open / dev mode)', () => {
+  it('accepts a matching body bridgeToken even when the Bearer header is wrong', () => {
+    const registry = registryWith({
+      integrations: [{ id: 'hk', kind: 'healthkit', enabled: true, apiKey: 'secret' }],
+      sourceMappings: [],
+    });
+    expect(checkBridgeAuth(registry, 'hk', { bearer: 'wrong', bodyToken: 'secret' }, '').ok).toBe(true);
+  });
+
+  it('prefers the registry apiKey over the env token for a known bridgeId', () => {
+    const registry = registryWith({
+      integrations: [{ id: 'hk', kind: 'healthkit', enabled: true, apiKey: 'per-bridge' }],
+      sourceMappings: [],
+    });
+    const envOnly = checkBridgeAuth(registry, 'hk', { bodyToken: 'envtok' }, 'envtok');
+    expect(envOnly.ok).toBe(false);
+    expect(checkBridgeAuth(registry, 'hk', { bodyToken: 'per-bridge' }, 'envtok').ok).toBe(true);
+  });
+
+  it('returns ok when no apiKey and no env token are configured (open / dev mode)', () => {
     const registry = registryWith({
       integrations: [{ id: 'hk', kind: 'healthkit', enabled: true }],
       sourceMappings: [],
     });
-    const result = checkBridgeAuth(registry, 'hk', undefined);
-    expect(result.ok).toBe(true);
+    expect(checkBridgeAuth(registry, 'hk', {}, '').ok).toBe(true);
   });
 
-  it('ignores non-healthkit integrations with the same id', () => {
+  it('ignores non-healthkit integrations with the same id (env token still applies)', () => {
     const registry = registryWith({
-      integrations: [{ id: 'hk', kind: 'mqtt', enabled: true }],
+      integrations: [{ id: 'hk', kind: 'mqtt', enabled: true, apiKey: 'mqtt-key' }],
       sourceMappings: [],
     });
-    const result = checkBridgeAuth(registry, 'hk', undefined);
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.status).toBe(404);
+    const denied = checkBridgeAuth(registry, 'hk', { bodyToken: 'mqtt-key' }, 'envtok');
+    expect(denied.ok).toBe(false);
+    expect(checkBridgeAuth(registry, 'hk', { bodyToken: 'envtok' }, 'envtok').ok).toBe(true);
   });
 });

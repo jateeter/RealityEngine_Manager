@@ -49,8 +49,17 @@ import { applyNormalize, type NormalizeSpec } from '../extractors.js';
 export interface HKSample {
   /** HealthKit type identifier — e.g. "HKQuantityTypeIdentifierHeartRate". */
   type: string;
-  /** Numeric reading.  Category codes use the integer enum value. */
-  value: number;
+  /**
+   * Pre-normalized `[0,1]` vector per the family tables in
+   * localHealthkitBridge/docs/INGEST_CONTRACT.md.  Stored as-is (the
+   * bridge already normalized); preferred over `value`.
+   */
+  values?: number[];
+  /**
+   * Scalar fallback — a raw numeric reading run through the mapping's
+   * normalize block.  Category codes use the integer enum value.
+   */
+  value?: number;
   /** ISO-8601 timestamps.  `endDate` is what advances the source's lastUpdated. */
   startDate?: string;
   endDate?: string;
@@ -65,6 +74,10 @@ export interface HKSample {
 export interface HKBridgePayload {
   /** Stable bridge identity (matches an integrations[].id of kind:"healthkit"). */
   bridgeId: string;
+  /** Shared secret carried in the body (alias: `token`).  Alternative to Bearer. */
+  bridgeToken?: string;
+  /** Legacy alias for bridgeToken. */
+  token?: string;
   /** Opaque device identifier — appears in derived sensorIds when set. */
   deviceId?: string;
   /** Bridge-managed anchor token (echoed back so the device can resume). */
@@ -152,8 +165,11 @@ export function resolveHKBatch(payload: HKBridgePayload, registry: RegistryState
       out.unmapped.push({ type: String(sample?.type ?? ''), reason: 'sample.type is required' });
       continue;
     }
-    if (typeof sample.value !== 'number' || !Number.isFinite(sample.value)) {
-      out.unmapped.push({ type: sample.type, sourceName: sample.sourceName, reason: 'sample.value must be a finite number' });
+    const hasVector = Array.isArray(sample.values)
+      && sample.values.length > 0
+      && sample.values.every((v) => typeof v === 'number' && Number.isFinite(v));
+    if (!hasVector && (typeof sample.value !== 'number' || !Number.isFinite(sample.value))) {
+      out.unmapped.push({ type: sample.type, sourceName: sample.sourceName, reason: 'sample.values must be finite numbers (or sample.value a finite number)' });
       continue;
     }
     const mapping = lookupMapping(registry, sample);
@@ -168,14 +184,15 @@ export function resolveHKBatch(payload: HKBridgePayload, registry: RegistryState
     }
     const sensorId = deriveHKSensorId(sample, mapping);
     const normalize = mapping['normalize'] as NormalizeSpec | undefined;
-    const raw = [sample.value];
-    // Per-sample length expansion — operators can declare length>1 for
-    // category types whose code we want to one-hot, but for now we
-    // commit a length-1 region as the single raw value (normalize block
-    // can broadcast/clamp).  When length>1 and the registry declares a
-    // multi-cell normalize, downstream operators should adjust the
-    // mapping; we don't fabricate extra cells here.
-    const values = applyNormalize(raw, normalize);
+    // Pre-normalized vectors (canonical contract) are stored as-is; a
+    // scalar `value` is raw and runs through the mapping's normalize
+    // block.  Per-sample length expansion — operators can declare
+    // length>1 for category types whose code we want to one-hot, but we
+    // don't fabricate extra cells here: short vectors are zero-padded to
+    // region.length, long ones truncated.
+    const values = hasVector
+      ? (sample.values as number[])
+      : applyNormalize([sample.value as number], normalize);
     const padded = values.length >= region.length
       ? values.slice(0, region.length)
       : padRight(values, region.length, 0);
@@ -238,26 +255,38 @@ function padRight(arr: number[], len: number, fill: number): number[] {
 
 // ── Auth check ────────────────────────────────────────────────────────────
 
+/** Credentials a bridge request may carry — either channel is accepted. */
+export interface PresentedBridgeCredentials {
+  /** Token from an "Authorization: Bearer <token>" header. */
+  bearer?: string;
+  /** Token from the body `bridgeToken` (alias: `token`) field. */
+  bodyToken?: string;
+}
+
 /**
- * Bridge auth is the single shared secret declared on the
- * `integrations[].apiKey` field for the matching `kind:"healthkit"`
- * entry.  When the integration omits an API key, the bridge is treated
- * as open (handy for local dev — production should always set one).
+ * Canonical auth per localHealthkitBridge/docs/INGEST_CONTRACT.md: the
+ * request is authorized when no token is configured, or when either the
+ * Bearer header or the body bridgeToken matches.  The expected token is
+ * the `integrations[].apiKey` of the matching `kind:"healthkit"` entry
+ * when one exists (per-bridge override), else `HEALTHKIT_BRIDGE_TOKEN`.
+ * An unknown bridgeId is not an error — the native runtimes keep no
+ * bridge registry, and cross-engine status-code parity requires unmapped
+ * samples to surface as 400/207, not a TS-only 404.
  */
 export function checkBridgeAuth(
   registry: RegistryState,
   bridgeId: string,
-  presentedKey: string | undefined,
-): { ok: true; integration: Record<string, unknown> } | { ok: false; status: 401 | 404; error: string } {
+  presented: PresentedBridgeCredentials,
+  envToken: string = process.env['HEALTHKIT_BRIDGE_TOKEN'] ?? '',
+): { ok: true; integration?: Record<string, unknown> } | { ok: false; status: 401; error: string } {
   const integrations = Array.isArray(registry.config.integrations) ? registry.config.integrations : [];
   const entry = (integrations as Array<Record<string, unknown>>).find(
     (i) => i && i['kind'] === 'healthkit' && i['id'] === bridgeId,
   );
-  if (!entry) {
-    return { ok: false, status: 404, error: `Unknown healthkit bridgeId "${bridgeId}"` };
-  }
-  const expected = typeof entry['apiKey'] === 'string' ? (entry['apiKey'] as string) : '';
-  if (expected !== '' && presentedKey !== expected) {
+  const expected = typeof entry?.['apiKey'] === 'string' && entry['apiKey'] !== ''
+    ? (entry['apiKey'] as string)
+    : envToken;
+  if (expected !== '' && presented.bearer !== expected && presented.bodyToken !== expected) {
     return { ok: false, status: 401, error: 'HealthKit bridge auth failed' };
   }
   return { ok: true, integration: entry };

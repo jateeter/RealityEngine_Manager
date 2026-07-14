@@ -131,8 +131,12 @@ const DATA_PATH = process.env['DATA_PATH'] ?? './data';
 // machine universe with the old 256 default silently dropped every machine
 // whose perceptualMapping.input.offset exceeded 255 — the bootstrap counted
 // them as "skipped" with no diagnostic.  Override via VECTOR_SIZE env var
+// (VECTOR_DIMENSION accepted for native-engine parity).  The engine grows
+// on demand when a source region exceeds the initial dimension, bounded by
+// MAX_VECTOR_SIZE so a hostile region can't force an unbounded allocation.
 // when running a smaller universe to claw the memory back.
-const VECTOR_SIZE = parseInt(process.env['VECTOR_SIZE'] ?? '4128', 10);
+const VECTOR_SIZE = parseInt(process.env['VECTOR_SIZE'] ?? process.env['VECTOR_DIMENSION'] ?? '7680', 10);
+const MAX_VECTOR_SIZE = parseInt(process.env['MAX_VECTOR_SIZE'] ?? '1048576', 10);
 const certPath = process.env['TLS_CERT_PATH'];
 const keyPath  = process.env['TLS_KEY_PATH'];
 const tlsEnabled = !!(certPath && keyPath && existsSync(certPath) && existsSync(keyPath));
@@ -506,7 +510,7 @@ async function doPush(): Promise<PushResult> {
     // Update the engine's persistent perceptual space with the full post-merge
     // state so that machine outputs written this step carry forward into the next push.
     const returnedPs: number[] | undefined = step?.perceptualSpace;
-    if (Array.isArray(returnedPs) && returnedPs.length >= VECTOR_SIZE) {
+    if (Array.isArray(returnedPs) && returnedPs.length >= engine.vectorSize) {
       engine.updateFromPerceptualSpace(returnedPs);
     }
 
@@ -603,17 +607,16 @@ interface BootstrapResult {
   reasons: {
     // Sequence already existed for this machine (idempotency skip).
     alreadyExisted:  number;
-    // perceptualMapping offset/length falls outside [0, vectorSize) —
-    // the dominant failure mode when PE's VECTOR_SIZE is configured
-    // smaller than the visualizer's PERCEPTUAL_DIM.
+    // perceptualMapping offset/length is invalid or exceeds
+    // MAX_VECTOR_SIZE — the engine now grows on demand below that cap,
+    // so this only fires for malformed or absurd mappings.
     outOfRange:      number;
     // Sequence record was missing a name or had no input vectors.
     noSequences:     number;
     // Machine was filtered out by the caller's machineIds allow-list.
     outsideFilter:   number;
   };
-  // Engine's configured vector size, surfaced so the UI can suggest
-  // raising VECTOR_SIZE when outOfRange is non-zero.
+  // Engine's live vector size (grows on demand), surfaced for the UI.
   vectorSize: number;
 }
 
@@ -634,7 +637,7 @@ async function bootstrapMachineTestSources(
     errors.push(`fetch /api/machines: ${err?.message ?? String(err)}`);
     return {
       created, skipped: 0, machinesSeen, errors,
-      reasons, vectorSize: VECTOR_SIZE,
+      reasons, vectorSize: engine.vectorSize,
     };
   }
 
@@ -694,7 +697,7 @@ async function bootstrapMachineTestSources(
 
     const length = mapping?.length ?? concatVectors[0]?.length ?? 0;
     const offset = mapping?.offset ?? 0;
-    if (length <= 0 || offset < 0 || offset >= VECTOR_SIZE || offset + length > VECTOR_SIZE) {
+    if (length <= 0 || offset < 0 || offset + length > MAX_VECTOR_SIZE) {
       reasons.outOfRange++;
       continue;
     }
@@ -725,7 +728,7 @@ async function bootstrapMachineTestSources(
   }
 
   const skipped = reasons.alreadyExisted + reasons.outOfRange + reasons.noSequences + reasons.outsideFilter;
-  return { created, skipped, machinesSeen, errors, reasons, vectorSize: VECTOR_SIZE };
+  return { created, skipped, machinesSeen, errors, reasons, vectorSize: engine.vectorSize };
 }
 
 /**
@@ -1030,7 +1033,7 @@ async function ingestSignal(body: SignalIngestBody): Promise<SignalIngestResult>
   const region = body.region;
   const regionValid = region
     && typeof region.offset === 'number' && typeof region.length === 'number'
-    && region.offset >= 0 && region.length >= 1 && region.offset < VECTOR_SIZE;
+    && region.offset >= 0 && region.length >= 1 && region.offset + region.length <= MAX_VECTOR_SIZE;
 
   if (explicitSensorId) {
     const sensorId = body.sensorId!;
@@ -1686,14 +1689,19 @@ app.get('/api/integrations/healthkit/status', (_req: Request, res: Response) => 
   const defaultSourceMappingId = typeof entry?.['defaultSourceMappingId'] === 'string'
     ? entry['defaultSourceMappingId']
     : process.env['HEALTHKIT_DEFAULT_SOURCE_MAPPING_ID'] ?? 'healthkit-activity';
-  const tokenRequired = (process.env['HEALTHKIT_BRIDGE_TOKEN'] ?? '') !== ''
+  const tokenConfigured = (process.env['HEALTHKIT_BRIDGE_TOKEN'] ?? '') !== ''
     || (typeof entry?.['apiKey'] === 'string' && entry['apiKey'] !== '');
   res.json({
     bridgeId,
     defaultSourceMappingId,
-    tokenRequired,
+    tokenConfigured,
+    tokenRequired: tokenConfigured, // legacy alias
     statusEndpoint: '/api/integrations/healthkit/status',
     ingestEndpoint: '/api/integrations/healthkit/ingest',
+    contract: {
+      batchSamples: ['bridgeId', 'samples[]'],
+      auth: tokenConfigured ? 'bridgeToken|bearer' : 'none',
+    },
   });
 });
 
@@ -1711,13 +1719,18 @@ async function handleHealthKitIngest(req: Request, res: Response): Promise<void>
     res.status(400).json({ error: 'body.samples must be a non-empty array' });
     return;
   }
-  const presentedKey = (() => {
+  // Either credential channel is accepted (INGEST_CONTRACT.md): the iOS
+  // bridge sends Authorization: Bearer; curl/legacy clients use the body.
+  const presented = (() => {
     const auth = req.headers['authorization'] ?? '';
-    return typeof auth === 'string' && auth.toLowerCase().startsWith('bearer ')
+    const bearer = typeof auth === 'string' && auth.toLowerCase().startsWith('bearer ')
       ? auth.slice(7).trim()
       : undefined;
+    const rawBodyToken = body.bridgeToken ?? body.token;
+    const bodyToken = typeof rawBodyToken === 'string' && rawBodyToken !== '' ? rawBodyToken : undefined;
+    return { bearer, bodyToken };
   })();
-  const authResult = checkBridgeAuth(integrationRegistry, body.bridgeId, presentedKey);
+  const authResult = checkBridgeAuth(integrationRegistry, body.bridgeId, presented);
   if (!authResult.ok) {
     res.status(authResult.status).json({ error: authResult.error });
     return;
@@ -1725,6 +1738,7 @@ async function handleHealthKitIngest(req: Request, res: Response): Promise<void>
   const { resolved, unmapped } = resolveHKBatch(body, integrationRegistry);
   const ingested: Array<Record<string, unknown>> = [];
   const failed: Array<{ sensorId: string; error: string }> = [];
+  const resolvedOut: Array<Record<string, unknown>> = [];
   for (const sample of resolved) {
     const result = await ingestSignal({
       sensorId: sample.sensorId,
@@ -1739,19 +1753,34 @@ async function handleHealthKitIngest(req: Request, res: Response): Promise<void>
     });
     if (result.status >= 200 && result.status < 300) {
       ingested.push({ sensorId: sample.sensorId, origin: sample.origin });
+      resolvedOut.push({
+        resolved: true,
+        sensorId: sample.sensorId,
+        name: sample.name,
+        type: sample.origin.type,
+        sourceName: sample.origin.sourceName ?? '',
+        sourceMappingId: sample.origin.sourceMappingId ?? '',
+        region: sample.region,
+        values: sample.values,
+        ttlMs: sample.ttlMs,
+      });
     } else {
       failed.push({ sensorId: sample.sensorId, error: String((result.body as Record<string, unknown>)['error'] ?? result.status) });
     }
   }
   if (ingested.length > 0) void doPush();
-  const status = failed.length > 0 || unmapped.length > 0 ? 207 : 200;
+  const allResolved = unmapped.length === 0 && failed.length === 0;
+  const status = allResolved ? 200
+    : resolvedOut.length === 0 && unmapped.length > 0 ? 400
+    : 207;
   res.status(status).json({
-    success: ingested.length > 0,
+    success: allResolved,
     bridgeId: body.bridgeId,
     anchorToken: body.anchorToken,
+    resolved: resolvedOut,
+    unmapped,
     ingested,
     failed,
-    unmapped,
   });
 }
 
@@ -1886,8 +1915,8 @@ app.post('/api/sources', async (req: Request, res: Response) => {
       return;
     }
     const { offset, length } = config.region;
-    if (typeof offset !== 'number' || typeof length !== 'number' || offset < 0 || length < 1 || offset >= VECTOR_SIZE) {
-      res.status(400).json({ error: `region.offset must be 0–${VECTOR_SIZE - 1} and region.length must be ≥ 1` });
+    if (typeof offset !== 'number' || typeof length !== 'number' || offset < 0 || length < 1 || offset + length > MAX_VECTOR_SIZE) {
+      res.status(400).json({ error: `region must satisfy offset ≥ 0, length ≥ 1, offset+length ≤ ${MAX_VECTOR_SIZE}` });
       return;
     }
     const source = engine.addSource(config);
@@ -1903,8 +1932,8 @@ app.patch('/api/sources/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
   if (req.body.region) {
     const { offset, length } = req.body.region;
-    if (typeof offset === 'number' && (offset < 0 || offset >= VECTOR_SIZE)) {
-      res.status(400).json({ error: `region.offset must be 0–${VECTOR_SIZE - 1}` });
+    if (typeof offset === 'number' && (offset < 0 || offset >= MAX_VECTOR_SIZE)) {
+      res.status(400).json({ error: `region.offset must be 0–${MAX_VECTOR_SIZE - 1}` });
       return;
     }
     if (typeof length === 'number' && length < 1) {

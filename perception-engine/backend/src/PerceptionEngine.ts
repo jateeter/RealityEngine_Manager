@@ -16,8 +16,16 @@ export class PerceptionEngine {
   private testStep: Map<string, number> = new Map();
   private walkState: Map<string, number[]> = new Map();
 
-  /** Dimension of the perceptual vector. Defaults to 4128 to match the visualizer's PERCEPTUAL_DIM; override via VECTOR_SIZE env var. */
-  readonly vectorSize: number;
+  /**
+   * Dimension of the perceptual vector.  Grows on demand (see
+   * ensureCapacity) so a source region beyond the initial dimension is
+   * accommodated instead of silently skipped — matching the Scala PE.
+   */
+  private _vectorSize: number;
+
+  get vectorSize(): number {
+    return this._vectorSize;
+  }
 
   // Typed array for the persistent perceptual space — avoids per-element boxing
   // overhead of plain number[] and enables fast bulk copy via Float64Array.set().
@@ -39,10 +47,22 @@ export class PerceptionEngine {
   globalStep = 0;
   matchAlgorithm: MatchAlgorithm = 'gte';
 
-  constructor(vectorSize: number = 4128) {
-    this.vectorSize = vectorSize;
+  constructor(vectorSize: number = 7680) {
+    this._vectorSize = vectorSize;
     this.persistentVector = new Float64Array(vectorSize);
     this.outBuf = new Float64Array(vectorSize);
+  }
+
+  /** Expand persistentVector/outBuf and vectorSize to cover [0, requiredEnd). */
+  private ensureCapacity(requiredEnd: number): void {
+    if (requiredEnd <= this._vectorSize) return;
+    const previous = this._vectorSize;
+    const grownPersistent = new Float64Array(requiredEnd);
+    grownPersistent.set(this.persistentVector);
+    this.persistentVector = grownPersistent;
+    this.outBuf = new Float64Array(requiredEnd);
+    this._vectorSize = requiredEnd;
+    console.log(`[PerceptionEngine] vectorSize grew ${previous} → ${requiredEnd}`);
   }
 
   setMatchAlgorithm(algo: MatchAlgorithm): void {
@@ -54,6 +74,7 @@ export class PerceptionEngine {
   addSource(config: Omit<SourceConfig, 'id'>): SourceConfig {
     const id = uuidv4();
     const source = { ...config, id } as SourceConfig;
+    this.ensureCapacity(source.region.offset + source.region.length);
     this.sources.set(id, source);
     if (source.active) this.activeSources.add(id);
 
@@ -69,6 +90,7 @@ export class PerceptionEngine {
 
   /** Restore a previously persisted source preserving its original ID. */
   restoreSource(source: SourceConfig): void {
+    this.ensureCapacity(source.region.offset + source.region.length);
     this.sources.set(source.id, source);
     if (source.active) this.activeSources.add(source.id);
 
@@ -91,6 +113,7 @@ export class PerceptionEngine {
     const existing = this.sources.get(id);
     if (!existing) return null;
     const updated = { ...existing, ...patch, id } as SourceConfig;
+    this.ensureCapacity(updated.region.offset + updated.region.length);
     this.sources.set(id, updated);
     if (updated.active) this.activeSources.add(id);
     else this.activeSources.delete(id);
