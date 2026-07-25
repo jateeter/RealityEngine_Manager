@@ -285,6 +285,7 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
     datacenter: true,
     digitallogic: true,
     ai: true,
+    energy: true,
     general: true,
   });
 
@@ -299,7 +300,7 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
       healthservices: 0, lifebalance: 0, healthpersonal: 0,
       builtspace: 0, transportation: 0, legalservices: 0,
       communityservices: 0, agriculture: 0, datacenter: 0,
-      digitallogic: 0, ai: 0, general: 0,
+      digitallogic: 0, ai: 0, energy: 0, general: 0,
     };
     for (const c of classifications.values()) counts[c.domain]++;
     return counts;
