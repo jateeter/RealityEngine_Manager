@@ -124,6 +124,7 @@ const EXAMPLE_CK_REGISTRY_JSON = {
 };
 
 const PORT = parseInt(process.env['PORT'] ?? '3004', 10);
+const HOST = process.env['HOST'] ?? '';
 const REALITY_ENGINE_URL = process.env['REALITY_ENGINE_URL'] ?? 'http://localhost:5001';
 const DATA_PATH = process.env['DATA_PATH'] ?? './data';
 // Default matches the visualizer's PERCEPTUAL_DIM so machine offsets minted
@@ -2178,9 +2179,10 @@ app.post('/api/sources/bootstrap-from-machines', async (req: Request, res: Respo
 
 // ── Start server ─────────────────────────────────────────────────────────
 
-server.listen(PORT, () => {
+server.listen(PORT, HOST, () => {
   const protocol = tlsEnabled ? 'HTTPS' : 'HTTP';
-  console.log(`Perception Engine backend listening on port ${PORT} (${protocol})`);
+  const bindLabel = HOST === '' ? `port ${PORT}` : `${HOST}:${PORT}`;
+  console.log(`Perception Engine backend listening on ${bindLabel} (${protocol})`);
   console.log(`  Reality Engine : ${REALITY_ENGINE_URL}`);
   // Fire and forget — bootstrap polls the RE until reachable, then materializes
   // a test source per machine inputSequence.  Never blocks listen().
