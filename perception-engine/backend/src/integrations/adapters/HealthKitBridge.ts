@@ -16,11 +16,11 @@
  *
  * Resolution order for each sample:
  *
- *   1. Registry lookup by `healthkit:<typeIdentifier>` — declared source
- *      mapping wins (region, sensorIdTemplate, ttlMs, normalize).
+ *   1. Explicit `sourceMappingId` / `mappingId` on the sample.
  *   2. Registry lookup by `healthkit:<typeIdentifier>:<source-name>` —
  *      finer-grained mapping for one specific Apple Watch / iPhone.
- *   3. Fallback: auto-derive a sensorId from the type identifier; reject
+ *   3. Registry lookup by `healthkit:<typeIdentifier>` — broad type mapping.
+ *   4. Fallback: auto-derive a sensorId from the type identifier; reject
  *      the sample (per-sample 400) when no region can be resolved.  The
  *      bridge MUST declare regions for new HK types; we deliberately
  *      don't allocate offsets at runtime.
@@ -67,6 +67,10 @@ export interface HKSample {
   unit?: string;
   /** Distinguishes Apple Watch vs iPhone vs third-party — drives the sensorId suffix. */
   sourceName?: string;
+  /** Explicit registry source mapping id; highest-priority resolution channel. */
+  sourceMappingId?: string;
+  /** Legacy alias accepted by the native PE runtimes. */
+  mappingId?: string;
   /** Free-form per-sample metadata. */
   metadata?: Record<string, unknown>;
 }
@@ -172,9 +176,18 @@ export function resolveHKBatch(payload: HKBridgePayload, registry: RegistryState
       out.unmapped.push({ type: sample.type, sourceName: sample.sourceName, reason: 'sample.values must be finite numbers (or sample.value a finite number)' });
       continue;
     }
-    const mapping = lookupMapping(registry, sample);
+    const explicitId = explicitSourceMappingId(sample);
+    const mapping = explicitId
+      ? registry.sourceMappingIndex.get(explicitId)
+      : lookupMapping(registry, sample);
     if (!mapping) {
-      out.unmapped.push({ type: sample.type, sourceName: sample.sourceName, reason: 'no registry mapping (declare healthkit:<type>[:<sourceName>])' });
+      out.unmapped.push({
+        type: sample.type,
+        sourceName: sample.sourceName,
+        reason: explicitId
+          ? `unknown sourceMappingId "${explicitId}"`
+          : 'no registry mapping (declare healthkit:<type>[:<sourceName>])',
+      });
       continue;
     }
     const region = mapping.region;
@@ -221,6 +234,13 @@ export function resolveHKBatch(payload: HKBridgePayload, registry: RegistryState
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
+
+function explicitSourceMappingId(sample: HKSample): string | undefined {
+  const sourceMappingId = typeof sample.sourceMappingId === 'string' ? sample.sourceMappingId.trim() : '';
+  if (sourceMappingId !== '') return sourceMappingId;
+  const mappingId = typeof sample.mappingId === 'string' ? sample.mappingId.trim() : '';
+  return mappingId !== '' ? mappingId : undefined;
+}
 
 function lookupMapping(registry: RegistryState, sample: HKSample): SourceMapping | undefined {
   const idx = registry.sourceMappingIndex;

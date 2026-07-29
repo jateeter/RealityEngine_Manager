@@ -182,6 +182,58 @@ describe('resolveHKBatch — happy path', () => {
     expect(resolved[0]!.origin.sourceMappingId).toBe('healthkit:HKQuantityTypeIdentifierHeartRate:Apple Watch');
   });
 
+  it('honors explicit sourceMappingId before inferred HealthKit keys', () => {
+    const explicit = {
+      ...spO2Mapping,
+      id: 'healthkit:explicit-heart-rate-lane',
+      name: 'Explicit Heart Rate Lane',
+      region: { offset: 410, length: 1 },
+    };
+    const registry = registryWith({
+      integrations: [],
+      sourceMappings: [heartRateMapping, heartRateWatchMapping, explicit],
+    });
+    const payload: HKBridgePayload = {
+      bridgeId: 'x',
+      samples: [{
+        type: 'HKQuantityTypeIdentifierHeartRate',
+        value: 72,
+        sourceName: 'Apple Watch',
+        sourceMappingId: 'healthkit:explicit-heart-rate-lane',
+      }],
+    };
+    const { resolved, unmapped } = resolveHKBatch(payload, registry);
+    expect(unmapped).toHaveLength(0);
+    expect(resolved).toHaveLength(1);
+    expect(resolved[0]!.name).toBe('Explicit Heart Rate Lane');
+    expect(resolved[0]!.region).toEqual({ offset: 410, length: 1 });
+    expect(resolved[0]!.origin.sourceMappingId).toBe('healthkit:explicit-heart-rate-lane');
+  });
+
+  it('honors legacy mappingId as the explicit mapping alias', () => {
+    const alias = {
+      ...spO2Mapping,
+      id: 'healthkit:legacy-alias-lane',
+      region: { offset: 411, length: 1 },
+    };
+    const registry = registryWith({
+      integrations: [],
+      sourceMappings: [heartRateMapping, alias],
+    });
+    const payload: HKBridgePayload = {
+      bridgeId: 'x',
+      samples: [{
+        type: 'HKQuantityTypeIdentifierHeartRate',
+        value: 72,
+        mappingId: 'healthkit:legacy-alias-lane',
+      }],
+    };
+    const { resolved, unmapped } = resolveHKBatch(payload, registry);
+    expect(unmapped).toHaveLength(0);
+    expect(resolved[0]!.origin.sourceMappingId).toBe('healthkit:legacy-alias-lane');
+    expect(resolved[0]!.region).toEqual({ offset: 411, length: 1 });
+  });
+
   it('falls back to broad mapping when sourceName has no specific entry', () => {
     const registry = registryWith({
       integrations: [],
@@ -241,6 +293,21 @@ describe('resolveHKBatch — unmapped samples', () => {
     };
     const { unmapped } = resolveHKBatch(payload, registry);
     expect(unmapped[0]!.reason).toMatch(/no registry mapping/);
+  });
+
+  it('does not fall back when an explicit sourceMappingId is unknown', () => {
+    const registry = registryWith({ integrations: [], sourceMappings: [heartRateMapping] });
+    const payload: HKBridgePayload = {
+      bridgeId: 'x',
+      samples: [{
+        type: 'HKQuantityTypeIdentifierHeartRate',
+        value: 72,
+        sourceMappingId: 'healthkit:missing-explicit-lane',
+      }],
+    };
+    const { resolved, unmapped } = resolveHKBatch(payload, registry);
+    expect(resolved).toHaveLength(0);
+    expect(unmapped[0]!.reason).toBe('unknown sourceMappingId "healthkit:missing-explicit-lane"');
   });
 
   it('puts samples whose mapping lacks region into unmapped', () => {
