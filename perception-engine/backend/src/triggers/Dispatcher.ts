@@ -22,6 +22,7 @@ import { randomUUID } from 'crypto';
 
 import { Ledger } from '../dispatch/Ledger.js';
 import { buildTriggerEnvelope, type BuilderContext } from './envelopeBuilder.js';
+import { dispatchSemantics } from '../semanticAudit.js';
 import type {
   DispatchMode,
   DispatchRecord,
@@ -308,6 +309,15 @@ export class Dispatcher {
       updatedAt: now,
       providerReceipt: null,
       envelope,
+      // Semantic link to the corpus ABox (SEMANTIC_AUDIT_CONTRACT.md): lets an
+      // auditor join this dispatch to the determination that caused it without
+      // name matching.  IRI fields are null when the machine is absent from
+      // the corpus semantics manifest.
+      semantics: dispatchSemantics({
+        machineName: envelope.ces.machineName,
+        sequenceId: envelope.ces.sequenceId,
+        actionCode: typeof op.action === 'string' ? op.action : null,
+      }),
     };
   }
 }

@@ -10,6 +10,18 @@
 
 import type { DispatchMode, TriggerEnvelope } from '../triggers/types.js';
 
+/**
+ * Link from a dispatch record to the corpus OWL ABox that describes the
+ * determination behind it (RealityEngine_Machines
+ * docs/SEMANTIC_AUDIT_CONTRACT.md, milestone M5).  Fields are null when the
+ * machine is absent from the corpus semantics manifest.
+ */
+export interface DispatchRecordSemantics {
+  machineIri: string | null;
+  sequenceIri: string | null;
+  actionCode: string | null;
+}
+
 export interface DispatchRecord {
   id: string;
   envelopeId: string;
@@ -27,6 +39,8 @@ export interface DispatchRecord {
   providerReceipt: Record<string, unknown> | null;
   envelope: TriggerEnvelope;
   error?: string;
+  /** Corpus ABox link for semantic auditing; omitted on legacy records. */
+  semantics?: DispatchRecordSemantics;
   /**
    * When this record was created by `POST /api/triggers/replay/:id`, the
    * id of the original dispatch record being replayed.  Omitted on

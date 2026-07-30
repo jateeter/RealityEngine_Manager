@@ -470,6 +470,10 @@ app.get('/api/machines/json/list', (req, res) => proxyGet(req, res, activeReUrl(
 // Visualizer plane can compare semanticsIri/semanticsHash across engines.
 app.get('/api/machines/semantics/:name', (req, res) => proxyGet(req, res, activeReUrl(), `/api/machines/semantics/${encodeURIComponent(req.params.name)}`, null, 'getMachineSemantics'));
 
+// Semantic audit trail (roadmap M5) — proxy the active RE's re:SequenceObservation
+// records so the Visualizer can show the evidence chain behind a dispatch.
+app.get('/api/audit/semantics', (req, res) => proxyGet(req, res, activeReUrl(), `/api/audit/semantics${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`, null, 'getSemanticAudit'));
+
 app.get('/api/machines/json/:name', async (req: Request, res: Response) => {
   const { name } = req.params;
   if (!isValidId(name)) { res.status(400).json({ error: 'Invalid name' }); return; }

@@ -25,6 +25,7 @@ import { Dispatcher } from './triggers/Dispatcher.js';
 import type { MachineRecord } from './triggers/types.js';
 import { Ledger } from './dispatch/Ledger.js';
 import { allSemanticIdentities, semanticIdentityFor } from './semanticsManifest.js';
+import { recentPerceptionEvents, recordPerceptionEvent } from './semanticAudit.js';
 import type { DispatchRecordPatch } from './dispatch/types.js';
 import { AdapterPipeline } from './integrations/AdapterPipeline.js';
 import { AcpAdapter, acpConfigFromRegistry } from './integrations/adapters/AcpAdapter.js';
@@ -505,6 +506,20 @@ async function doPush(): Promise<PushResult> {
     });
     engine.advance();
     lastPush = Date.now();
+
+    // Semantic audit (SEMANTIC_AUDIT_CONTRACT.md): one re:PerceptionEvent per
+    // active source region written into the universal reality vector. Sources
+    // that declare a machine get a real machineIri from the corpus manifest.
+    for (const src of engine.getSources()) {
+      if (!src.active) continue;
+      recordPerceptionEvent({
+        sourceId: src.id,
+        machineName: 'machineName' in src ? (src as { machineName?: string }).machineName : null,
+        offset: src.region.offset,
+        length: src.region.length,
+        at: lastPush,
+      });
+    }
 
     // RE returns the step directly as response.data.
     const step = response.data;
@@ -2186,6 +2201,16 @@ app.post('/api/sources/bootstrap-from-machines', async (req: Request, res: Respo
 
 app.get('/api/machines/semantics', (_req: Request, res: Response) => {
   res.json({ machines: allSemanticIdentities() });
+});
+
+// Semantic audit trail (SEMANTIC_AUDIT_CONTRACT.md, milestone M5) — the PE
+// owns re:PerceptionEvent records; re:SequenceObservation records come from
+// the RE's own /api/audit/semantics.
+app.get('/api/audit/semantics', (req: Request, res: Response) => {
+  const parsed = Number.parseInt(String(req.query['limit'] ?? '100'), 10);
+  const limit = Number.isFinite(parsed) ? parsed : 100;
+  const records = recentPerceptionEvents(limit);
+  res.json({ records, count: records.length });
 });
 
 app.get('/api/machines/semantics/:name', (req: Request, res: Response) => {
