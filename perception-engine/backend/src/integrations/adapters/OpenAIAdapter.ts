@@ -24,6 +24,7 @@ import type { AxiosInstance } from 'axios';
 
 import {
   applyExtract, applyNormalize,
+  evalJsonPointer,
   type ExtractSpec, type NormalizeSpec,
 } from '../extractors.js';
 import type { DispatchRecord } from '../../dispatch/types.js';
@@ -42,6 +43,7 @@ export interface OpenAIIntegrationCfg extends IntegrationEntry {
   apiKey?: string;
   apiMode?: OpenAIApiMode;
   completionMode?: OpenAICompletionMode;
+  responseFormatMode?: 'json-schema' | 'json-object';
   /** For https-callback mode — public URL OpenAI hits with results. */
   callbackUrl?: string;
   completionSourceMappingId?: string;
@@ -57,7 +59,7 @@ export interface OpenAIAdapterOptions {
 }
 
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
-const DEFAULT_MODEL = 'gpt-4.1';
+const DEFAULT_MODEL = 'gpt-5';
 const DEFAULT_SYSTEM_PROMPT = [
   'You are a Reality Engine Critical-Event-Sequence (CES) responder.',
   'You will receive a CES terminal-event envelope as JSON.',
@@ -95,6 +97,7 @@ export class OpenAIAdapter implements ProviderAdapter {
     const model = this.cfg.model ?? DEFAULT_MODEL;
     const apiMode: OpenAIApiMode = this.cfg.apiMode ?? 'responses';
     const completionMode: OpenAICompletionMode = this.cfg.completionMode ?? 'sync';
+    const responseFormatMode = this.cfg.responseFormatMode ?? 'json-schema';
     const apiKey = this.cfg.apiKey ?? this.envApiKey ?? '';
     const timeoutMs = this.cfg.timeoutMs ?? 60_000;
     const systemPrompt = this.cfg.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
@@ -111,7 +114,7 @@ export class OpenAIAdapter implements ProviderAdapter {
         provider: 'openai', adapter: 'openai', latencyMs: this.now() - t0,
         status: 'failed',
         error: 'no API key (set integration.apiKey or OPENAI_API_KEY)',
-        metadata: { model, apiMode, completionMode },
+        metadata: { model, apiMode, completionMode, responseFormatMode },
       };
     }
 
@@ -138,7 +141,7 @@ export class OpenAIAdapter implements ProviderAdapter {
             { role: 'system', content: systemPrompt },
             { role: 'user', content: JSON.stringify(userPayload) },
           ],
-          text: { format: { type: 'json_object' } },
+          text: { format: buildTextFormat(extract, expectedFields, responseFormatMode) },
           metadata,
           stream: false,
         };
@@ -161,13 +164,14 @@ export class OpenAIAdapter implements ProviderAdapter {
             latencyMs: this.now() - t0,
             status: 'sent',
             externalRunId: runId,
-            metadata: { model: modelUsed, apiMode, completionMode, mode: 'queued' },
+            metadata: { model: modelUsed, apiMode, completionMode, responseFormatMode, mode: 'queued' },
           };
         }
 
         // Sync mode — pull the text out.  Responses API returns
         // `output[*].content[*].text`; we accept either output_text or
         // any text-typed content for resilience.
+        assertResponsesCompleted(resp.data);
         const text = extractResponsesText(resp.data);
         parsed = parseJsonOrThrow(text);
       } else {
@@ -178,7 +182,7 @@ export class OpenAIAdapter implements ProviderAdapter {
             { role: 'system', content: systemPrompt },
             { role: 'user', content: JSON.stringify(userPayload) },
           ],
-          response_format: { type: 'json_object' },
+          response_format: buildChatResponseFormat(extract, expectedFields, responseFormatMode),
           metadata,
           stream: false,
         }, { headers, timeout: timeoutMs });
@@ -203,13 +207,15 @@ export class OpenAIAdapter implements ProviderAdapter {
         status: 'failed',
         error: `openai call failed: ${message}`,
         externalRunId: runId,
-        metadata: { model, apiMode, completionMode },
+        metadata: { model, apiMode, completionMode, responseFormatMode },
       };
     }
 
     let values: number[];
     try {
-      values = applyNormalize(applyExtract(parsed, extract), normalize);
+      const extractDoc = normalizePassthroughPayload(parsed, extract);
+      validateParsedForExtract(extractDoc, extract);
+      values = applyNormalize(applyExtract(extractDoc, extract), normalize);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return {
@@ -218,7 +224,7 @@ export class OpenAIAdapter implements ProviderAdapter {
         status: 'failed',
         error: `extract/normalize failed: ${message}`,
         externalRunId: runId,
-        metadata: { model: modelUsed, apiMode, completionMode, parsed },
+        metadata: { model: modelUsed, apiMode, completionMode, responseFormatMode, parsed },
       };
     }
 
@@ -229,7 +235,7 @@ export class OpenAIAdapter implements ProviderAdapter {
       envelopeId: envelope.envelopeId,
       sourceMappingId: mappingId || undefined,
       values,
-      metadata: { model: modelUsed, apiMode, completionMode, runId, parsed },
+      metadata: { model: modelUsed, apiMode, completionMode, responseFormatMode, runId, parsed },
     };
     try {
       const resp = await this.http.post(this.deps.completionUrl, completionBody, { timeout: timeoutMs });
@@ -240,7 +246,7 @@ export class OpenAIAdapter implements ProviderAdapter {
           status: 'failed',
           error: `completion ingest non-2xx: ${resp.status}`,
           externalRunId: runId,
-          metadata: { model: modelUsed, apiMode, completionMode },
+          metadata: { model: modelUsed, apiMode, completionMode, responseFormatMode },
         };
       }
     } catch (err) {
@@ -251,7 +257,7 @@ export class OpenAIAdapter implements ProviderAdapter {
         status: 'failed',
         error: `completion ingest failed: ${message}`,
         externalRunId: runId,
-        metadata: { model: modelUsed, apiMode, completionMode },
+        metadata: { model: modelUsed, apiMode, completionMode, responseFormatMode },
       };
     }
 
@@ -260,7 +266,7 @@ export class OpenAIAdapter implements ProviderAdapter {
       latencyMs: this.now() - t0,
       status: 'sent',
       externalRunId: runId,
-      metadata: { model: modelUsed, apiMode, completionMode, cells: values.length },
+      metadata: { model: modelUsed, apiMode, completionMode, responseFormatMode, cells: values.length },
     };
   }
 
@@ -304,6 +310,121 @@ function buildSchemaHint(spec: ExtractSpec, fields: string[]): unknown {
     expectedPointers: fields,
     note: 'Return one numeric / boolean leaf per pointer above.',
   };
+}
+
+function buildTextFormat(
+  spec: ExtractSpec,
+  fields: string[],
+  mode: OpenAIIntegrationCfg['responseFormatMode'],
+): Record<string, unknown> {
+  if (mode === 'json-object') return { type: 'json_object' };
+  return {
+    type: 'json_schema',
+    name: 'reality_engine_completion',
+    strict: true,
+    schema: buildCompletionJsonSchema(spec, fields),
+  };
+}
+
+function buildChatResponseFormat(
+  spec: ExtractSpec,
+  fields: string[],
+  mode: OpenAIIntegrationCfg['responseFormatMode'],
+): Record<string, unknown> {
+  if (mode === 'json-object') return { type: 'json_object' };
+  return {
+    type: 'json_schema',
+    json_schema: {
+      name: 'reality_engine_completion',
+      strict: true,
+      schema: buildCompletionJsonSchema(spec, fields),
+    },
+  };
+}
+
+function buildCompletionJsonSchema(spec: ExtractSpec, fields: string[]): Record<string, unknown> {
+  if (spec.type === 'passthrough') {
+    return {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        values: {
+          type: 'array',
+          items: { type: 'number' },
+        },
+      },
+      required: ['values'],
+    };
+  }
+
+  const keys = fields.map(topLevelKey);
+  return {
+    type: 'object',
+    additionalProperties: false,
+    properties: Object.fromEntries(
+      keys.map((key) => [key, { type: ['number', 'boolean'] }]),
+    ),
+    required: keys,
+  };
+}
+
+function topLevelKey(pointer: string): string {
+  const first = pointer.split('/').filter(Boolean)[0];
+  if (!first) return 'value';
+  return first.replace(/~1/g, '/').replace(/~0/g, '~');
+}
+
+function normalizePassthroughPayload(parsed: unknown, spec: ExtractSpec): unknown {
+  if (
+    spec.type === 'passthrough'
+    && parsed
+    && typeof parsed === 'object'
+    && !Array.isArray(parsed)
+    && Array.isArray((parsed as { values?: unknown }).values)
+  ) {
+    return (parsed as { values: unknown[] }).values;
+  }
+  return parsed;
+}
+
+function validateParsedForExtract(parsed: unknown, spec: ExtractSpec): void {
+  if (spec.type === 'passthrough') {
+    if (!Array.isArray(parsed)) throw new Error('passthrough response must be a JSON array or {values:number[]}');
+    for (const value of parsed) {
+      if (!isFiniteScalar(value)) throw new Error('passthrough response contains a non-finite value');
+    }
+    return;
+  }
+
+  const pointers = 'pointers' in spec ? spec.pointers : [spec.pointer];
+  for (const pointer of pointers) {
+    const value = evalJsonPointer(parsed, pointer);
+    if (value === undefined) throw new Error(`missing required JSON pointer: ${pointer}`);
+    if (Array.isArray(value)) {
+      if (!value.every(isFiniteScalar)) throw new Error(`JSON pointer ${pointer} contains a non-finite value`);
+    } else if (!isFiniteScalar(value)) {
+      throw new Error(`JSON pointer ${pointer} resolved to a non-finite value`);
+    }
+  }
+}
+
+function isFiniteScalar(value: unknown): boolean {
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (typeof value === 'boolean') return true;
+  if (typeof value === 'string') return value.trim() !== '' && Number.isFinite(Number(value));
+  return false;
+}
+
+function assertResponsesCompleted(data: unknown): void {
+  if (!data || typeof data !== 'object') return;
+  const status = (data as { status?: unknown }).status;
+  if (typeof status === 'string' && status !== '' && status !== 'completed') {
+    throw new Error(`responses run did not complete: ${status}`);
+  }
+  const refusal = (data as { refusal?: unknown }).refusal;
+  if (typeof refusal === 'string' && refusal !== '') {
+    throw new Error(`responses run refused: ${refusal}`);
+  }
 }
 
 /**

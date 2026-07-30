@@ -296,7 +296,7 @@ void acpAdapter.init(acpConfig, {
       });
       adapterPipeline.register(adapter);
       const e = entry as any;
-      console.log(`Adapters: openai "${entry.id}" registered (baseUrl=${e.baseUrl ?? 'https://api.openai.com/v1'} model=${e.model ?? 'gpt-4.1'} mode=${e.completionMode ?? 'sync'})`);
+      console.log(`Adapters: openai "${entry.id}" registered (baseUrl=${e.baseUrl ?? 'https://api.openai.com/v1'} model=${e.model ?? 'gpt-5'} mode=${e.completionMode ?? 'sync'})`);
     }
     if (entry.kind === 'acp' || entry.kind === 'openclaw-acp') {
       if (acpConfig.enabled === true) {
@@ -789,6 +789,7 @@ mountMcp(app, {
   // state the REST routes do.
   dispatcher: triggerDispatcher,
   ledger: dispatchLedger,
+  adapterPipeline,
 });
 
 // ── HTTP API ──────────────────────────────────────────────────────────────

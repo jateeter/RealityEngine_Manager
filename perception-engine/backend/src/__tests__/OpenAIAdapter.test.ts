@@ -129,7 +129,10 @@ describe('OpenAIAdapter — sync /v1/responses', () => {
     expect(reqBody.metadata.envelopeId).toBe('env-1');
     expect(reqBody.metadata.correlationId).toBe('corr-1');
     expect(reqBody.metadata.dispatchId).toBe('d-1');
-    expect(reqBody.text).toEqual({ format: { type: 'json_object' } });
+    expect(reqBody.text.format.type).toBe('json_schema');
+    expect(reqBody.text.format.name).toBe('reality_engine_completion');
+    expect(reqBody.text.format.strict).toBe(true);
+    expect(reqBody.text.format.schema.required).toEqual(['completed', 'failed', 'confidence', 'actionClass']);
     expect(reqBody.response_format).toBeUndefined();
 
     // Second call → completion ingest.
@@ -186,6 +189,32 @@ describe('OpenAIAdapter — sync /v1/responses', () => {
     expect(receipt.status).toBe('sent');
     expect((calls[1]!.body as any).sourceMappingId).toBe('agent-completion-risk');
   });
+
+  it('can opt into legacy JSON-object mode for compatibility backends', async () => {
+    const { http, calls } = stubHttp((url) => {
+      if (url.endsWith('/v1/responses')) {
+        return {
+          status: 200,
+          data: {
+            id: 'resp_json_object', model: 'gpt-4.1',
+            output_text: JSON.stringify({ completed: 1, failed: 0, confidence: 0.7, actionClass: 0 }),
+          },
+        };
+      }
+      return { status: 200, data: { success: true } };
+    });
+    const adapter = new OpenAIAdapter({ http, envApiKey: 'sk-test' });
+    await adapter.init({
+      id: 'openai-agents', kind: 'openai', enabled: true,
+      apiMode: 'responses', responseFormatMode: 'json-object',
+      sourceMappingId: 'agent-completion-risk',
+    } as any, { registry: registryWith(mapping), completionUrl: 'http://pe.test/api/integrations/completions' });
+
+    const receipt = await adapter.dispatch(envelope, record);
+
+    expect(receipt.status).toBe('sent');
+    expect((calls[0]!.body as any).text).toEqual({ format: { type: 'json_object' } });
+  });
 });
 
 // ── chat-completions fallback ───────────────────────────────────────────
@@ -214,6 +243,8 @@ describe('OpenAIAdapter — apiMode: chat-completions', () => {
     expect(r.status).toBe('sent');
     expect(r.externalRunId).toBe('chatcmpl_y');
     expect(calls[0]!.url).toBe('https://api.openai.com/v1/chat/completions');
+    expect((calls[0]!.body as any).response_format.type).toBe('json_schema');
+    expect((calls[0]!.body as any).response_format.json_schema.strict).toBe(true);
   });
 });
 
@@ -245,7 +276,8 @@ describe('OpenAIAdapter — completionMode: https-callback', () => {
     const body = calls[0]!.body as any;
     expect(body.background).toBe(true);
     expect(body.webhook_url).toBeUndefined();
-    expect(body.text).toEqual({ format: { type: 'json_object' } });
+    expect(body.text.format.type).toBe('json_schema');
+    expect(body.text.format.strict).toBe(true);
   });
 });
 
@@ -285,5 +317,48 @@ describe('OpenAIAdapter — failures', () => {
     const r = await adapter.dispatch(envelope, record);
     expect(r.status).toBe('failed');
     expect(r.error).toMatch(/completion ingest non-2xx: 503/);
+  });
+
+  it('marks the receipt failed and does not ingest when Responses API is incomplete', async () => {
+    const { http, calls } = stubHttp((url) => {
+      if (url.endsWith('/v1/responses')) {
+        return { status: 200, data: { id: 'r_incomplete', model: 'gpt-4.1', status: 'incomplete' } };
+      }
+      return { status: 200, data: {} };
+    });
+    const adapter = new OpenAIAdapter({ http, envApiKey: 'sk-test' });
+    await adapter.init({
+      id: 'o', kind: 'openai', enabled: true, sourceMappingId: 'agent-completion-risk',
+    } as any, { registry: registryWith(mapping), completionUrl: 'http://pe.test/api/integrations/completions' });
+
+    const r = await adapter.dispatch(envelope, record);
+    expect(r.status).toBe('failed');
+    expect(r.error).toMatch(/responses run did not complete: incomplete/);
+    expect(r.externalRunId).toBe('r_incomplete');
+    expect(calls).toHaveLength(1);
+  });
+
+  it('marks the receipt failed and does not ingest when a required pointer is missing', async () => {
+    const { http, calls } = stubHttp((url) => {
+      if (url.endsWith('/v1/responses')) {
+        return {
+          status: 200,
+          data: {
+            id: 'r_missing', model: 'gpt-4.1',
+            output_text: '{"completed":1,"failed":0,"confidence":0.1}',
+          },
+        };
+      }
+      return { status: 200, data: {} };
+    });
+    const adapter = new OpenAIAdapter({ http, envApiKey: 'sk-test' });
+    await adapter.init({
+      id: 'o', kind: 'openai', enabled: true, sourceMappingId: 'agent-completion-risk',
+    } as any, { registry: registryWith(mapping), completionUrl: 'http://pe.test/api/integrations/completions' });
+
+    const r = await adapter.dispatch(envelope, record);
+    expect(r.status).toBe('failed');
+    expect(r.error).toMatch(/missing required JSON pointer: \/actionClass/);
+    expect(calls).toHaveLength(1);
   });
 });

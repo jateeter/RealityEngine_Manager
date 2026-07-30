@@ -201,8 +201,7 @@ describe('OllamaAdapter — openai-compat /v1/chat/completions', () => {
     expect(receipt.externalRunId).toBe('chatcmpl-abc');
     expect(calls[0]!.url).toBe('http://localhost:11434/v1/chat/completions');
     expect((calls[0]!.body as any).response_format).toEqual({ type: 'json_object' });
-    // passthrough on `{values: [...]}` produces a 1-cell array of the array's coerceNumber — by design,
-    // the registry's extract spec tells the adapter exactly how to interpret the payload.
+    expect((calls[1]!.body as any).values).toEqual([0.1, 0.5, 0.9]);
   });
 });
 
@@ -266,5 +265,25 @@ describe('OllamaAdapter — failure paths', () => {
     const receipt = await adapter.dispatch(envelope, dispatchRecord);
     expect(receipt.status).toBe('failed');
     expect(receipt.error).toMatch(/completion ingest non-2xx: 503/);
+  });
+
+  it('marks the receipt failed and does not ingest when a required pointer is missing', async () => {
+    const registry = registryWith({
+      id: 'm', sensorId: 's',
+      extract: { type: 'json', pointers: ['/completed', '/failed'] },
+    });
+    const { http, calls } = stubHttp((url) => {
+      if (url.endsWith('/api/chat')) return { status: 200, data: { message: { content: '{"completed": 1}' } } };
+      return { status: 200, data: { success: true } };
+    });
+    const adapter = new OllamaAdapter({ http });
+    await adapter.init({
+      id: 'o', kind: 'ollama', enabled: true, apiMode: 'native', sourceMappingId: 'm',
+    } as any, { registry, completionUrl: 'http://pe.test/api/integrations/completions' });
+
+    const receipt = await adapter.dispatch(envelope, dispatchRecord);
+    expect(receipt.status).toBe('failed');
+    expect(receipt.error).toMatch(/missing required JSON pointer: \/failed/);
+    expect(calls).toHaveLength(1);
   });
 });
