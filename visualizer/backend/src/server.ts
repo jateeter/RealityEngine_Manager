@@ -466,6 +466,10 @@ app.get('/api/engines/:id/health', async (req: Request, res: Response) => {
 // Machine JSON import routes — proxy to RE (must precede /api/machines/:id)
 app.get('/api/machines/json/list', (req, res) => proxyGet(req, res, activeReUrl(), '/api/machines/json/list', null, 'listMachineJSON'));
 
+// OWL semantic identity (roadmap M4) — proxy to the active RE so the
+// Visualizer plane can compare semanticsIri/semanticsHash across engines.
+app.get('/api/machines/semantics/:name', (req, res) => proxyGet(req, res, activeReUrl(), `/api/machines/semantics/${encodeURIComponent(req.params.name)}`, null, 'getMachineSemantics'));
+
 app.get('/api/machines/json/:name', async (req: Request, res: Response) => {
   const { name } = req.params;
   if (!isValidId(name)) { res.status(400).json({ error: 'Invalid name' }); return; }

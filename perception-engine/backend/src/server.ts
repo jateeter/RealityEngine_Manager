@@ -24,6 +24,7 @@ import type { CompletionRequest, ResolvedSignal } from './integrations/SourceMap
 import { Dispatcher } from './triggers/Dispatcher.js';
 import type { MachineRecord } from './triggers/types.js';
 import { Ledger } from './dispatch/Ledger.js';
+import { allSemanticIdentities, semanticIdentityFor } from './semanticsManifest.js';
 import type { DispatchRecordPatch } from './dispatch/types.js';
 import { AdapterPipeline } from './integrations/AdapterPipeline.js';
 import { AcpAdapter, acpConfigFromRegistry } from './integrations/adapters/AcpAdapter.js';
@@ -2175,6 +2176,24 @@ app.post('/api/sources/bootstrap-from-machines', async (req: Request, res: Respo
     return;
   }
   res.json(result);
+});
+
+// ── OWL semantic identity (roadmap M4, RealityEngine_Machines) ──────────
+// GET /api/machines/semantics — every machine identity in the corpus
+// semantics manifest; GET /api/machines/semantics/:name — one machine's
+// identity (IRI + ABox sha256) or 404. Contract mirrors the native engines.
+
+app.get('/api/machines/semantics', (_req: Request, res: Response) => {
+  res.json({ machines: allSemanticIdentities() });
+});
+
+app.get('/api/machines/semantics/:name', (req: Request, res: Response) => {
+  const identity = semanticIdentityFor(req.params['name'] ?? '');
+  if (!identity) {
+    res.status(404).json({ error: `No semantics manifest entry for machine: ${req.params['name']}` });
+    return;
+  }
+  res.json(identity);
 });
 
 // ── Start server ─────────────────────────────────────────────────────────
