@@ -4,6 +4,9 @@ import type { AxiosInstance } from 'axios';
 import { buildMcpServer } from '../mcp.js';
 import { PerceptionEngine } from '../PerceptionEngine.js';
 import { SourceStore } from '../SourceStore.js';
+import { Ledger } from '../dispatch/Ledger.js';
+import type { DispatchRecord } from '../dispatch/types.js';
+import type { TriggerEnvelope } from '../triggers/types.js';
 
 type RegisteredTool = {
   handler: (args?: Record<string, unknown>) => Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }>;
@@ -77,5 +80,106 @@ describe('Manager MCP canonical tools', () => {
 
     expect(textJson(result)).toEqual({ id: 'machine/a' });
     expect(getCalls).toEqual(['http://re.test/api/machines/machine%2Fa']);
+  });
+
+  it('policy-gates provider dispatch MCP tools', async () => {
+    const server = buildMcpServer({
+      engine: new PerceptionEngine(4),
+      store: new SourceStore('/tmp/re-mcp-canonical-tools'),
+      push: async () => ({ success: true, timestamp: 1, globalStep: 0 }),
+      startAuto: () => undefined,
+      stopAuto: () => undefined,
+      getAutoState: () => ({ running: false, intervalMs: 1000 }),
+      getLastPush: () => null,
+      saveAndBroadcast: async () => undefined,
+      resetAndBroadcast: () => undefined,
+      realityEngineUrl: 'http://re.test',
+      policy: { enforce: true, allow: new Set() },
+      adapterPipeline: {
+        getAdapter: () => ({ kind: 'openai', init: async () => undefined, dispatch: async () => { throw new Error('should not run'); }, shutdown: async () => undefined }),
+        runSync: async () => { throw new Error('should not run'); },
+      },
+    });
+
+    const result = await tool(server, 'integrations.dispatch_openai').handler({ dispatch_id: 'd-1' });
+
+    expect(result.isError).toBe(true);
+    expect((textJson(result) as any).capability).toBe('trigger.dispatch');
+  });
+
+  it('dispatches a ledger record through the registered provider adapter', async () => {
+    const envelope: TriggerEnvelope = {
+      schemaVersion: '1.0.0', envelopeType: 'ces.terminal.event',
+      envelopeId: 'env-1', correlationId: 'corr-1', emittedAtMs: 1,
+      source: { engine: 'PE', observedEngine: 'RE', endpoint: 'http://re' },
+      ces: {
+        machineId: 'm-1', machineName: 'M1', machineCode: 'M001',
+        sequenceId: 's-1', sequenceName: 's-1', outputIndex: 0, stepNumber: 0,
+        perceptualMapping: { output: { offset: 0, length: 4 } },
+        provenance: [], deprecation: null,
+      },
+      outputVector: { values: [1, 0, 0, 0], encoding: 'vector', semantics: [], assertedLabel: 'cell_0' },
+      projection: null, governance: null,
+      dispatch: {
+        agent: 'paging-decision', action: '', agentActionsCatalog: [], trigger: 't',
+        endpoint: { kind: 'openai', url: '', mutation: '', schemaRef: '' },
+      },
+    };
+    const record: DispatchRecord = {
+      id: 'd-1', envelopeId: 'env-1', correlationId: 'corr-1',
+      status: 'recorded', mode: 'openai', target: 'paging-decision',
+      machineId: 'm-1', sequenceId: 's-1', ragStatusCode: '', processStatus: '',
+      attempts: 0, createdAt: 1, updatedAt: 1, providerReceipt: null, envelope,
+    };
+    const ledger = new Ledger();
+    ledger.append(record);
+    const adapter = {
+      kind: 'openai',
+      init: async () => undefined,
+      dispatch: async () => { throw new Error('runSync controls this test'); },
+      shutdown: async () => undefined,
+    };
+    const seen: Record<string, unknown> = {};
+    const server = buildMcpServer({
+      engine: new PerceptionEngine(4),
+      store: new SourceStore('/tmp/re-mcp-canonical-tools'),
+      push: async () => ({ success: true, timestamp: 1, globalStep: 0 }),
+      startAuto: () => undefined,
+      stopAuto: () => undefined,
+      getAutoState: () => ({ running: false, intervalMs: 1000 }),
+      getLastPush: () => null,
+      saveAndBroadcast: async () => undefined,
+      resetAndBroadcast: () => undefined,
+      realityEngineUrl: 'http://re.test',
+      ledger,
+      policy: { enforce: true, allow: new Set(['trigger.dispatch']) },
+      adapterPipeline: {
+        getAdapter: (kind) => (kind === 'openai' ? adapter : undefined) as any,
+        runSync: async (receivedAdapter, receivedEnvelope, receivedRecord) => {
+          seen['adapter'] = receivedAdapter;
+          seen['envelope'] = receivedEnvelope;
+          seen['record'] = receivedRecord;
+          return {
+            provider: 'openai',
+            adapter: 'openai',
+            status: 'sent',
+            latencyMs: 7,
+            externalRunId: 'resp_1',
+          };
+        },
+      },
+    });
+
+    const result = await tool(server, 'integrations.dispatch_provider').handler({ provider: 'openai', dispatch_id: 'd-1' });
+    const body = textJson(result) as any;
+
+    expect(result.isError).toBeUndefined();
+    expect(body.success).toBe(true);
+    expect(body.provider).toBe('openai');
+    expect(body.dispatchId).toBe('d-1');
+    expect(body.receipt.externalRunId).toBe('resp_1');
+    expect(seen['adapter']).toBe(adapter);
+    expect(seen['envelope']).toBe(envelope);
+    expect(seen['record']).toBe(record);
   });
 });

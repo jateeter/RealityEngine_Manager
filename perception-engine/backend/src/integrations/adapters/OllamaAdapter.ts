@@ -14,9 +14,8 @@
  *   5. Returns a {@link DispatchReceipt} so the pipeline can PATCH the
  *      ledger record with delivery metadata.
  *
- * Validation is intentionally permissive: missing extract pointers
- * coerce to `0` rather than failing the dispatch.  Phase 4 follow-ups
- * may add strict zod schemas per integration.
+ * Provider responses are validated before ingest so missing extract
+ * pointers fail the dispatch instead of silently committing zeros.
  */
 
 import axios from 'axios';
@@ -24,6 +23,7 @@ import type { AxiosInstance } from 'axios';
 
 import {
   applyExtract, applyNormalize,
+  evalJsonPointer,
   type ExtractSpec, type NormalizeSpec,
 } from '../extractors.js';
 import type { DispatchRecord } from '../../dispatch/types.js';
@@ -160,10 +160,12 @@ export class OllamaAdapter implements ProviderAdapter {
 
     // Apply extract + normalize so the post body always carries the
     // numeric vector the source mapping expects, even when the model
-    // emits string-typed numbers or omits a field.
+    // emits string-typed numbers.
     let values: number[];
     try {
-      values = applyNormalize(applyExtract(parsed, extract), normalize);
+      const extractDoc = normalizePassthroughPayload(parsed, extract);
+      validateParsedForExtract(extractDoc, extract);
+      values = applyNormalize(applyExtract(extractDoc, extract), normalize);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return {
@@ -267,4 +269,45 @@ function buildSchemaHint(spec: ExtractSpec, fields: string[]): unknown {
     expectedPointers: fields,
     note: 'Return one numeric / boolean leaf per pointer above.',
   };
+}
+
+function normalizePassthroughPayload(parsed: unknown, spec: ExtractSpec): unknown {
+  if (
+    spec.type === 'passthrough'
+    && parsed
+    && typeof parsed === 'object'
+    && !Array.isArray(parsed)
+    && Array.isArray((parsed as { values?: unknown }).values)
+  ) {
+    return (parsed as { values: unknown[] }).values;
+  }
+  return parsed;
+}
+
+function validateParsedForExtract(parsed: unknown, spec: ExtractSpec): void {
+  if (spec.type === 'passthrough') {
+    if (!Array.isArray(parsed)) throw new Error('passthrough response must be a JSON array or {values:number[]}');
+    for (const value of parsed) {
+      if (!isFiniteScalar(value)) throw new Error('passthrough response contains a non-finite value');
+    }
+    return;
+  }
+
+  const pointers = 'pointers' in spec ? spec.pointers : [spec.pointer];
+  for (const pointer of pointers) {
+    const value = evalJsonPointer(parsed, pointer);
+    if (value === undefined) throw new Error(`missing required JSON pointer: ${pointer}`);
+    if (Array.isArray(value)) {
+      if (!value.every(isFiniteScalar)) throw new Error(`JSON pointer ${pointer} contains a non-finite value`);
+    } else if (!isFiniteScalar(value)) {
+      throw new Error(`JSON pointer ${pointer} resolved to a non-finite value`);
+    }
+  }
+}
+
+function isFiniteScalar(value: unknown): boolean {
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (typeof value === 'boolean') return true;
+  if (typeof value === 'string') return value.trim() !== '' && Number.isFinite(Number(value));
+  return false;
 }

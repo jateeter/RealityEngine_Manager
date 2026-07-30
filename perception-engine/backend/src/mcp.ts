@@ -26,7 +26,9 @@ import type {
   SimulatedSourceConfig, SensorSourceConfig, TestSourceConfig,
 } from './types.js';
 import type { Dispatcher } from './triggers/Dispatcher.js';
+import type { DispatchRecord } from './dispatch/types.js';
 import type { Ledger } from './dispatch/Ledger.js';
+import type { DispatchReceipt, ProviderAdapter } from './integrations/adapters/types.js';
 import {
   checkPolicy, loadPolicyFromEnv, policyErrorResult,
   type PolicyConfig,
@@ -57,6 +59,15 @@ export interface McpDeps {
   dispatcher?: Dispatcher;
   /** Dispatch ledger — wires `dispatch.read_ledger` and feeds `trigger.replay`. */
   ledger?: Ledger;
+  /** Provider adapter pipeline — wires policy-gated MCP provider dispatch tools. */
+  adapterPipeline?: {
+    getAdapter: (kind: string) => ProviderAdapter | undefined;
+    runSync: (
+      adapter: ProviderAdapter,
+      envelope: DispatchRecord['envelope'],
+      record: DispatchRecord,
+    ) => Promise<DispatchReceipt>;
+  };
   /** Policy config; defaults to loadPolicyFromEnv(). */
   policy?: PolicyConfig;
 }
@@ -67,7 +78,7 @@ export function buildMcpServer(deps: McpDeps): McpServer {
   const {
     engine, store, push, startAuto, stopAuto,
     getAutoState, getLastPush, saveAndBroadcast, resetAndBroadcast,
-    realityEngineUrl, httpClient, dispatcher, ledger,
+    realityEngineUrl, httpClient, dispatcher, ledger, adapterPipeline,
   } = deps;
   const http = httpClient ?? axios;
   const policy = deps.policy ?? loadPolicyFromEnv();
@@ -104,6 +115,41 @@ export function buildMcpServer(deps: McpDeps): McpServer {
         isError: true,
       };
     }
+  }
+
+  async function dispatchProvider(kind: 'openai' | 'ollama', dispatchId: string) {
+    const decision = checkPolicy(policy, { mutates: true, capability: 'trigger.dispatch' });
+    if (!decision.ok) return policyErrorResult(decision);
+    if (!ledger || !adapterPipeline) {
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({ error: 'provider adapter pipeline not wired into this MCP server' }) }],
+        isError: true,
+      };
+    }
+    const record = ledger.get(dispatchId);
+    if (!record) {
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({ error: 'Dispatch record not found' }) }],
+        isError: true,
+      };
+    }
+    const adapter = adapterPipeline.getAdapter(kind);
+    if (!adapter) {
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({ error: `no ${kind} adapter registered` }) }],
+        isError: true,
+      };
+    }
+    const receipt = await adapterPipeline.runSync(adapter, record.envelope, record);
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify({
+        success: receipt.status !== 'failed',
+        provider: kind,
+        dispatchId,
+        receipt,
+      }, null, 2) }],
+      isError: receipt.status === 'failed' ? true : undefined,
+    };
   }
 
   // ── Resources ─────────────────────────────────────────────────────────
@@ -668,6 +714,37 @@ export function buildMcpServer(deps: McpDeps): McpServer {
         }, null, 2) }],
       };
     },
+  );
+
+  server.tool(
+    'integrations.dispatch_provider',
+    'Dispatch an existing ledger record through a registered provider adapter. ' +
+    'Policy capability: "trigger.dispatch".',
+    {
+      provider: z.enum(['openai', 'ollama']).describe('Registered provider adapter to invoke.'),
+      dispatch_id: z.string().describe('Dispatch record id from dispatch.read_ledger.'),
+    },
+    async ({ provider, dispatch_id }) => dispatchProvider(provider, dispatch_id),
+  );
+
+  server.tool(
+    'integrations.dispatch_openai',
+    'Dispatch an existing ledger record through the OpenAI adapter. ' +
+    'Policy capability: "trigger.dispatch".',
+    {
+      dispatch_id: z.string().describe('Dispatch record id from dispatch.read_ledger.'),
+    },
+    async ({ dispatch_id }) => dispatchProvider('openai', dispatch_id),
+  );
+
+  server.tool(
+    'integrations.dispatch_ollama',
+    'Dispatch an existing ledger record through the Ollama adapter. ' +
+    'Policy capability: "trigger.dispatch".',
+    {
+      dispatch_id: z.string().describe('Dispatch record id from dispatch.read_ledger.'),
+    },
+    async ({ dispatch_id }) => dispatchProvider('ollama', dispatch_id),
   );
 
   return server;
