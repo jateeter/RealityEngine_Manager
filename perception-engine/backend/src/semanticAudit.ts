@@ -22,6 +22,8 @@ export interface PerceptionEvent {
   machineIri: string | null;
   offset: number;
   length: number;
+  /** Upstream that produced the write: healthkit, mqtt, acp, openai, … */
+  integration: string;
 }
 
 export interface DispatchSemantics {
@@ -33,6 +35,49 @@ export interface DispatchSemantics {
 export const SEMANTIC_AUDIT_CAPACITY = 1000;
 
 const buffer: PerceptionEvent[] = [];
+
+/**
+ * Cumulative guardrail counters.
+ *
+ * The ring buffer above is a bounded window for the audit API; these counters
+ * are monotonic for the process lifetime so Prometheus can rate() them. They
+ * are incremented where records are created, not where they are read, so a
+ * buffer eviction never loses a count.
+ */
+interface IntegrationCounters {
+  events: number;
+  /** Events whose machine resolved to a corpus ABox IRI. */
+  joined: number;
+}
+
+const eventCounters = new Map<string, IntegrationCounters>();
+const dispatchCounters = { total: 0, joined: 0 };
+/** Escalation dispatches keyed by RAG status ('RED', 'AMBER', 'GREEN', 'unstated'). */
+const escalationCounters = new Map<string, number>();
+
+/** Action codes that page a human or dispatch emergency response. */
+const ESCALATION_ACTIONS = new Set(['emergency-dispatch', 'urgent-intervention']);
+
+export interface SemanticAuditMetrics {
+  bufferRecords: number;
+  byIntegration: Array<{ integration: string; events: number; joined: number }>;
+  dispatch: { total: number; joined: number };
+  escalations: Array<{ rag: string; count: number }>;
+}
+
+/** Snapshot for the Prometheus exposition in /api/metrics. */
+export function semanticAuditMetrics(): SemanticAuditMetrics {
+  return {
+    bufferRecords: buffer.length,
+    byIntegration: [...eventCounters.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([integration, c]) => ({ integration, events: c.events, joined: c.joined })),
+    dispatch: { ...dispatchCounters },
+    escalations: [...escalationCounters.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([rag, count]) => ({ rag, count })),
+  };
+}
 
 /** Local names follow scripts/generate-owl.py sanitize(): [^A-Za-z0-9_-] -> _ */
 function sanitizeLocal(local: string): string {
@@ -49,13 +94,20 @@ function baseIriFor(machineName: string | null | undefined): string | null {
   return hash === -1 ? identity.semanticsIri : identity.semanticsIri.slice(0, hash);
 }
 
-/** Record a PE write into a machine's input region. */
+/**
+ * Record a PE write into a machine's input region.
+ *
+ * `integration` attributes the write to the upstream that produced it
+ * (healthkit, mqtt, openclaw/acp, openai, ollama, …) so the guardrail
+ * dashboard can show corpus-join health per integration.
+ */
 export function recordPerceptionEvent(args: {
   sourceId: string;
   machineName?: string | null;
   offset: number;
   length: number;
   at?: number;
+  integration?: string | null;
 }): PerceptionEvent {
   const base = baseIriFor(args.machineName);
   const event: PerceptionEvent = {
@@ -66,9 +118,17 @@ export function recordPerceptionEvent(args: {
     machineIri: base ? `${base}#machine` : null,
     offset: args.offset,
     length: args.length,
+    integration: args.integration ?? 'unattributed',
   };
   buffer.push(event);
   while (buffer.length > SEMANTIC_AUDIT_CAPACITY) buffer.shift();
+
+  const key = event.integration;
+  const counters = eventCounters.get(key) ?? { events: 0, joined: 0 };
+  counters.events += 1;
+  if (event.machineIri) counters.joined += 1;
+  eventCounters.set(key, counters);
+
   return event;
 }
 
@@ -84,6 +144,10 @@ export function semanticAuditSize(): number {
 
 export function clearSemanticAudit(): void {
   buffer.length = 0;
+  eventCounters.clear();
+  dispatchCounters.total = 0;
+  dispatchCounters.joined = 0;
+  escalationCounters.clear();
 }
 
 /**
@@ -94,11 +158,26 @@ export function dispatchSemantics(args: {
   machineName?: string | null;
   sequenceId?: string | null;
   actionCode?: string | null;
+  ragStatusCode?: string | null;
 }): DispatchSemantics {
   const base = baseIriFor(args.machineName);
-  return {
+  const semantics: DispatchSemantics = {
     machineIri: base ? `${base}#machine` : null,
     sequenceIri: base && args.sequenceId ? `${base}#seq-${sanitizeLocal(args.sequenceId)}` : null,
     actionCode: args.actionCode ?? null,
   };
+
+  dispatchCounters.total += 1;
+  if (semantics.machineIri) dispatchCounters.joined += 1;
+  // Escalation guardrail: re:EscalationDetermination requires RED. The axiom
+  // is open-world, so an unstated status is consistent and counted separately
+  // from an explicit non-RED, which is a genuine violation.
+  if (args.actionCode && ESCALATION_ACTIONS.has(args.actionCode)) {
+    const rag = args.ragStatusCode && args.ragStatusCode.length > 0
+      ? args.ragStatusCode
+      : 'unstated';
+    escalationCounters.set(rag, (escalationCounters.get(rag) ?? 0) + 1);
+  }
+
+  return semantics;
 }

@@ -14,6 +14,7 @@ import {
   recentPerceptionEvents,
   recordPerceptionEvent,
   SEMANTIC_AUDIT_CAPACITY,
+  semanticAuditMetrics,
   semanticAuditSize,
 } from '../semanticAudit.js';
 
@@ -59,6 +60,7 @@ describe('semanticAudit', () => {
       offset: 3813,
       length: 2,
       at: 1690000000000,
+      integration: 'healthkit',
     });
     expect(event).toEqual({
       type: 're:PerceptionEvent',
@@ -68,6 +70,7 @@ describe('semanticAudit', () => {
       machineIri: `${BASE}#machine`,
       offset: 3813,
       length: 2,
+      integration: 'healthkit',
     });
     expect(recentPerceptionEvents(10)).toHaveLength(1);
   });
@@ -112,6 +115,53 @@ describe('semanticAudit', () => {
       machineIri: null,
       sequenceIri: null,
       actionCode: null,
+    });
+  });
+
+  describe('guardrail metrics', () => {
+    it('counts perception events and corpus joins per integration', () => {
+      recordPerceptionEvent({ sourceId: 'h1', machineName: 'Fall Detection', offset: 0, length: 2, integration: 'healthkit' });
+      recordPerceptionEvent({ sourceId: 'h2', machineName: 'Unknown Machine', offset: 0, length: 2, integration: 'healthkit' });
+      recordPerceptionEvent({ sourceId: 'm1', machineName: 'Fall Detection', offset: 0, length: 2, integration: 'mqtt' });
+      recordPerceptionEvent({ sourceId: 'x1', offset: 0, length: 1 });
+
+      const { byIntegration, bufferRecords } = semanticAuditMetrics();
+      expect(bufferRecords).toBe(4);
+      expect(byIntegration).toEqual([
+        { integration: 'healthkit', events: 2, joined: 1 },
+        { integration: 'mqtt', events: 1, joined: 1 },
+        { integration: 'unattributed', events: 1, joined: 0 },
+      ]);
+    });
+
+    it('counts escalation dispatches by RAG status', () => {
+      dispatchSemantics({ machineName: 'Fall Detection', sequenceId: 'fall-confirmed', actionCode: 'emergency-dispatch', ragStatusCode: 'RED' });
+      dispatchSemantics({ machineName: 'Fall Detection', sequenceId: 'x', actionCode: 'urgent-intervention' });
+      // An explicit non-RED escalation contradicts re:EscalationDetermination.
+      dispatchSemantics({ machineName: 'Fall Detection', sequenceId: 'y', actionCode: 'emergency-dispatch', ragStatusCode: 'AMBER' });
+      // Non-escalation actions are never counted as escalations.
+      dispatchSemantics({ machineName: 'Fall Detection', sequenceId: 'z', actionCode: 'continue-monitoring', ragStatusCode: 'GREEN' });
+
+      const { dispatch, escalations } = semanticAuditMetrics();
+      expect(dispatch).toEqual({ total: 4, joined: 4 });
+      expect(escalations).toEqual([
+        { rag: 'AMBER', count: 1 },
+        { rag: 'RED', count: 1 },
+        { rag: 'unstated', count: 1 },
+      ]);
+    });
+
+    it('keeps counters monotonic when the ring buffer evicts', () => {
+      for (let i = 0; i < SEMANTIC_AUDIT_CAPACITY + 10; i += 1) {
+        recordPerceptionEvent({ sourceId: `s${i}`, offset: 0, length: 1, integration: 'mqtt' });
+      }
+      const { bufferRecords, byIntegration } = semanticAuditMetrics();
+      expect(bufferRecords).toBe(SEMANTIC_AUDIT_CAPACITY);
+      expect(byIntegration[0]).toEqual({
+        integration: 'mqtt',
+        events: SEMANTIC_AUDIT_CAPACITY + 10,
+        joined: 0,
+      });
     });
   });
 });
