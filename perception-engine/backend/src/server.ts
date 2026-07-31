@@ -24,8 +24,8 @@ import type { CompletionRequest, ResolvedSignal } from './integrations/SourceMap
 import { Dispatcher } from './triggers/Dispatcher.js';
 import type { MachineRecord } from './triggers/types.js';
 import { Ledger } from './dispatch/Ledger.js';
-import { allSemanticIdentities, semanticIdentityFor } from './semanticsManifest.js';
-import { recentPerceptionEvents, recordPerceptionEvent } from './semanticAudit.js';
+import { allSemanticIdentities, resolveManifestPath, semanticIdentityFor } from './semanticsManifest.js';
+import { recentPerceptionEvents, recordPerceptionEvent, semanticAuditMetrics } from './semanticAudit.js';
 import type { DispatchRecordPatch } from './dispatch/types.js';
 import { AdapterPipeline } from './integrations/AdapterPipeline.js';
 import { AcpAdapter, acpConfigFromRegistry } from './integrations/adapters/AcpAdapter.js';
@@ -518,6 +518,9 @@ async function doPush(): Promise<PushResult> {
         offset: src.region.offset,
         length: src.region.length,
         at: lastPush,
+        // `origin` is set by the ingesting integration (healthkit, mqtt, …);
+        // fall back to the source type so every event is attributable.
+        integration: src.origin ?? src.type,
       });
     }
 
@@ -910,6 +913,41 @@ app.get('/api/metrics', (_req: Request, res: Response) => {
   // runtime (the RE-side counter under the same name lives at
   // /api/metrics on the RE).
   metric('ces_paging_decisions_total', 'Total CES paging decisions emitted (cumulative).', 'counter', 0);
+
+  // ── Semantic guardrails (RealityEngine_Machines SEMANTIC_AUDIT_CONTRACT.md)
+  // Corpus-join health per integration plus the escalation guardrail, so the
+  // Grafana dashboard can answer "is every write and dispatch traceable to a
+  // corpus ABox, and did any escalation fire from a non-RED determination?"
+  const manifestPath = resolveManifestPath();
+  const manifestMachines = allSemanticIdentities().length;
+  metric('semantic_manifest_available', 'Corpus OWL semantics manifest resolved (1/0).', 'gauge',
+    manifestPath ? 1 : 0);
+  metric('semantic_manifest_machines', 'Machines carrying a semantic identity in the manifest.', 'gauge',
+    manifestMachines);
+
+  const audit = semanticAuditMetrics();
+  metric('semantic_audit_buffer_records', 're:PerceptionEvent records held in the audit ring buffer.',
+    'gauge', audit.bufferRecords);
+  for (const row of audit.byIntegration) {
+    metric('semantic_perception_events_total',
+      're:PerceptionEvent records emitted, by originating integration.',
+      'counter', row.events, { integration: row.integration });
+    metric('semantic_perception_events_iri_joined_total',
+      'Perception events whose machine resolved to a corpus ABox IRI.',
+      'counter', row.joined, { integration: row.integration });
+  }
+  metric('semantic_dispatch_records_total', 'Dispatch records created with a semantics link.',
+    'counter', audit.dispatch.total);
+  metric('semantic_dispatch_records_iri_joined_total',
+    'Dispatch records whose machine resolved to a corpus ABox IRI.',
+    'counter', audit.dispatch.joined);
+  for (const row of audit.escalations) {
+    // rag="RED" is the expected path; "unstated" is open-world consistent but
+    // worth watching; anything else contradicts re:EscalationDetermination.
+    metric('semantic_escalation_dispatches_total',
+      'Escalation-class actions dispatched, by RAG status of the determination.',
+      'counter', row.count, { rag: row.rag });
+  }
 
   res.type('text/plain').send(lines.join('\n') + '\n');
 });

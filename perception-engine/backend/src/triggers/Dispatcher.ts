@@ -317,6 +317,7 @@ export class Dispatcher {
         machineName: envelope.ces.machineName,
         sequenceId: envelope.ces.sequenceId,
         actionCode: typeof op.action === 'string' ? op.action : null,
+        ragStatusCode: typeof governance.ragStatusCode === 'string' ? governance.ragStatusCode : null,
       }),
     };
   }
