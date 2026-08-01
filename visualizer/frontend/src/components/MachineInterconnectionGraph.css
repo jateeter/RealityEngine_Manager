@@ -29,6 +29,10 @@
   transition: opacity 0.2s ease, stroke 0.2s ease;
 }
 
+.machine-interconnection-graph .pe-source-edge-pulse {
+  animation: pe-source-edge-pulse 1.6s ease-out;
+}
+
 .machine-interconnection-graph .link-label {
   pointer-events: none;
   user-select: none;
@@ -266,6 +270,21 @@
 
 .machine-interconnection-graph .link-path.active {
   animation: pulse-link 2s ease-in-out infinite;
+}
+
+@keyframes pe-source-edge-pulse {
+  0% {
+    opacity: 0.7;
+    stroke-width: 1.6;
+  }
+  35% {
+    opacity: 1;
+    stroke-width: 4;
+  }
+  100% {
+    opacity: 0.7;
+    stroke-width: 1.6;
+  }
 }
 
 /* Tooltip styling — anchored to the graph viewport (not the mouse) so the

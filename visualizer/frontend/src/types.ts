@@ -196,6 +196,8 @@ export interface PESensorSource {
   sensorId: string;
   lastValue: number[];
   lastUpdated: number | null;
+  lastWriteAt?: number | null;
+  writeCount?: number;
   ttlMs: number;
   // Derived freshness — set by /api/sources at the PE backend.  ageMs is
   // (now - lastUpdated) in milliseconds; stale = ageMs > ttlMs.  Lets the
