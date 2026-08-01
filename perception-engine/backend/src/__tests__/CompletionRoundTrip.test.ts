@@ -285,6 +285,21 @@ describe('resolveCompletion → PerceptionEngine → vector delta', () => {
 
     const updated = engine.updateSensorValue(signal.sensorId, signal.values);
     expect(updated).toBe(true);
+    const sourceAfterFirstWrite = engine.getSources().find(s => s.type === 'sensor' && s.sensorId === signal.sensorId);
+    expect(sourceAfterFirstWrite?.type).toBe('sensor');
+    if (sourceAfterFirstWrite?.type === 'sensor') {
+      expect(sourceAfterFirstWrite.writeCount).toBe(1);
+      expect(typeof sourceAfterFirstWrite.lastWriteAt).toBe('number');
+      expect(sourceAfterFirstWrite.lastWriteAt).toBe(sourceAfterFirstWrite.lastUpdated);
+    }
+
+    engine.updateSensorValue(signal.sensorId, [0, 1, 0.25, 1]);
+    const sourceAfterSecondWrite = engine.getSources().find(s => s.type === 'sensor' && s.sensorId === signal.sensorId);
+    expect(sourceAfterSecondWrite?.type).toBe('sensor');
+    if (sourceAfterSecondWrite?.type === 'sensor') {
+      expect(sourceAfterSecondWrite.writeCount).toBe(2);
+    }
+    engine.updateSensorValue(signal.sensorId, signal.values);
 
     const after = engine.assembleVector().slice(REGION.offset, REGION.offset + REGION.length);
     // Clamped to [0,1] per PerceptionEngine.assembleVector() semantics.

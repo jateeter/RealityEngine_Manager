@@ -368,6 +368,7 @@ function ingestMqttSignal(payload: IngestPayload): void {
     // declared region + TTL.  This keeps MQTT-driven workflows running
     // without requiring operators to pre-declare every sensor via POST
     // /api/sources first.
+    const now = Date.now();
     const newSource: Omit<SensorSourceConfig, 'id'> = {
       type: 'sensor',
       name: `mqtt:${payload.topic}`,
@@ -376,7 +377,9 @@ function ingestMqttSignal(payload: IngestPayload): void {
       origin: 'mqtt',
       sensorId: payload.sensorId,
       lastValue: payload.values.slice(),
-      lastUpdated: Date.now(),
+      lastUpdated: now,
+      lastWriteAt: now,
+      writeCount: 1,
       ttlMs: payload.ttlMs > 0 ? payload.ttlMs : 30000,
     };
     engine.addSource(newSource);
@@ -1098,6 +1101,7 @@ async function ingestSignal(body: SignalIngestBody): Promise<SignalIngestResult>
       source = findSensorSourceBySensorId(sensorId);
     } else if (regionValid) {
       // Auto-provision a new sensor source — matches C++ fall-through path.
+      const now = Date.now();
       const newSource: Omit<SensorSourceConfig, 'id'> = {
         type: 'sensor',
         name: typeof body.name === 'string' && body.name !== '' ? body.name : sensorId,
@@ -1106,7 +1110,9 @@ async function ingestSignal(body: SignalIngestBody): Promise<SignalIngestResult>
         active: body.active !== false,
         origin: body.origin ?? 'signal',
         lastValue: values,
-        lastUpdated: Date.now(),
+        lastUpdated: now,
+        lastWriteAt: now,
+        writeCount: 1,
         ttlMs: typeof body.ttlMs === 'number' ? body.ttlMs : 30_000,
       };
       source = engine.addSource(newSource);
@@ -1117,6 +1123,7 @@ async function ingestSignal(body: SignalIngestBody): Promise<SignalIngestResult>
     const sensorId = typeof body.name === 'string' && body.name !== ''
       ? body.name
       : makeExternalSensorId();
+    const now = Date.now();
     const newSource: Omit<SensorSourceConfig, 'id'> = {
       type: 'sensor',
       name: typeof body.name === 'string' && body.name !== '' ? body.name : 'external/signal',
@@ -1125,7 +1132,9 @@ async function ingestSignal(body: SignalIngestBody): Promise<SignalIngestResult>
       active: true,
       origin: body.origin ?? 'signal',
       lastValue: values,
-      lastUpdated: Date.now(),
+      lastUpdated: now,
+      lastWriteAt: now,
+      writeCount: 1,
       ttlMs: typeof body.ttlMs === 'number' ? body.ttlMs : 30_000,
     };
     source = engine.addSource(newSource);
@@ -1953,7 +1962,13 @@ function decorateSources(sources: SourceConfig[]): Array<SourceConfig & { ageMs?
     const sensor = s as SensorSourceConfig;
     const age   = sensor.lastUpdated ? now - sensor.lastUpdated : 0;
     const stale = !!sensor.lastUpdated && sensor.ttlMs > 0 && age > sensor.ttlMs;
-    return { ...sensor, ageMs: age, stale };
+    return {
+      ...sensor,
+      lastWriteAt: sensor.lastWriteAt ?? sensor.lastUpdated,
+      writeCount: sensor.writeCount ?? (sensor.lastUpdated ? 1 : 0),
+      ageMs: age,
+      stale,
+    };
   });
 }
 

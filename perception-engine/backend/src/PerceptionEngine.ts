@@ -133,10 +133,13 @@ export class PerceptionEngine {
   updateSensorValue(sensorId: string, values: number[]): boolean {
     for (const [, src] of this.sources) {
       if (src.type === 'sensor' && src.sensorId === sensorId) {
+        const now = Date.now();
         const updated: SensorSourceConfig = {
           ...src,
           lastValue: values.slice(0, src.region.length),
-          lastUpdated: Date.now(),
+          lastUpdated: now,
+          lastWriteAt: now,
+          writeCount: (src.writeCount ?? 0) + 1,
         };
         this.sources.set(src.id, updated);
         return true;

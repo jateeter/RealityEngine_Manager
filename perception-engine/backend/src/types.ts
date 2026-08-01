@@ -70,6 +70,10 @@ export interface SensorSourceConfig {
   sensorId: string;
   lastValue: number[];
   lastUpdated: number | null;
+  /** Alias for the most recent external write timestamp, exposed for graph liveness. */
+  lastWriteAt?: number | null;
+  /** Monotonic in-memory write counter for source-edge pulse detection. */
+  writeCount?: number;
   ttlMs: number;
 }
 

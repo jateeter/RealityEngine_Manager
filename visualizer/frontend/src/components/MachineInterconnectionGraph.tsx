@@ -116,10 +116,15 @@ const isCardNode = (d: { role?: NodeRole | 'openclaw-portal' | 'pe-source' }) =>
 
 // Minimal slice of a PE source needed to draw feed-forward arcs.
 interface PESourceLite {
+  id?: string;
+  sensorId?: string;
   type: string;
   active: boolean;
   origin?: string;
   region?: { offset: number; length: number };
+  lastUpdated?: number | null;
+  lastWriteAt?: number | null;
+  writeCount?: number;
 }
 
 // Raw per-step payload from the engine. Only the fields the tooltip needs are
@@ -232,6 +237,9 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
 
   // PE sources — feed-forward provenance arcs (Manager#27).
   const [peSources, setPeSources] = useState<PESourceLite[]>([]);
+  const sourceWriteVersionsRef = useRef<Map<string, string>>(new Map());
+  const pulseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [pulsingPeOrigins, setPulsingPeOrigins] = useState<Set<string>>(() => new Set());
   const [showPeSources, setShowPeSources] = useState(true);
   useEffect(() => {
     let cancelled = false;
@@ -242,9 +250,37 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
         const j = await r.json();
         if (cancelled) return;
         const raw: PESourceLite[] = Array.isArray(j.sources) ? j.sources : [];
-        // Keep only arc-relevant fields and preserve array identity when the
-        // topology hasn't changed, so the 20s poll never restarts the d3
-        // simulation for a no-op (lastValue churn etc. is irrelevant here).
+        const nextVersions = new Map<string, string>();
+        const changedOrigins = new Set<string>();
+        for (const src of raw) {
+          if (src.type !== 'sensor' || !src.active || !src.region) continue;
+          const origin = src.origin ?? 'sensor';
+          const key = src.id ?? src.sensorId ?? `${origin}:${src.region.offset}:${src.region.length}`;
+          const writeStamp = src.writeCount !== undefined
+            ? `count:${src.writeCount}`
+            : src.lastWriteAt !== undefined && src.lastWriteAt !== null
+              ? `at:${src.lastWriteAt}`
+              : src.lastUpdated !== undefined && src.lastUpdated !== null
+                ? `updated:${src.lastUpdated}`
+                : '';
+          if (!writeStamp) continue;
+          const prev = sourceWriteVersionsRef.current.get(key);
+          if (prev && prev !== writeStamp) changedOrigins.add(origin);
+          nextVersions.set(key, writeStamp);
+        }
+        sourceWriteVersionsRef.current = nextVersions;
+        if (changedOrigins.size > 0) {
+          setPulsingPeOrigins(prev => new Set([...prev, ...changedOrigins]));
+          if (pulseTimerRef.current) clearTimeout(pulseTimerRef.current);
+          pulseTimerRef.current = setTimeout(() => {
+            setPulsingPeOrigins(new Set());
+            pulseTimerRef.current = null;
+          }, 1_600);
+        }
+
+        // Keep only arc-relevant topology fields and preserve array identity
+        // when the topology hasn't changed, so liveness polls do not restart
+        // the d3 simulation for a no-op.
         const next = raw.map(src => ({
           type: src.type, active: src.active, origin: src.origin, region: src.region,
         }));
@@ -253,8 +289,12 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
       } catch { /* PE unreachable — keep last known sources */ }
     };
     load();
-    const t = setInterval(load, 20_000);
-    return () => { cancelled = true; clearInterval(t); };
+    const t = setInterval(load, 2_000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+      if (pulseTimerRef.current) clearTimeout(pulseTimerRef.current);
+    };
   }, []);
   const peSensorSources = useMemo(
     () => peSources.filter(s => s.type === 'sensor' && s.active && s.region),
@@ -700,7 +740,10 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
     };
 
     const linkPath = link.append('path')
-      .attr('class', (d: MachineLink) => d.isPeSourceEdge ? 'link-path pe-source-edge' : 'link-path')
+      .attr('class', (d: MachineLink) =>
+        d.isPeSourceEdge
+          ? `link-path pe-source-edge${pulsingPeOrigins.has(d.peOrigin ?? 'sensor') ? ' pe-source-edge-pulse' : ''}`
+          : 'link-path')
       .attr('fill', 'none')
       .attr('stroke', (d: MachineLink) => {
         if (d.isPeSourceEdge) return peSourceColor(d.peOrigin ?? 'sensor');
@@ -1108,7 +1151,7 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
     };
   // Per-step status updates are applied in-place by the effect below.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [machines, currentMachineId, dimensions, classifications, enabledDomains, peSensorSources, showPeSources]);
+  }, [machines, currentMachineId, dimensions, classifications, enabledDomains, peSensorSources, showPeSources, pulsingPeOrigins]);
 
   // ── Lightweight per-step recolor — never rebuilds the simulation ──────────
   useEffect(() => {

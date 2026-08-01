@@ -322,7 +322,8 @@ export function buildMcpServer(deps: McpDeps): McpServer {
       const source = engine.addSource({
         type: 'sensor', name, active: active ?? true,
         region: { offset: region_offset, length: region_length },
-        sensorId: sensor_id, lastValue: [], lastUpdated: null, ttlMs: ttl_ms,
+        sensorId: sensor_id, lastValue: [], lastUpdated: null,
+        lastWriteAt: null, writeCount: 0, ttlMs: ttl_ms,
       } as Omit<SensorSourceConfig, 'id'>);
       await saveAndBroadcast();
       return { content: [{ type: 'text' as const, text: JSON.stringify(source, null, 2) }] };

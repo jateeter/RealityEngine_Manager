@@ -13,7 +13,7 @@ interface PersistedData {
  * (write to .tmp then rename) to prevent corruption on crash.
  *
  * Sensor sources are stripped of their live data fields (lastValue,
- * lastUpdated) before saving — those are runtime state and would be
+ * lastUpdated, lastWriteAt, writeCount) before saving — those are runtime state and would be
  * stale on reload anyway.
  */
 export class SourceStore {
@@ -37,7 +37,7 @@ export class SourceStore {
       // Reset live sensor fields so stale data doesn't appear on restart
       return sources.map(src => {
         if (src.type === 'sensor') {
-          return { ...src, lastValue: [], lastUpdated: null };
+          return { ...src, lastValue: [], lastUpdated: null, lastWriteAt: null, writeCount: 0 };
         }
         return src;
       });
@@ -51,7 +51,7 @@ export class SourceStore {
     // Strip transient sensor runtime data before persisting
     const sanitized: SourceConfig[] = sources.map(src => {
       if (src.type === 'sensor') {
-        return { ...src, lastValue: [], lastUpdated: null };
+        return { ...src, lastValue: [], lastUpdated: null, lastWriteAt: null, writeCount: 0 };
       }
       return src;
     });
