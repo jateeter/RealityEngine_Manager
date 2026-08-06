@@ -124,8 +124,18 @@ export class PerceptionEngine {
     return this.sources.get(id);
   }
 
+  /**
+   * Sources in canonical order: (name, id).
+   *
+   * A Map iterates in insertion order, which is deterministic within one
+   * process but has nothing to do with the order the other runtimes produce —
+   * C++ listed by id, Scala and LSP by hash order. Four engines, four
+   * orderings, on an endpoint under byte comparison.
+   */
   getSources(): SourceConfig[] {
-    return Array.from(this.sources.values());
+    return Array.from(this.sources.values()).sort((a, b) =>
+      a.name === b.name ? (a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : a.name < b.name ? -1 : 1,
+    );
   }
 
   // ── Sensor push ───────────────────────────────────────────────────────────
