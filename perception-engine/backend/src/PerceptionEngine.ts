@@ -177,6 +177,21 @@ export class PerceptionEngine {
       // Single pre-computed bound — eliminates double comparison per loop iteration.
       const len = Math.min(length, values.length);
 
+      // Out-of-range writes on a Float64Array are silently discarded, so a
+      // region past the end would vanish with no signal at all.  Growth should
+      // make this unreachable; if it is reached, name the machine that lost its
+      // input rather than dropping it quietly.
+      if (offset < 0 || offset + len > this._vectorSize) {
+        // machineId is only present on machine-derived sources, not on
+        // SimulatedSourceConfig — narrow rather than assume.
+        const machineId = 'machineId' in src ? src.machineId : '';
+        console.warn(
+          `[PerceptionEngine] source '${src.name}' region [${offset},${offset + len}) ` +
+            `exceeds perceptionDimension ${this._vectorSize} — region not written ` +
+            `(machineId=${machineId}, sourceId=${id})`,
+        );
+      }
+
       for (let i = 0; i < len; i++) {
         this.outBuf[offset + i] = Math.max(0, Math.min(1, values[i]));
       }
@@ -192,6 +207,13 @@ export class PerceptionEngine {
    * the next assembleVector() call.
    */
   updateFromPerceptualSpace(ps: number[]): void {
+    // The RE grows its perceptual space to fit every loaded machine's mapping,
+    // so it may return a vector longer than ours — adopt that length instead of
+    // truncating to the current one.  Source-driven growth alone does not cover
+    // this: the RE also grows for output-only regions, and for machines loaded
+    // after the PE's sources were built.
+    this.ensureCapacity(ps.length);
+
     for (let i = 0; i < this.vectorSize; i++) {
       this.persistentVector[i] = ps[i] ?? 0;
     }
