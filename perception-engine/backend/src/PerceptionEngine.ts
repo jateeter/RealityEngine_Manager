@@ -312,7 +312,7 @@ export class PerceptionEngine {
       auto,
       lastPush,
       matchAlgorithm: this.matchAlgorithm,
-      vectorSize: this.vectorSize,
+      perceptionDimension: this.vectorSize,
     };
   }
 
