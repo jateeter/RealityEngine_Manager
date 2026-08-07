@@ -50,7 +50,7 @@ describe('Manager MCP canonical tools', () => {
 
     expect(textJson(reState)).toEqual({ service: 're', url: 'http://re.test/api/state' });
     expect(getCalls).toEqual(['http://re.test/api/state']);
-    expect((textJson(peState) as any).vectorSize).toBe(4);
+    expect((textJson(peState) as any).perceptionDimension).toBe(4);
   });
 
   it('maps re.read_machine to RE /api/machines/{id}', async () => {

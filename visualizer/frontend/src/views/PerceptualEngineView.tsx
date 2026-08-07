@@ -817,7 +817,7 @@ export const PerceptualEngineView: React.FC = () => {
           <span style={{ color: '#334155', margin: '0 8px' }}>·</span>
           {state?.sources.filter(s => s.active).length ?? 0}/{state?.sources.length ?? 0} active
           <span style={{ color: '#334155', margin: '0 8px' }}>·</span>
-          dim {state?.vectorSize ?? '–'}
+          dim {state?.perceptionDimension ?? '–'}
         </div>
 
         {/* Match algorithm */}
@@ -957,7 +957,7 @@ export const PerceptualEngineView: React.FC = () => {
 
       {showAddModal && (
         <AddSourceModal
-          vectorSize={state?.vectorSize ?? 256}
+          vectorSize={state?.perceptionDimension ?? 256}
           onAdd={handleAddSource}
           onClose={() => setShowAddModal(false)}
         />

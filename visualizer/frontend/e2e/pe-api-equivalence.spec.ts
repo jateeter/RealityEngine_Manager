@@ -66,11 +66,14 @@ const ENGINES = [
  * PEFullState — expected shape after bootstrap (sources non-empty).
  * Field names and nesting must match the frontend's TypeScript type exactly.
  *
+ * The perceptual dimension is named "perceptionDimension" in every runtime.
+ * It previously had three different names for the same value — CPP and the
+ * TypeScript PE said "vectorSize", LSP said "dimension", Scala said
+ * "perceptionDimension" — which made GET /api/state impossible to compare
+ * byte-for-byte even once the values agreed (RealityEngine_CI#91).
+ *
  * Divergences currently known:
- *   LSP   emits "dimension"  instead of "vectorSize"
- *   CPP   emits "vectorSize" ✓ but also emits extra source fields
- *                              "metadata" and "sequence"
- *   Scala emits neither "dimension" nor "vectorSize"
+ *   CPP   emits extra source fields "metadata" and "sequence"
  */
 const CANONICAL_PE_STATE: Schema = {
   assembledVector: ['number'],
@@ -90,7 +93,7 @@ const CANONICAL_PE_STATE: Schema = {
     sequenceName: 'string',
     type: 'string',
   }],
-  vectorSize: 'number',
+  perceptionDimension: 'number',
 };
 
 /**

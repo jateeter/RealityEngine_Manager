@@ -355,7 +355,7 @@ export interface PEFullState {
   auto: { running: boolean; intervalMs: number };
   lastPush: number | null;
   matchAlgorithm: PEMatchAlgorithm;
-  vectorSize: number;
+  perceptionDimension: number;
 }
 
 export interface PEPushResult {
