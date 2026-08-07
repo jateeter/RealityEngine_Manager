@@ -88,8 +88,10 @@ export interface BootstrapResult {
     outsideFilter:  number;
   };
   // The PE's configured vector size — surfaced so the UI can hint at the
-  // VECTOR_SIZE env var when outOfRange dominates.
-  perceptionDimension?: number;
+  // VECTOR_SIZE env var when outOfRange dominates.  Still `vectorSize` here:
+  // this is the bootstrap-from-machines response, a different payload from
+  // the engine state, and the backend has not renamed it.
+  vectorSize?: number;
 }
 
 export async function bootstrapFromMachines(
