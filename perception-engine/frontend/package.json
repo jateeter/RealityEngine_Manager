@@ -1,7 +1,7 @@
 {
   "name": "reality-engine-perception-frontend",
   "version": "1.0.0",
-  "description": "Perception Engine frontend — manage reality sources and monitor push activity",
+  "description": "Perception Engine frontend \u2014 manage reality sources and monitor push activity",
   "private": true,
   "type": "module",
   "engines": {
@@ -24,6 +24,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
   }
 }
