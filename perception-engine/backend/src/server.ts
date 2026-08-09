@@ -125,6 +125,18 @@ const EXAMPLE_CK_REGISTRY_JSON = {
   ],
 };
 
+/**
+ * Canonical default Ollama model, shared by every runtime — C++, LSP, Scala
+ * and this one — so a multi-engine universe answers from a single model
+ * unless an operator overrides it per engine with OLLAMA_MODEL.
+ *
+ * Recorded in RealityEngine_CI/docs/INTEGRATION_ARCHITECTURE.md. The runtimes
+ * previously disagreed (gpt-oss:20b here and there, llama3.2 on Scala, empty
+ * on this one), which made any cross-runtime comparison of provider output
+ * meaningless before it started.
+ */
+const DEFAULT_OLLAMA_MODEL = 'llama3.1:8b';
+
 const PORT = parseInt(process.env['PORT'] ?? '3004', 10);
 const HOST = process.env['HOST'] ?? '';
 const REALITY_ENGINE_URL = process.env['REALITY_ENGINE_URL'] ?? 'http://localhost:5001';
@@ -1599,10 +1611,22 @@ app.get('/api/integrations/ollama/status', async (_req: Request, res: Response) 
     ? (integrationRegistry.config.integrations as Array<Record<string, unknown>>)
     : [];
   const entry = integrations.find((i) => i['kind'] === 'ollama');
-  const baseUrl = (typeof entry?.['baseUrl'] === 'string' ? entry['baseUrl']
-    : process.env['OLLAMA_BASE_URL'] ?? 'http://localhost:11434').replace(/\/$/, '');
-  const model = typeof entry?.['model'] === 'string' ? entry['model']
-    : process.env['OLLAMA_MODEL'] ?? '';
+  // Precedence: an explicit environment variable outranks the integration
+  // registry, which supplies defaults. This read the registry first, so
+  // OLLAMA_MODEL and OLLAMA_BASE_URL were discarded whenever the registry
+  // named a value — the same inversion fixed in RealityEngine_LSP#44. It also
+  // left the model empty when neither was set.
+  //
+  // DEFAULT_OLLAMA_MODEL is the canonical default shared by every runtime, so
+  // a multi-engine universe answers from one model unless an operator
+  // overrides it per engine. See
+  // RealityEngine_CI/docs/INTEGRATION_ARCHITECTURE.md.
+  const baseUrl = (process.env['OLLAMA_BASE_URL']
+    ?? (typeof entry?.['baseUrl'] === 'string' ? entry['baseUrl'] : undefined)
+    ?? 'http://localhost:11434').replace(/\/$/, '');
+  const model = process.env['OLLAMA_MODEL']
+    ?? (typeof entry?.['model'] === 'string' ? entry['model'] : undefined)
+    ?? DEFAULT_OLLAMA_MODEL;
   const completionSourceMappingId = typeof entry?.['completionSourceMappingId'] === 'string'
     ? entry['completionSourceMappingId']
     : process.env['OLLAMA_COMPLETION_SOURCE_MAPPING_ID'] ?? '';
