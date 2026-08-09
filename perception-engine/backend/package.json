@@ -1,7 +1,7 @@
 {
   "name": "reality-engine-perception-backend",
   "version": "1.0.0",
-  "description": "Perception Engine backend — assembles reality vectors from heterogeneous sources and pushes them to the Reality Engine",
+  "description": "Perception Engine backend \u2014 assembles reality vectors from heterogeneous sources and pushes them to the Reality Engine",
   "type": "module",
   "main": "dist/server.js",
   "scripts": {
@@ -10,7 +10,8 @@
     "dev": "ts-node src/server.ts",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --watch",
-    "test:coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage"
+    "test:coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage",
+    "typecheck": "tsc --noEmit"
   },
   "engines": {
     "node": ">=25.5.0",
