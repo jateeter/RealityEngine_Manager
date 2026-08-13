@@ -137,6 +137,11 @@ const EXAMPLE_CK_REGISTRY_JSON = {
  */
 const DEFAULT_OLLAMA_MODEL = 'llama3.1:8b';
 
+// Declares how each contended universal-vector position resolves. Loaded before
+// any source is assembled so the first vector already arbitrates rather than
+// falling back (ARBITER_CONTRACT.md §5).
+arbitrationRegistry.load();
+
 const PORT = parseInt(process.env['PORT'] ?? '3004', 10);
 const HOST = process.env['HOST'] ?? '';
 const REALITY_ENGINE_URL = process.env['REALITY_ENGINE_URL'] ?? 'http://localhost:5001';
@@ -416,6 +421,7 @@ let mqttBridge: MqttBridge | null = null;
 let mqttBrokerConfig: import('./MqttBridge.js').BridgeConfig | null = null;
 
 import { MappingRegistry } from './MqttMapping.js';
+import { arbitrationRegistry } from './ArbitrationRegistry.js';
 
 /**
  * Start (or restart) the MQTT bridge with the given config + registry.
