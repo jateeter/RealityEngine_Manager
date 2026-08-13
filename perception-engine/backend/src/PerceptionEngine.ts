@@ -10,6 +10,28 @@ import type {
   MatchAlgorithm,
   TestProgress,
 } from './types.js';
+import { resolveAll, type Contribution, type ArbitrationRecord } from './Arbiter.js';
+import { arbitrationRegistry } from './ArbitrationRegistry.js';
+
+/**
+ * Map a PE source to its contract provider (contract §3). `origin` carries the
+ * integration surface where the source has one — ACP, MCP, MQTT, HealthKit — and
+ * the source `type` is the fallback. Anything unrecognised falls through to
+ * `generated` in determinismOf(), which is the safe default: an unregistered
+ * surface must not be able to outrank a reading.
+ */
+function providerOf(src: { type?: string; origin?: string }): string {
+  const origin = (src.origin ?? '').toLowerCase();
+  if (origin.includes('acp') || origin.includes('openclaw')) return 'acp';
+  if (origin.includes('mcp')) return 'mcp';
+  if (origin.includes('mqtt')) return 'mqtt';
+  if (origin.includes('healthkit')) return 'healthkit';
+  if (origin.includes('localai') || origin.includes('ollama')) return 'localai';
+  if (src.type === 'sensor') return 'sensor';
+  if (src.type === 'simulated') return 'synthetic';
+  if (src.type === 'test') return 'synthetic';
+  return 'sensor';
+}
 
 export class PerceptionEngine {
   private sources: Map<string, SourceConfig> = new Map();
@@ -43,6 +65,11 @@ export class PerceptionEngine {
   // z1 is stored here and consumed on the next gaussian-noise element, halving
   // the number of Math.random() calls per region.
   private gaussianSpare: number | null = null;
+
+  // Arbitration records for the most recent assembleVector(). Observability is
+  // not optional: a resolution nobody can see is indistinguishable from no
+  // resolution at all.
+  private lastArbitration: ArbitrationRecord[] = [];
 
   globalStep = 0;
   matchAlgorithm: MatchAlgorithm = 'gte';
@@ -178,6 +205,10 @@ export class PerceptionEngine {
     // Bulk copy via typed array: one native memcpy vs vectorSize individual JS writes.
     this.outBuf.set(this.persistentVector);
 
+    // cell -> contributions for this instant. Populated by the gather pass
+    // below; resolved and committed once, after every source has been read.
+    const contributions = new Map<number, Contribution[]>();
+
     for (const id of this.activeSources) {
       const src = this.sources.get(id);
       if (!src) continue;
@@ -202,12 +233,42 @@ export class PerceptionEngine {
         );
       }
 
+      // GATHER — a contribution, not a write. Nothing reaches outBuf until the
+      // arbiter has resolved every contended cell (contract §2). The previous
+      // direct write meant the last source iterated won, and Set iteration is
+      // insertion-ordered, so that resolution was stable and therefore invisible.
+      const provider = providerOf(src);
       for (let i = 0; i < len; i++) {
-        this.outBuf[offset + i] = Math.max(0, Math.min(1, values[i]));
+        const cell = offset + i;
+        const list = contributions.get(cell);
+        const contribution = {
+          cell,
+          value: Math.max(0, Math.min(1, values[i])),
+          provider,
+          originId: id,
+        };
+        if (list) list.push(contribution);
+        else contributions.set(cell, [contribution]);
       }
     }
 
+    // RESOLVE then COMMIT — exactly one write per cell.
+    const { values: resolved, records } = resolveAll(contributions, this.globalStep, (cell) =>
+      arbitrationRegistry.entryFor(cell),
+    );
+    for (const [cell, value] of resolved) {
+      this.outBuf[cell] = value;
+    }
+    this.lastArbitration = records;
+
     return Array.from(this.outBuf);
+  }
+
+  /** Arbitration records from the most recent assembleVector() — contributors,
+   * rule applied, resolved value, and what was suppressed. A suppressed
+   * contribution must stay attributable (contract §6). */
+  getLastArbitration(): ArbitrationRecord[] {
+    return this.lastArbitration;
   }
 
   /**
