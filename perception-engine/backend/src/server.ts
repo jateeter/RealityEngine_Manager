@@ -422,6 +422,7 @@ let mqttBrokerConfig: import('./MqttBridge.js').BridgeConfig | null = null;
 
 import { MappingRegistry } from './MqttMapping.js';
 import { arbitrationRegistry } from './ArbitrationRegistry.js';
+import { determinismOf, type Contribution } from './Arbiter.js';
 
 /**
  * Start (or restart) the MQTT bridge with the given config + registry.
@@ -974,6 +975,47 @@ app.get('/api/metrics', (_req: Request, res: Response) => {
 });
 
 // Full engine state
+// Arbitration records for the most recent assembleVector() (ARBITER_CONTRACT.md
+// §6). The records were produced and retained on the engine all along; nothing
+// served them, so from outside the process a resolution was indistinguishable
+// from no resolution, and acceptance criteria 8 and 9 could not be checked. A
+// suppressed contribution has to stay attributable — "the agent's answer was
+// discarded" is the operational fact the domain bus exists to surface.
+//
+// Wire shape matches the Scala, C++ and LSP runtimes exactly. Cross-runtime
+// parity is the acceptance test for this contract, so a divergent shape here
+// would defeat the endpoint's own purpose.
+//
+// shards is 1 by construction: resolveAll reduces per cell on Node's single
+// loop. Reported rather than omitted so a parallelism difference between
+// runtimes is visible instead of inferred.
+app.get('/api/arbitration', (_req: Request, res: Response) => {
+  const records = engine.getLastArbitration();
+  const contribution = (c: Contribution) => ({
+    provider: c.provider,
+    determinism: determinismOf(c.provider),
+    originId: c.originId,
+    cesId: c.cesId ?? null,
+    outputVectorId: c.outputVectorId ?? null,
+    ragStatusCode: c.ragStatusCode ?? null,
+    value: c.value,
+  });
+  res.json({
+    registryEntries: arbitrationRegistry.size,
+    registrySource: arbitrationRegistry.source,
+    shards: 1,
+    count: records.length,
+    records: records.map((r) => ({
+      instant: r.instant,
+      cell: r.cell,
+      rule: r.rule,
+      resolved: r.resolved,
+      contributors: r.contributors.map(contribution),
+      suppressed: r.suppressed.map(contribution),
+    })),
+  });
+});
+
 app.get('/api/state', (_req: Request, res: Response) => {
   const state = engine.getState(lastPush, { running: autoTimer !== null, intervalMs: autoIntervalMs });
   res.json(state);
