@@ -348,6 +348,11 @@ app.get('/api/health',                        (req, res) => proxyGet(req, res, a
 app.get('/api/engine/stats',                  (req, res) => proxyGet(req, res, activeReUrl(), '/api/engine/stats',                  're:estats',   'getEngineStats'));
 app.get('/api/engine/active',                 (req, res) => proxyGet(req, res, activeReUrl(), '/api/engine/active',                 're:eactive',  'getEngineActive'));
 app.get('/api/engine/history',                (req, res) => proxyGet(req, res, activeReUrl(), '/api/engine/history',                null,          'getEngineHistory'));
+// Trajectory histories — SURFACE_SPEC.md, "Trajectory histories". Proxied so a
+// probe reaches them through the Manager on whichever engine is active, the
+// same as it would reach the engine directly (RealityEngine_CI#148).
+app.get('/api/engine/orev-history',           (req, res) => proxyGet(req, res, activeReUrl(), '/api/engine/orev-history',           null,          'getOrevHistory'));
+app.get('/api/engine/isre-history',           (req, res) => proxyGet(req, res, activeReUrl(), '/api/engine/isre-history',           null,          'getIsreHistory'));
 app.get('/api/runtime/metrics',               (req, res) => proxyGet(req, res, activeReUrl(), '/api/runtime/metrics',               're:rmetrics', 'getRuntimeMetrics'));
 app.get('/api/runtime/vector-space',          (req, res) => proxyGet(req, res, activeReUrl(), '/api/runtime/vector-space',          're:rvspace',  'getVectorSpace'));
 app.get('/api/runtime/storage-footprint',     (req, res) => proxyGet(req, res, activeReUrl(), '/api/runtime/storage-footprint',     null,          'getStorageFootprint'));
