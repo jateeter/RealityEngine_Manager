@@ -173,12 +173,19 @@ export class PerceptionEngine {
         const now = Date.now();
         const updated: SensorSourceConfig = {
           ...src,
+          // A value earns activity. Registration is the usual place a sensor
+          // first becomes active, but it is not the only one: a sensor whose
+          // TTL expired is validated inactive by reset(), and without this it
+          // would be stranded there — holding a fresh reading, excluded from
+          // activeSources, contributing zeros forever.
+          active: true,
           lastValue: values.slice(0, src.region.length),
           lastUpdated: now,
           lastWriteAt: now,
           writeCount: (src.writeCount ?? 0) + 1,
         };
         this.sources.set(src.id, updated);
+        this.activeSources.add(src.id);
         return true;
       }
     }
@@ -342,24 +349,73 @@ export class PerceptionEngine {
 
   // ── Reset ─────────────────────────────────────────────────────────────────
 
+  /**
+   * Rewind the run and re-validate what is active.
+   *
+   * Reset is membership-neutral (contract RealityEngine_CI#163 §3): it rewinds
+   * cursors, globalStep and the persistent vector, and never manufactures or
+   * retires a source. What it does to `active` is VALIDATE it — every flag is
+   * recomputed from the rules for its kind against the state the rewind just
+   * produced, rather than assigned.
+   *
+   * This used to force `active: true` on every test source and leave every
+   * other kind's flag exactly as it found it, so a sensor whose TTL had expired
+   * before the reset was still reported active afterwards. The assembled vector
+   * was right either way — an expired sensor contributes zeros at assembly —
+   * but `active` is part of the byte-compared source payload, and it was
+   * advertising a source that supplies nothing.
+   */
   reset(): void {
     this.globalStep = 0;
     this.persistentVector.fill(0);
     this.gaussianSpare = null;
 
+    // One clock reading for the whole pass: two sensors with the same
+    // lastUpdated and ttlMs must not validate differently because the loop
+    // crossed a millisecond between them.
+    const now = Date.now();
+
     for (const [id, src] of this.sources) {
+      // Clear run state first — activity is validated against the rewound
+      // engine, not against the run that has just been discarded.
       if (src.type === 'test') {
         this.testStep.set(id, 0);
-        // Reactivate deactivated test sources
-        if (!src.active) {
-          const reactivated = { ...src, active: true };
-          this.sources.set(id, reactivated);
-          this.activeSources.add(id);
-        }
       }
       if (src.type === 'simulated' && src.pattern === 'random-walk') {
         this.walkState.set(id, new Array(src.region.length).fill(src.dcOffset));
       }
+
+      const active = this.validateActive(src, now);
+      if (active !== src.active) {
+        this.sources.set(id, { ...src, active } as SourceConfig);
+      }
+      // activeSources is the set assembleVector() and advance() iterate, so it
+      // has to move with the flag or the two disagree about the same source.
+      if (active) this.activeSources.add(id);
+      else this.activeSources.delete(id);
+    }
+  }
+
+  /**
+   * Recompute whether a source is active, given a freshly rewound engine.
+   *
+   * Each kind answers the same question — can this source supply a value right
+   * now? — from its own rules.
+   */
+  private validateActive(src: SourceConfig, now: number): boolean {
+    switch (src.type) {
+      case 'sensor':
+        // Activity is earned by a value and lost when that value goes stale.
+        // Nothing about a rewind refreshes a reading, so the TTL is the whole
+        // answer here.
+        return this.sensorHoldsFreshValue(src, now);
+      case 'test':
+        // Supplies its own values from the sequence interned at registration,
+        // rewound to step 0 above — so it can supply one whenever it has one.
+        return src.inputs.length > 0;
+      case 'simulated':
+        // Generates from the now-zeroed globalStep; nothing can starve it.
+        return true;
     }
   }
 
@@ -468,15 +524,22 @@ export class PerceptionEngine {
     }
   }
 
+  /**
+   * Whether a sensor is holding a value inside its TTL.
+   *
+   * The single definition of sensor liveness. Assembly reads it to decide
+   * whether the region contributes anything, and reset() reads it to validate
+   * the reported `active` flag — one predicate, so the flag cannot disagree
+   * with the vector.
+   */
+  private sensorHoldsFreshValue(src: SensorSourceConfig, now: number = Date.now()): boolean {
+    if (src.lastUpdated === null) return false;
+    return now - src.lastUpdated <= src.ttlMs;
+  }
+
   private getSensorValues(src: SensorSourceConfig): number[] {
-    if (src.lastUpdated === null) {
-      return new Array(src.region.length).fill(0);
-    }
-    const age = Date.now() - src.lastUpdated;
-    if (age > src.ttlMs) {
-      return new Array(src.region.length).fill(0);
-    }
     const padded = new Array(src.region.length).fill(0);
+    if (!this.sensorHoldsFreshValue(src)) return padded;
     for (let i = 0; i < src.lastValue.length && i < src.region.length; i++) {
       padded[i] = src.lastValue[i];
     }
