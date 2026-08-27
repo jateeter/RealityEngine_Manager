@@ -173,7 +173,7 @@ export function buildMcpServer(deps: McpDeps): McpServer {
       contents: [{
         uri: uri.href,
         mimeType: 'application/json',
-        text: JSON.stringify(engine.getSources(), null, 2),
+        text: JSON.stringify(engine.serializeSources(), null, 2),
       }],
     }),
   );
@@ -272,7 +272,7 @@ export function buildMcpServer(deps: McpDeps): McpServer {
     'region, active status, and type-specific configuration.',
     {},
     async () => ({
-      content: [{ type: 'text' as const, text: JSON.stringify(engine.getSources(), null, 2) }],
+      content: [{ type: 'text' as const, text: JSON.stringify(engine.serializeSources(), null, 2) }],
     }),
   );
 
@@ -609,7 +609,7 @@ export function buildMcpServer(deps: McpDeps): McpServer {
     'Canonical alias for sources_list. Lists all perception sources.',
     {},
     async () => ({
-      content: [{ type: 'text' as const, text: JSON.stringify(engine.getSources(), null, 2) }],
+      content: [{ type: 'text' as const, text: JSON.stringify(engine.serializeSources(), null, 2) }],
     }),
   );
 

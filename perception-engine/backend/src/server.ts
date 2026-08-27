@@ -1205,7 +1205,9 @@ async function ingestSignal(body: SignalIngestBody): Promise<SignalIngestResult>
   const responseBody: Record<string, unknown> = {
     success: true,
     timestamp: Date.now(),
-    source: source ?? null,
+    // Validated like every other reported source — a source is echoed the same
+    // way wherever it is echoed.
+    source: source ? engine.serializeSource(source) : null,
   };
 
   if (body.triggerPush === true) {
@@ -2044,9 +2046,11 @@ function decorateSources(sources: SourceConfig[]): Array<SourceConfig & { ageMs?
   });
 }
 
-// Source list
+// Source list. serializeSources() — not getSources() — so `active` is the
+// validated value (stored AND still able to supply), the same one GET
+// /api/state and the state-update broadcast report.
 app.get('/api/sources', (_req: Request, res: Response) => {
-  res.json({ sources: decorateSources(engine.getSources()) });
+  res.json({ sources: decorateSources(engine.serializeSources()) });
 });
 
 // Add source
@@ -2064,7 +2068,11 @@ app.post('/api/sources', async (req: Request, res: Response) => {
     }
     const source = engine.addSource(config);
     await saveAndBroadcast();
-    res.json({ source });
+    // The receipt is validated like every other reported source, so it cannot
+    // claim `active: true` a beat before the broadcast it triggered says false
+    // — a sensor registered active but never fed is inactive at every
+    // observation point.
+    res.json({ source: engine.serializeSource(source) });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }
@@ -2090,7 +2098,7 @@ app.patch('/api/sources/:id', async (req: Request, res: Response) => {
     return;
   }
   await saveAndBroadcast();
-  res.json({ source });
+  res.json({ source: engine.serializeSource(source) });
 });
 
 // Delete source
