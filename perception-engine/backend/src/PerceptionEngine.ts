@@ -158,11 +158,60 @@ export class PerceptionEngine {
    * process but has nothing to do with the order the other runtimes produce —
    * C++ listed by id, Scala and LSP by hash order. Four engines, four
    * orderings, on an endpoint under byte comparison.
+   *
+   * This is the STORED view: every source exactly as it is held, `active`
+   * included. It is what persistence and the internal callers want. Anything
+   * that reports a source to a client wants serializeSources() instead.
    */
   getSources(): SourceConfig[] {
     return Array.from(this.sources.values()).sort((a, b) =>
       a.name === b.name ? (a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : a.name < b.name ? -1 : 1,
     );
+  }
+
+  /**
+   * Sources as they are reported to a client: `active` is the validated value.
+   *
+   *     reported_active = stored_active AND validated_active(kind)
+   *
+   * Activity expires continuously, not at reset (RealityEngine_CI#175). Nothing
+   * runs when a sensor's TTL lapses — no timer, no callback — so a flag that is
+   * only re-validated by reset() goes stale the moment the window closes, and
+   * /api/sources happily advertises a source that assembly is already zeroing.
+   * Validating here closes the gap for every read, whether or not a reset ever
+   * happens. LSP does this in source-json and is the reference.
+   *
+   * Both conjuncts carry weight. The stored flag still gates, so a source an
+   * operator paused via PATCH /api/sources/:id reports inactive, a sensor that
+   * has never been fed reports inactive, and an exhausted non-looping test
+   * source stays reported inactive after advance() retires it. Validation can
+   * only ever take activity away — it never grants it.
+   *
+   * This is a read. It returns copies and does not touch `this.sources` or
+   * `this.activeSources`: what a client is told has no business rewriting what
+   * the engine holds. Ingress (updateSensorValue) and reset() remain the only
+   * things that move the stored flag.
+   */
+  serializeSources(): SourceConfig[] {
+    // One clock reading for the whole pass — two sensors with the same
+    // lastUpdated and ttlMs must not serialize differently because the loop
+    // crossed a millisecond between them.
+    const now = Date.now();
+    return this.getSources().map(src => this.serializeSource(src, now));
+  }
+
+  /**
+   * One source as it is reported to a client. See serializeSources() for the
+   * rule; this is the same read applied to a single source, for the write
+   * receipts (POST /api/sources, PATCH /api/sources/:id) that echo one back.
+   *
+   * `now` is a parameter so a caller serializing many sources reads the clock
+   * once. Returns the stored object untouched when validation changes nothing,
+   * and a copy when it does — never a mutation.
+   */
+  serializeSource(src: SourceConfig, now: number = Date.now()): SourceConfig {
+    const active = src.active && this.validateActive(src, now);
+    return active === src.active ? src : ({ ...src, active } as SourceConfig);
   }
 
   // ── Sensor push ───────────────────────────────────────────────────────────
@@ -397,33 +446,44 @@ export class PerceptionEngine {
   }
 
   /**
-   * Recompute whether a source is active, given a freshly rewound engine.
+   * Can this source supply a value right now? Each kind answers from its own
+   * rules, never by reading the stored flag back.
    *
-   * Each kind answers the same question — can this source supply a value right
-   * now? — from its own rules.
+   * One predicate, two callers, so they cannot drift: reset() validates the
+   * stored flag with it after a rewind, and serializeSources() validates the
+   * reported flag with it on every read. `now` is a parameter so a caller
+   * validating many sources reads the clock once.
    */
   private validateActive(src: SourceConfig, now: number): boolean {
     switch (src.type) {
       case 'sensor':
         // Activity is earned by a value and lost when that value goes stale.
-        // Nothing about a rewind refreshes a reading, so the TTL is the whole
-        // answer here.
+        // Nothing refreshes a reading on its own — not a rewind, not the
+        // passage of time — so the TTL is the whole answer here.
         return this.sensorHoldsFreshValue(src, now);
       case 'test':
-        // Supplies its own values from the sequence interned at registration,
-        // rewound to step 0 above — so it can supply one whenever it has one.
+        // Supplies its own values from the sequence interned at registration.
+        // A test source with no steps supplies nothing, so calling it active
+        // would be an assignment rather than a validation. Whether it has
+        // *reached* the end is the stored flag's business: advance() retires an
+        // exhausted non-looping source, and reset() rewinds it to step 0.
         return src.inputs.length > 0;
       case 'simulated':
-        // Generates from the now-zeroed globalStep; nothing can starve it.
+        // Generates from globalStep; nothing can starve it.
         return true;
     }
   }
 
   // ── State snapshot ────────────────────────────────────────────────────────
 
+  /**
+   * The snapshot behind GET /api/state and every `state-update` WebSocket
+   * broadcast. Sources come from serializeSources(), so the HTTP and WS views
+   * of the same source cannot disagree about whether it is active.
+   */
   getState(lastPush: number | null, auto: { running: boolean; intervalMs: number }): EngineState {
     return {
-      sources: this.getSources(),
+      sources: this.serializeSources(),
       assembledVector: this.assembleVector(),
       globalStep: this.globalStep,
       auto,
@@ -528,9 +588,10 @@ export class PerceptionEngine {
    * Whether a sensor is holding a value inside its TTL.
    *
    * The single definition of sensor liveness. Assembly reads it to decide
-   * whether the region contributes anything, and reset() reads it to validate
-   * the reported `active` flag — one predicate, so the flag cannot disagree
-   * with the vector.
+   * whether the region contributes anything, and validateActive() reads it for
+   * both the stored flag (reset) and the reported one (serialization) — one
+   * predicate, so what a sensor is said to be cannot disagree with what it
+   * actually contributes.
    */
   private sensorHoldsFreshValue(src: SensorSourceConfig, now: number = Date.now()): boolean {
     if (src.lastUpdated === null) return false;
