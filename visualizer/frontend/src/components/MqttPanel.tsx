@@ -1,7 +1,7 @@
 /**
  * MqttPanel — MQTT bridge status monitor and runtime configuration surface.
  *
- * Mirrors MqttBridgePanel + MqttConfigModal from RealityEngine_AI/
+ * Mirrors the historical MqttBridgePanel + MqttConfigModal from the
  * perception-engine/frontend, adapted to route through the visualizer
  * backend proxy (/api/pe/mqtt/*) rather than hitting the PE directly.
  *
