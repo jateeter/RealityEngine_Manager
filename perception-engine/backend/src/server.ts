@@ -2026,22 +2026,25 @@ app.post('/api/reset', (_req: Request, res: Response) => {
   res.json({ success: true });
 });
 
-// Decorate sensor sources with derived freshness fields (ageMs, stale).
-// Matches the LSP source-json shape so a single visualizer panel can show
-// "stale sensor" badges across all three runtimes.
-function decorateSources(sources: SourceConfig[]): Array<SourceConfig & { ageMs?: number; stale?: boolean }> {
-  const now = Date.now();
+// Default the write-tracking fields on sensor sources.
+//
+// `ageMs` and `stale` used to be added here too, and by LSP's source-json, but
+// not by C++ or Scala — so GET /api/sources could not be byte-compared across
+// runtimes and regression-reset-contract.py had to skip the comparison and say
+// so (#176). Both are removed rather than added to the other two: nothing
+// consumed them (the visualizer declared them optional in types.ts and never
+// read either), and since #175 made `active` report `stored AND validated`,
+// `active` already answers what `stale` was for — a sensor past its TTL
+// reports inactive. A caller wanting the arithmetic has `lastUpdated` and
+// `ttlMs`, both still on the payload.
+function decorateSources(sources: SourceConfig[]): SourceConfig[] {
   return sources.map(s => {
     if (s.type !== 'sensor') return s;
     const sensor = s as SensorSourceConfig;
-    const age   = sensor.lastUpdated ? now - sensor.lastUpdated : 0;
-    const stale = !!sensor.lastUpdated && sensor.ttlMs > 0 && age > sensor.ttlMs;
     return {
       ...sensor,
       lastWriteAt: sensor.lastWriteAt ?? sensor.lastUpdated,
       writeCount: sensor.writeCount ?? (sensor.lastUpdated ? 1 : 0),
-      ageMs: age,
-      stale,
     };
   });
 }
