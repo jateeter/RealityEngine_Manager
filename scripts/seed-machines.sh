@@ -2,7 +2,7 @@
 # ============================================================
 # seed-machines.sh — Seeds example machines into the RE runtime
 #
-# Replicates RealityEngine_AI's initializeDefaultSequences():
+# Replicates the historical initializeDefaultSequences():
 # scans examples/machines/*.json and POSTs each via
 # POST /api/machines/json/import {"json": "<file-content>"}
 #
