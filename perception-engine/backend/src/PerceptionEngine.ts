@@ -100,7 +100,7 @@ export class PerceptionEngine {
 
   addSource(config: Omit<SourceConfig, 'id'>): SourceConfig {
     const id = uuidv4();
-    const source = { ...config, id } as SourceConfig;
+    const source = this.deriveSensorActivity({ ...config, id } as SourceConfig);
     this.ensureCapacity(source.region.offset + source.region.length);
     this.sources.set(id, source);
     if (source.active) this.activeSources.add(id);
@@ -113,6 +113,78 @@ export class PerceptionEngine {
     }
 
     return source;
+  }
+
+  /**
+   * A sensor's stored activity, derived rather than accepted.
+   *
+   * An integration source's activity is always traceable to an ingress event:
+   * registration declares the source — completely, and inactive
+   * (RealityEngine_CI#163 point 2a) — and activity is earned by the first value
+   * (point 2b). So no registration path may originate activity for a sensor,
+   * and the flag a caller asks for is not consulted: it is derived from whether
+   * a value is in hand and inside its TTL.
+   *
+   * This runtime has no separate declare path — addSource IS registration, as
+   * add_source is in C++ — so the rule is enforced here, where every
+   * construction funnels through. Without it a caller could do what no
+   * integration could (RealityEngine_CI#199):
+   *
+   *     POST /api/sources {"type":"sensor","active":true,...}  ->  active, never fed
+   *
+   * Derived rather than forced to false: a path that constructs the source
+   * while delivering a value still comes out active, because it sets
+   * lastValue/lastUpdated first and so satisfies the predicate. That is the
+   * MQTT auto-provision and signal-ingest shape.
+   *
+   * The rule is a conjunction, and the second term is "has a value ever
+   * arrived", not "is that value still fresh":
+   *
+   *     stored_active = requested_active AND (lastUpdated is set)
+   *
+   * A caller asking for `true` on a sensor that has never reported gets
+   * `false` — activity cannot be asserted, which is the whole of #199. A caller
+   * asking for `false` gets `false` whatever the value says, so a pause through
+   * `updateSource({active: false})` is honoured.
+   *
+   * Freshness is deliberately NOT part of this. Expiry is a read-time question:
+   * `serializeSource` reports `stored AND validated` (#175), and that
+   * separation is load-bearing — a sensor that was fed and then lapsed keeps
+   * its stored flag and is demoted only on the way out, so a later value
+   * revives it without anything having to re-establish the flag. Validating at
+   * storage time writes the demotion back and breaks it, which
+   * SerializationValidatesActivity asserts against directly.
+   *
+   * That is a narrower rule than C++'s add_source, which derives from liveness
+   * and does write the demotion back. Both refuse to originate activity, which
+   * is the invariant #163 point 2b states and the one #199 is about; they
+   * differ on whether storage or serialization owns expiry, and here that is
+   * already settled.
+   */
+  private deriveSensorActivity(src: SourceConfig, now: number = Date.now()): SourceConfig {
+    if (src.type !== 'sensor') return src;
+    void now;
+    const everFed = (src as SensorSourceConfig).lastUpdated != null;
+    const active = src.active && everFed;
+    return active === src.active ? src : ({ ...src, active } as SourceConfig);
+  }
+
+  /**
+   * Clear a source's stored active flag.
+   *
+   * Activation is earned; deactivation is not, and the two directions do not
+   * need the same rule. Clearing asserts nothing about ingress: the source
+   * keeps its value, keeps its TTL, and the next value re-earns activity
+   * through updateSensorValue. It says only "do not use this right now" — the
+   * one lever an operator has, and derivation applied to both directions would
+   * disconnect it (RealityEngine_CPP#43).
+   */
+  deactivateSource(id: string): boolean {
+    const existing = this.sources.get(id);
+    if (!existing) return false;
+    this.sources.set(id, { ...existing, active: false } as SourceConfig);
+    this.activeSources.delete(id);
+    return true;
   }
 
   /** Restore a previously persisted source preserving its original ID. */
@@ -139,7 +211,10 @@ export class PerceptionEngine {
   updateSource(id: string, patch: Partial<SourceConfig>): SourceConfig | null {
     const existing = this.sources.get(id);
     if (!existing) return null;
-    const updated = { ...existing, ...patch, id } as SourceConfig;
+    // A PATCH is a registration path like any other and may not assert a sensor
+    // into activity it has not earned. Deactivation is handled separately —
+    // see deactivateSource.
+    const updated = this.deriveSensorActivity({ ...existing, ...patch, id } as SourceConfig);
     this.ensureCapacity(updated.region.offset + updated.region.length);
     this.sources.set(id, updated);
     if (updated.active) this.activeSources.add(id);

@@ -2095,11 +2095,26 @@ app.patch('/api/sources/:id', async (req: Request, res: Response) => {
       return;
     }
   }
-  const source = engine.updateSource(id, req.body);
-  if (!source) {
+  const updated = engine.updateSource(id, req.body);
+  if (!updated) {
     res.status(404).json({ error: 'Source not found' });
     return;
   }
+  // Activation is earned; deactivation is not. updateSource derives a sensor's
+  // flag from value liveness and ignores what the caller asked for, which is
+  // right for activation — no caller may assert a sensor into activity it has
+  // not earned (RealityEngine_CI#199). Applied to deactivation too it would
+  // silently drop an explicit `"active": false` and leave a live sensor with no
+  // way to be paused (RealityEngine_CPP#43).
+  //
+  // Honour the clear, and only the clear. Telling "asked for false" from "field
+  // absent" needs the request body, not the merged source, which is why this
+  // reads req.body directly.
+  const asksForDeactivation = req.body?.active === false;
+  const source =
+    asksForDeactivation && engine.deactivateSource(id)
+      ? (engine.getSource(id) ?? updated)
+      : updated;
   await saveAndBroadcast();
   res.json({ source: engine.serializeSource(source) });
 });
