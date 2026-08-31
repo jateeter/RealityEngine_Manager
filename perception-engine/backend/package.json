@@ -1,7 +1,7 @@
 {
   "name": "reality-engine-perception-backend",
   "version": "1.0.0",
-  "description": "Perception Engine backend \u2014 assembles reality vectors from heterogeneous sources and pushes them to the Reality Engine",
+  "description": "Perception Engine backend \u2014 assembles Reality Events from heterogeneous sources and pushes them to the Reality Engine",
   "type": "module",
   "main": "dist/server.js",
   "scripts": {
