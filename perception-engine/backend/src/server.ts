@@ -530,7 +530,7 @@ async function doPush(): Promise<PushResult> {
     lastPush = Date.now();
 
     // Semantic audit (SEMANTIC_AUDIT_CONTRACT.md): one re:PerceptionEvent per
-    // active source region written into the universal reality vector. Sources
+    // active source region written into the universal Reality Event. Sources
     // that declare a machine get a real machineIri from the corpus manifest.
     for (const src of engine.getSources()) {
       if (!src.active) continue;
