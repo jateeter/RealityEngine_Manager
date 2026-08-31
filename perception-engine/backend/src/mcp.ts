@@ -457,7 +457,7 @@ export function buildMcpServer(deps: McpDeps): McpServer {
 
   server.tool(
     'machines_load_json',
-    'Load a machine from a JSON file into the Reality Engine and register it with the perceptual simulator.',
+    'Load a machine from a JSON file into the Reality Engine and register it with the perceptual space runtime.',
     {
       filename: z.string()
         .describe('Filename from machines_list.jsonFiles (e.g. "RSFlipFlop.json")'),
