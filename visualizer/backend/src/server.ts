@@ -351,7 +351,7 @@ app.get('/api/engine/history',                (req, res) => proxyGet(req, res, a
 // Trajectory histories — SURFACE_SPEC.md, "Trajectory histories". Proxied so a
 // probe reaches them through the Manager on whichever engine is active, the
 // same as it would reach the engine directly (RealityEngine_CI#148).
-app.get('/api/engine/orev-history',           (req, res) => proxyGet(req, res, activeReUrl(), '/api/engine/orev-history',           null,          'getOrevHistory'));
+app.get('/api/engine/osre-history',           (req, res) => proxyGet(req, res, activeReUrl(), '/api/engine/osre-history',           null,          'getOsreHistory'));
 app.get('/api/engine/isre-history',           (req, res) => proxyGet(req, res, activeReUrl(), '/api/engine/isre-history',           null,          'getIsreHistory'));
 app.get('/api/runtime/metrics',               (req, res) => proxyGet(req, res, activeReUrl(), '/api/runtime/metrics',               're:rmetrics', 'getRuntimeMetrics'));
 app.get('/api/runtime/vector-space',          (req, res) => proxyGet(req, res, activeReUrl(), '/api/runtime/vector-space',          're:rvspace',  'getVectorSpace'));
