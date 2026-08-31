@@ -180,7 +180,7 @@ export const TobiasSequencesPanel: React.FC<TobiasSequencesPanelProps> = ({
           {tab === 'input' && (
             <div className="tsp-content">
               <p className="tsp-desc">
-                Generate a vector sequence and load it into the perceptual space simulator.
+                Generate a vector sequence and load it into the perceptual space.
                 The sequence drives all machine inputs via the perceptual region specified.
               </p>
 
