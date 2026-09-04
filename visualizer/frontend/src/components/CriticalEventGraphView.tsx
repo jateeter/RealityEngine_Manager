@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import { useVisualizerStore } from '../store';
 import { VectorNode, OutputVector } from '../types';
+import { outputEvents } from '../lib/corpusEventKeys';
 import { Graph3DView } from './Graph3DView';
 import { Graph3DToggle } from './Graph3DToggle';
 import './VisLegend.css';
@@ -147,21 +148,22 @@ const CriticalEventGraphView: React.FC<CriticalEventGraphViewProps> = ({ selecte
       clusters[clusterId] = [];
 
       sequence.nodes.forEach((node: VectorNode) => {
+        const outputs = outputEvents<OutputVector>(node);
         const graphNode: GraphNode = {
           id: node.id,
           name: node.metadata?.name || node.label || node.id,
           label: node.label,
           isInitial: node.isInitial,
           isActive: node.isActive,
-          hasOutput: node.hasOutput || (node.outputVectors && node.outputVectors.length > 0),
+          hasOutput: node.hasOutput || outputs.length > 0,
           wasJustMatched: node.wasJustMatched || false,
           lastOutputVector: node.lastOutputVector || null,
           cluster: clusterId,
-          outputCount: node.outputVectors?.length || 0,
+          outputCount: outputs.length,
           sequenceName: sequence.sequenceName,
           metadata: node.metadata,
           elements: node.elements,
-          outputVectors: node.outputVectors
+          outputVectors: outputs
         };
         nodes.push(graphNode);
         clusters[clusterId].push(node.id);
@@ -806,7 +808,7 @@ const CriticalEventGraphView: React.FC<CriticalEventGraphViewProps> = ({ selecte
         label: n.label,
         isInitial: n.isInitial,
         isActive: n.isActive,
-        hasOutput: n.hasOutput || (n.outputVectors?.length ?? 0) > 0,
+        hasOutput: n.hasOutput || outputEvents(n).length > 0,
         wasJustMatched: n.wasJustMatched,
         cluster: seq.sequenceId,
       }))
