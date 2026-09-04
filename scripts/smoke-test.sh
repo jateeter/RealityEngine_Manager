@@ -106,7 +106,7 @@ PY
 # ── Minimal valid bodies for POST/PUT/PATCH routes ──────────────────────────
 VEC_BODY='{"vector":[0.1,0.2,0.3],"id":"smoke-vec"}'
 SEARCH_BODY='{"query":[0.1,0.2,0.3],"topK":1}'
-SEQ_BODY='{"id":"smoke-seq","name":"smoke","vectors":[]}'
+SEQ_BODY='{"id":"smoke-seq","name":"smoke","events":[]}'
 MACHINE_BODY='{"id":"smoke-machine","name":"smoke","states":[],"sequences":[]}'
 PROCESS_BODY='{"inputEvent":[0.1,0.2,0.3]}'
 UNIVERSAL_BODY='{"universalInputSpace":[0.1,0.2,0.3]}'
