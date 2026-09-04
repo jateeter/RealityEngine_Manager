@@ -82,3 +82,23 @@ export interface PushResult {
 export interface PushLogEntry extends PushResult {
   id: string;
 }
+
+// A machine input sequence as it arrives on `machine.metadata.inputSequences`.
+//
+// That field is corpus data passed through verbatim by every engine, so its
+// spelling follows the corpus file rather than the engine: `events` since
+// RealityEngine_CI#220 layer 1b, `vectors` in anything not yet rewritten. Both
+// are declared so the compiler can see the question, and read through
+// `sequenceEvents` so layer 1c has one place to collapse them.
+export interface InputSequenceShaped {
+  name: string;
+  events?: number[][];
+  vectors?: number[][];
+}
+
+/** The rows of an input sequence, canonical spelling first. */
+export function sequenceEvents(seq: InputSequenceShaped | null | undefined): number[][] {
+  if (Array.isArray(seq?.events)) return seq.events;
+  if (Array.isArray(seq?.vectors)) return seq.vectors;
+  return [];
+}
