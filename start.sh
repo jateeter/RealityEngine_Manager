@@ -128,6 +128,43 @@ echo ""
 echo "Installing backend dependencies..."
 (cd "$BACKEND_DIR" && "$NPM" install --prefer-offline 2>&1 | tail -3)
 
+# ── Start backend ────────────────────────────────────────────
+#
+# Before the frontend install, not after.
+#
+# This ran both installs and then started the backend, so :3001 could not
+# answer until the *frontend's* dependencies had finished resolving — a
+# readiness gate on work the backend does not need. Callers time that wait:
+# startUniverse polls :3001 and reports "Manager backend not reachable" when it
+# expires, which names the backend for a delay the frontend owns.
+#
+# Observed on a GitHub runner with a cold npm cache: the backend install
+# completed, the frontend install was still running, and the poll expired at
+# 360s having never given the backend a chance to bind. The job that survived
+# it did so only because its window was 900s (RealityEngine_CI#239).
+#
+# The backend needs its own dependencies and nothing else, so it starts as soon
+# as it has them. The frontend install follows and the frontend's own readiness
+# check still covers it.
+echo ""
+echo "Starting backend..."
+
+(
+  cd "$BACKEND_DIR"
+  RE_RUNTIME_URL="$RE_RUNTIME_URL" \
+  PE_RUNTIME_URL="$PE_RUNTIME_URL" \
+  REALITY_ENGINE_URL="$RE_RUNTIME_URL" \
+  PERCEPTION_ENGINE_URL="$PE_RUNTIME_URL" \
+  VIZ_PORT="$VIZ_PORT" \
+    "$NPM" run dev >> "$LOG_DIR/backend.log" 2>&1 &
+  echo $!
+) >> "$PID_FILE"
+
+echo "  npm PID: $(tail -1 "$PID_FILE")  log: $LOG_DIR/backend.log"
+
+# ── Install frontend dependencies ────────────────────────────
+# Deliberately after the backend is launched: nothing the backend serves needs
+# these, and running it first made :3001's readiness depend on them.
 if [[ $START_FRONTEND -eq 1 ]]; then
   echo "Installing frontend dependencies..."
   (cd "$FRONTEND_DIR" && "$NPM" install --prefer-offline 2>&1 | tail -3)
@@ -145,23 +182,6 @@ if [[ $START_FRONTEND -eq 1 ]]; then
     ln -sf "../vite/bin/vite.js" "$VITE_SHIM"
   fi
 fi
-
-# ── Start backend ────────────────────────────────────────────
-echo ""
-echo "Starting backend..."
-
-(
-  cd "$BACKEND_DIR"
-  RE_RUNTIME_URL="$RE_RUNTIME_URL" \
-  PE_RUNTIME_URL="$PE_RUNTIME_URL" \
-  REALITY_ENGINE_URL="$RE_RUNTIME_URL" \
-  PERCEPTION_ENGINE_URL="$PE_RUNTIME_URL" \
-  VIZ_PORT="$VIZ_PORT" \
-    "$NPM" run dev >> "$LOG_DIR/backend.log" 2>&1 &
-  echo $!
-) >> "$PID_FILE"
-
-echo "  npm PID: $(tail -1 "$PID_FILE")  log: $LOG_DIR/backend.log"
 
 # ── Wait for backend to be ready (max 15 s) ─────────────────
 BACKEND_READY=0
