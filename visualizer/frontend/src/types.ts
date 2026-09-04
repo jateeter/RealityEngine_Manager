@@ -44,11 +44,14 @@ export interface SequenceGraph {
   metadata: Record<string, any>;
   nodes: VectorNode[];
   edges: Edge[];
+  // Mirrors the per-sequence entry in `GET /api/engine/stats`. Layer 2b renamed
+  // the first two and left the other two behind; RealityEngine_Scala#88 finished
+  // it, so these four are now the spelling the engine actually sends.
   stats: {
     totalEvents: number;
     activeEvents: number;
-    initialVectors: number;
-    outputVectors: number;
+    initialEvents: number;
+    outputEvents: number;
   };
 }
 
