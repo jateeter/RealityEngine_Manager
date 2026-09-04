@@ -39,6 +39,7 @@ import type {
   TooltipVectorElement,
   TooltipLiveResult,
 } from './MachineSequenceTooltip';
+import { readActivatedEvents, readInputEvent, readMatchedEvents } from '../utils/eventKeys';
 
 interface Machine {
   id: string;
@@ -378,7 +379,7 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
         Object.entries(step.machineResults).forEach(([machineId, result]) => {
           newStatuses[machineId] = {
             status: result.outputVector ? 'active' : 'processing',
-            lastInput: result.inputVector,
+            lastInput: readInputEvent(result),
             lastOutput: result.outputVector || undefined,
           };
         });
@@ -447,13 +448,13 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
     const seqResults = r.transitionResult?.sequenceResults;
     if (seqResults) {
       for (const sr of Object.values(seqResults)) {
-        for (const id of sr.activatedVectors ?? []) activated.add(id);
-        for (const id of sr.matchedVectors ?? []) matched.add(id);
+        for (const id of readActivatedEvents(sr)) activated.add(id);
+        for (const id of readMatchedEvents(sr)) matched.add(id);
       }
     }
     return {
       stepNumber:   currentStep.stepNumber,
-      inputVector:  r.inputVector,
+      inputVector:  readInputEvent(r),
       outputVector: r.outputVector,
       inputRegion:  r.inputRegion,
       outputRegion: r.outputRegion,

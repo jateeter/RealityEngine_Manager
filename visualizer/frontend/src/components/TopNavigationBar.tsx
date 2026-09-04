@@ -1,5 +1,6 @@
 import React from 'react';
 import { Machine } from '../types';
+import { readTotalEvents } from '../utils/eventKeys';
 
 interface TopNavigationBarProps {
   currentMachine: Machine | null;
@@ -109,7 +110,7 @@ const TopNavigationBar: React.FC<TopNavigationBarProps> = ({ currentMachine, onN
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <span style={{ color: '#94a3b8' }}>Vectors:</span>
             <span style={{ color: '#e2e8f0', fontWeight: '600' }}>
-              {currentMachine.totalVectors}
+              {readTotalEvents(currentMachine)}
             </span>
           </div>
           {currentMachine.isExample && (

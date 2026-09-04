@@ -1,6 +1,7 @@
 import React from 'react';
 import { Machine } from '../types';
 import './MachineCard.css';
+import { readTotalEvents } from '../utils/eventKeys';
 
 interface MachineCardProps {
   machine: Machine;
@@ -45,7 +46,7 @@ const MachineCard: React.FC<MachineCardProps> = ({ machine, onSelect, onEdit, on
       <div className="mc-stat-divider" />
       <div className="mc-stat">
         <span className="mc-stat-label">Vectors</span>
-        <span className="mc-stat-value">{machine.totalVectors}</span>
+        <span className="mc-stat-value">{readTotalEvents(machine)}</span>
       </div>
     </div>
 
