@@ -28,7 +28,6 @@ import {
 } from './machineDomains';
 import { composeFilters } from './graphFilters';
 import { useTheme } from '../contexts/ThemeContext';
-import { readActivatedEvents } from '../utils/eventKeys';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -82,12 +81,12 @@ interface SimulationStep {
   machineResults: Record<string, {
     machineId: string;
     machineName: string;
-    inputVector: number[];
+    inputEvent: number[];
     outputVector: number[] | null;
     transitionResult?: {
       sequenceResults?: Record<string, {
-        activatedVectors?: string[];
-        matchedVectors?: string[];
+        activatedEvents?: string[];
+        matchedEvents?: string[];
       }>;
     };
   }>;
@@ -103,7 +102,7 @@ function getMachineColorState(
   const seqResults = result.transitionResult?.sequenceResults;
   if (seqResults) {
     for (const sr of Object.values(seqResults)) {
-      if (readActivatedEvents(sr).length > 0) return 'active';
+      if ((sr.activatedEvents ?? []).length > 0) return 'active';
     }
   }
   return 'idle';
@@ -132,7 +131,7 @@ function getDomainActivity(
     const fired = mr.outputVector !== null && mr.outputVector !== undefined;
     const seqResults = mr.transitionResult?.sequenceResults ?? {};
     const activeSeqs = Object.entries(seqResults)
-      .filter(([, sr]) => readActivatedEvents(sr).length > 0)
+      .filter(([, sr]) => (sr.activatedEvents ?? []).length > 0)
       .map(([name]) => name);
     if (fired || activeSeqs.length > 0) {
       out.push({

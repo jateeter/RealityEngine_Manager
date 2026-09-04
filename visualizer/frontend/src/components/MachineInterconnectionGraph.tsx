@@ -39,7 +39,6 @@ import type {
   TooltipVectorElement,
   TooltipLiveResult,
 } from './MachineSequenceTooltip';
-import { readActivatedEvents, readInputEvent, readMatchedEvents } from '../utils/eventKeys';
 
 interface Machine {
   id: string;
@@ -136,14 +135,14 @@ interface SimulationStep {
   machineResults: Record<string, {
     machineId: string;
     machineName: string;
-    inputVector: number[];
+    inputEvent: number[];
     outputVector: number[] | null;
     inputRegion?: { offset: number; length: number };
     outputRegion?: { offset: number; length: number } | null;
     transitionResult?: {
       sequenceResults?: Record<string, {
-        activatedVectors?: string[];
-        matchedVectors?: string[];
+        activatedEvents?: string[];
+        matchedEvents?: string[];
       }>;
     };
   }>;
@@ -379,7 +378,7 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
         Object.entries(step.machineResults).forEach(([machineId, result]) => {
           newStatuses[machineId] = {
             status: result.outputVector ? 'active' : 'processing',
-            lastInput: readInputEvent(result),
+            lastInput: result.inputEvent,
             lastOutput: result.outputVector || undefined,
           };
         });
@@ -448,13 +447,13 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
     const seqResults = r.transitionResult?.sequenceResults;
     if (seqResults) {
       for (const sr of Object.values(seqResults)) {
-        for (const id of readActivatedEvents(sr)) activated.add(id);
-        for (const id of readMatchedEvents(sr)) matched.add(id);
+        for (const id of (sr.activatedEvents ?? [])) activated.add(id);
+        for (const id of (sr.matchedEvents ?? [])) matched.add(id);
       }
     }
     return {
       stepNumber:   currentStep.stepNumber,
-      inputVector:  readInputEvent(r),
+      inputEvent:  r.inputEvent,
       outputVector: r.outputVector,
       inputRegion:  r.inputRegion,
       outputRegion: r.outputRegion,

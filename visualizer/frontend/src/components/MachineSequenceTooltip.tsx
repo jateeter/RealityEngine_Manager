@@ -78,7 +78,7 @@ const TT_C_MATCHED  = '#fbbf24';  // ring for matched-but-not-fired vectors
 // renders cleanly before the first WebSocket step arrives.
 interface TooltipLiveResult {
   stepNumber?:   number;
-  inputVector?:  number[];
+  inputEvent?:  number[];
   outputVector?: number[] | null;
   inputRegion?:  { offset: number; length: number };
   outputRegion?: { offset: number; length: number } | null;
@@ -403,7 +403,7 @@ const TooltipSeqGraph: React.FC<{ sequences: TooltipSeq[]; live: TooltipLiveResu
     // Repaint input/output strips with the current step's vectors.
     drawVectorStrip(
       svg.select<SVGGElement>('g.tt-strip-input').node(),
-      'IN', live.inputRegion, live.inputVector ?? [], live.activatedIds.size > 0,
+      'IN', live.inputRegion, live.inputEvent ?? [], live.activatedIds.size > 0,
     );
     drawVectorStrip(
       svg.select<SVGGElement>('g.tt-strip-output').node(),

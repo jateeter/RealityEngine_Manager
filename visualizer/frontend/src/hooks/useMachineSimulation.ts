@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { api, perceptionEngineApi } from '../api';
-import { readActivatedEvents, readInputEvent, readMatchedEvents } from '../utils/eventKeys';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -52,7 +51,7 @@ export interface VisMachine {
 export interface StepMachineResult {
   machineId: string;
   machineName: string;
-  inputVector: number[];
+  inputEvent: number[];
   outputVector: number[] | null;
   inputRegion: { offset: number; length: number };
   outputRegion?: { offset: number; length: number } | null;
@@ -192,8 +191,8 @@ export const useMachineSimulation = () => {
         const seqDeltas = new Map<string, SeqDelta>();
         for (const [seqId, sr] of Object.entries(seqResults)) {
           seqDeltas.set(seqId, {
-            matched:   new Set<string>(readMatchedEvents(sr)),
-            activated: new Set<string>(readActivatedEvents(sr)),
+            matched:   new Set<string>((sr.matchedEvents ?? [])),
+            activated: new Set<string>((sr.activatedEvents ?? [])),
           });
         }
 
@@ -218,7 +217,7 @@ export const useMachineSimulation = () => {
           status: fired ? ('processing' as const) : ('idle' as const),
           justFired: hasOutputFired,
           hasInitialMatch,
-          latestInputVector:  readInputEvent(result) ?? m.latestInputVector,
+          latestInputVector:  result.inputEvent ?? m.latestInputVector,
           latestOutputVector: hasOutputFired
             ? (result?.outputVector ?? m.latestOutputVector)
             : m.latestOutputVector,
