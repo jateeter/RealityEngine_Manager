@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useVisualizerStore } from '../store';
 import { Machine } from '../types';
+import { readTotalEvents } from '../utils/eventKeys';
 
 interface MachineEditDialogProps {
   machine: Machine | null;
@@ -254,7 +255,7 @@ const MachineEditDialog: React.FC<MachineEditDialogProps> = ({ machine, isOpen, 
                 <div>
                   <div style={{ fontSize: '11px', color: '#64748b' }}>Vectors</div>
                   <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#e2e8f0', marginTop: '4px' }}>
-                    {machine.totalVectors}
+                    {readTotalEvents(machine)}
                   </div>
                 </div>
               </div>

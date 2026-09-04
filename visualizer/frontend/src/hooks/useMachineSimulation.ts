@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { api, perceptionEngineApi } from '../api';
+import { readActivatedEvents, readInputEvent, readMatchedEvents } from '../utils/eventKeys';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -191,8 +192,8 @@ export const useMachineSimulation = () => {
         const seqDeltas = new Map<string, SeqDelta>();
         for (const [seqId, sr] of Object.entries(seqResults)) {
           seqDeltas.set(seqId, {
-            matched:   new Set<string>((sr as any).matchedVectors   ?? []),
-            activated: new Set<string>((sr as any).activatedVectors ?? []),
+            matched:   new Set<string>(readMatchedEvents(sr)),
+            activated: new Set<string>(readActivatedEvents(sr)),
           });
         }
 
@@ -217,7 +218,7 @@ export const useMachineSimulation = () => {
           status: fired ? ('processing' as const) : ('idle' as const),
           justFired: hasOutputFired,
           hasInitialMatch,
-          latestInputVector:  result?.inputVector  ?? m.latestInputVector,
+          latestInputVector:  readInputEvent(result) ?? m.latestInputVector,
           latestOutputVector: hasOutputFired
             ? (result?.outputVector ?? m.latestOutputVector)
             : m.latestOutputVector,

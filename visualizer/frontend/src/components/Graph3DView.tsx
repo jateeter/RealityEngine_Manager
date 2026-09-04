@@ -28,6 +28,7 @@ import {
 } from './machineDomains';
 import { composeFilters } from './graphFilters';
 import { useTheme } from '../contexts/ThemeContext';
+import { readActivatedEvents } from '../utils/eventKeys';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -102,7 +103,7 @@ function getMachineColorState(
   const seqResults = result.transitionResult?.sequenceResults;
   if (seqResults) {
     for (const sr of Object.values(seqResults)) {
-      if ((sr.activatedVectors?.length ?? 0) > 0) return 'active';
+      if (readActivatedEvents(sr).length > 0) return 'active';
     }
   }
   return 'idle';
@@ -131,7 +132,7 @@ function getDomainActivity(
     const fired = mr.outputVector !== null && mr.outputVector !== undefined;
     const seqResults = mr.transitionResult?.sequenceResults ?? {};
     const activeSeqs = Object.entries(seqResults)
-      .filter(([, sr]) => (sr.activatedVectors?.length ?? 0) > 0)
+      .filter(([, sr]) => readActivatedEvents(sr).length > 0)
       .map(([name]) => name);
     if (fired || activeSeqs.length > 0) {
       out.push({

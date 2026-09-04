@@ -28,6 +28,7 @@ import { Graph3DView } from './Graph3DView';
 import { Graph3DToggle } from './Graph3DToggle';
 import './MachineGraphView.css';
 import './VisLegend.css';
+import { readActivatedEvents, readInputEvent, readMatchedEvents } from '../utils/eventKeys';
 
 interface MachineNode {
   id: string;
@@ -114,7 +115,7 @@ function getMachineColorState(
   const seqResults = result.transitionResult?.sequenceResults;
   if (seqResults) {
     for (const sr of Object.values(seqResults)) {
-      if ((sr.activatedVectors?.length ?? 0) > 0) return 'active';
+      if (readActivatedEvents(sr).length > 0) return 'active';
     }
   }
   return 'idle';
@@ -1714,13 +1715,13 @@ export const MachineGraphView: React.FC = () => {
     const seqResults = r.transitionResult?.sequenceResults;
     if (seqResults) {
       for (const sr of Object.values(seqResults)) {
-        for (const id of sr.activatedVectors ?? []) activated.add(id);
-        for (const id of sr.matchedVectors   ?? []) matched.add(id);
+        for (const id of readActivatedEvents(sr)) activated.add(id);
+        for (const id of readMatchedEvents(sr)) matched.add(id);
       }
     }
     return {
       stepNumber:   currentStep.stepNumber,
-      inputVector:  r.inputVector,
+      inputVector:  readInputEvent(r),
       outputVector: r.outputVector,
       inputRegion:  r.inputRegion,
       outputRegion: r.outputRegion,
