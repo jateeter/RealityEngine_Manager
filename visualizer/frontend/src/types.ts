@@ -8,11 +8,7 @@ export interface VectorNode {
   lastOutputVector?: OutputVector | null; // The last output produced, visible until next input
   elements: VectorElement[];
   metadata: Record<string, any>;
-  // The engine may answer in either spelling while RealityEngine_CI#220 layer 1
-  // is in flight. Read these through `outputEvents()` in lib/corpusEventKeys
-  // rather than directly, so layer 1c has one place to collapse them.
   outputEvents?: OutputVector[];
-  outputVectors?: OutputVector[];
 }
 
 export interface VectorElement {

@@ -43,7 +43,6 @@ import {
 } from './integrations/adapters/CareKitBridge.js';
 import type { CKIngestPayload } from './integrations/adapters/CareKitBridge.js';
 import { verifyOpenAIWebhookSignature } from './integrations/openaiWebhookSignature.js';
-import { sequenceEvents, type InputSequenceShaped } from './corpusEventKeys.js';
 
 // Bundled example mapping registry — served by GET /api/mqtt/example so
 // the PE visualizer's MqttConfigModal can offer a "Load example" button
@@ -636,7 +635,7 @@ function resetAndBroadcast(): void {
 interface MachineSummary {
   id: string;
   name: string;
-  metadata?: { inputSequences?: InputSequenceShaped[] };
+  metadata?: { inputSequences?: Array<{ name: string; events?: number[][]; recur?: boolean }> };
   perceptualMapping?: { input?: { offset: number; length: number } };
 }
 
@@ -732,7 +731,7 @@ async function bootstrapMachineTestSources(
     const concatVectors: number[][] = [];
     const segments: { name: string; length: number }[] = [];
     for (const seq of inputSequences) {
-      const events = sequenceEvents(seq);
+      const events = seq?.events ?? [];
       if (!seq?.name || events.length === 0) continue;
       segments.push({ name: seq.name, length: events.length });
       for (const v of events) concatVectors.push(v);
