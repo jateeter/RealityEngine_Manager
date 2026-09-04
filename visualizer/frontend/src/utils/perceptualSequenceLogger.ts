@@ -44,7 +44,7 @@ export interface PerceptualLogEntry {
 
     // Vector operations
     vectorId?: string;
-    vectorDimension?: number;
+    eventDimension?: number;
     vectorSource?: 'algorithmic' | 'random' | 'manual' | 'override';
     vectorPattern?: string;
     vectorRegion?: { offset: number; length: number };

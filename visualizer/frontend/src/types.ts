@@ -41,8 +41,8 @@ export interface SequenceGraph {
   nodes: VectorNode[];
   edges: Edge[];
   stats: {
-    totalVectors: number;
-    activeVectors: number;
+    totalEvents: number;
+    activeEvents: number;
     initialVectors: number;
     outputVectors: number;
   };
@@ -53,7 +53,7 @@ export interface Machine {
   name: string;
   description: string;
   sequenceCount: number;
-  totalVectors: number;
+  totalEvents: number;
   sequenceIds: string[];
   sequences: Array<{
     id: string;
@@ -90,7 +90,7 @@ export interface MachineUpdateRequest {
 
 export interface EngineStats {
   totalSequences: number;
-  totalVectors: number;
+  totalEvents: number;
   totalActiveVectors: number;
   sequenceStats: Array<{
     id: string;
@@ -127,11 +127,11 @@ export interface WebSocketMessage {
 }
 
 export interface TransitionResult {
-  inputVector: number[];
+  inputEvent: number[];
   timestamp: number;
   sequenceResults: Record<string, {
     matched: boolean;
-    matchedVectors: string[];
+    matchedEvents: string[];
     transitions: Array<{
       fromVectorId: string;
       toVectorId: string;

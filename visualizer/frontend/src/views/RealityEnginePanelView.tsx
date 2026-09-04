@@ -22,7 +22,6 @@ import type {
   TooltipVectorElement,
 } from '../components/MachineSequenceTooltip';
 import './RealityEnginePanelView.css';
-import { readTotalEvents } from '../utils/eventKeys';
 
 // ── Surface status polling ────────────────────────────────────────────────────
 // Polls RE and PE health + engine-active every STATUS_POLL_MS milliseconds.
@@ -657,7 +656,7 @@ const RealityEnginePanelView: React.FC = () => {
                     <span className="rep-row-meta">
                       {seqCount}<span className="rep-meta-unit"> ces</span>
                       <span className="rep-meta-dot">·</span>
-                      {readTotalEvents(m)}<span className="rep-meta-unit"> vec</span>
+                      {m.totalEvents}<span className="rep-meta-unit"> vec</span>
                     </span>
                   </div>
                 );

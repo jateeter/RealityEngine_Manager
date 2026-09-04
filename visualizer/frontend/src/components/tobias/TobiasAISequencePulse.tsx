@@ -3,7 +3,6 @@ import { StepRecord, VisMachine } from '../../hooks/useMachineSimulation';
 import { classifyMachine, domainColor } from '../machineDomains';
 
 import './TobiasAISequencePulse.css';
-import { readMatchedEvents } from '../../utils/eventKeys';
 
 /*
   TobiasAISequencePulse
@@ -68,7 +67,7 @@ const TobiasAISequencePulse: React.FC<Props> = ({ stepHistory, machines }) => {
           rawMr?.transitionResult?.sequenceResults ?? {};
 
         for (const [seqId, sr] of Object.entries(seqResults)) {
-          const matched: string[] = readMatchedEvents(sr);
+          const matched: string[] = (sr.matchedEvents ?? []);
           if (matched.length === 0) continue;
 
           // "Fired" means a terminal (hasOutput) vector matched.

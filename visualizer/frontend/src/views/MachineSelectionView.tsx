@@ -17,7 +17,6 @@ import type {
   TooltipMachineData,
 } from '../components/MachineSequenceTooltip';
 import './MachineSelectionView.css';
-import { readTotalEvents } from '../utils/eventKeys';
 
 // ── Domain info tooltip ───────────────────────────────────────────────────────
 
@@ -624,7 +623,7 @@ const MachineSelectionView: React.FC = () => {
                     <span className="msv-row-meta">
                       {seqCount} CES
                       <span className="msv-meta-divider">·</span>
-                      {readTotalEvents(m)} Reality Events
+                      {m.totalEvents} Reality Events
                     </span>
                   </div>
                 );
