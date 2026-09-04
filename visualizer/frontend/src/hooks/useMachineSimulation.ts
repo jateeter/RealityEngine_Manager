@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { api, perceptionEngineApi } from '../api';
+import { outputEvents } from '../lib/corpusEventKeys';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -105,7 +106,7 @@ export const useMachineSimulation = () => {
             // Prefer semantic name from metadata, fall back to truncated UUID
             label: n.metadata?.name || n.metadata?.role || (n.label && !n.label.startsWith('V-') ? n.label : '') || n.id.slice(-8),
             isInitial: n.isInitial ?? false,
-            hasOutput: n.hasOutput ?? (n.outputVectors?.length > 0),
+            hasOutput: n.hasOutput ?? outputEvents(n).length > 0,
             isActive: n.isActive ?? false,
             elements: n.elements ?? [],
           })),
