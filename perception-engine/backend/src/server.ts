@@ -130,7 +130,7 @@ const EXAMPLE_CK_REGISTRY_JSON = {
  * and this one — so a multi-engine universe answers from a single model
  * unless an operator overrides it per engine with OLLAMA_MODEL.
  *
- * Recorded in RealityEngine_CI/docs/OLLAMA_INTEGRATION.md. The runtimes
+ * Recorded in RealityEngine_CI/docs/INTEGRATION_ARCHITECTURE.md. The runtimes
  * previously disagreed (gpt-oss:20b here and there, llama3.2 on Scala, empty
  * on this one), which made any cross-runtime comparison of provider output
  * meaningless before it started.
@@ -1670,7 +1670,7 @@ app.get('/api/integrations/ollama/status', async (_req: Request, res: Response) 
   // DEFAULT_OLLAMA_MODEL is the canonical default shared by every runtime, so
   // a multi-engine universe answers from one model unless an operator
   // overrides it per engine. See
-  // RealityEngine_CI/docs/OLLAMA_INTEGRATION.md.
+  // RealityEngine_CI/docs/INTEGRATION_ARCHITECTURE.md.
   const baseUrl = (process.env['OLLAMA_BASE_URL']
     ?? (typeof entry?.['baseUrl'] === 'string' ? entry['baseUrl'] : undefined)
     ?? 'http://localhost:11434').replace(/\/$/, '');
