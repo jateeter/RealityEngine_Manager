@@ -17,7 +17,6 @@ import type {
   TooltipMachineData,
 } from '../components/MachineSequenceTooltip';
 import './MachineSelectionView.css';
-import { sequenceEvents, outputEvents, nextEventIds } from '../lib/corpusEventKeys';
 
 // ── Domain info tooltip ───────────────────────────────────────────────────────
 
@@ -397,17 +396,17 @@ const MachineSelectionView: React.FC = () => {
         name:        m.name        ?? name,
         description: m.description ?? '',
         sequences: (m.sequences ?? []).map((seq: any) => {
-          const events = sequenceEvents(seq);
+          const events = (seq.events ?? []);
           const nodes = events.map((v: any) => ({
             id:        v.id,
             label:     v.metadata?.name ?? v.id.slice(-6),
             isInitial: v.isInitial ?? false,
-            hasOutput: outputEvents(v).length > 0,
+            hasOutput: (v.outputEvents?.length ?? 0) > 0,
             elements:  Array.isArray(v.elements) ? v.elements : [],
           }));
           const edges: Array<{ source: string; target: string }> = [];
           for (const v of events)
-            for (const nid of nextEventIds(v))
+            for (const nid of (v.nextEventIds ?? []))
               edges.push({ source: v.id, target: nid });
           return { sequenceId: seq.id, name: seq.name, nodes, edges };
         }),

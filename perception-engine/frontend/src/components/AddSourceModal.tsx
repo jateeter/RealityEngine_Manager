@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { sequenceEvents, type InputSequenceShaped } from '../types.js';
+import type { InputSequenceShaped } from '../types.js';
 import type { SourceConfig, SimPattern } from '../types.js';
 import { getMachines } from '../api.js';
 import { classifyMachine, DOMAIN_ORDER, DOMAINS, type DomainId } from './machineDomains.js';
@@ -184,7 +184,7 @@ export default function AddSourceModal({ onAdd, onClose, vectorSize = 256 }: Pro
         alert('Please select a machine and sequence.');
         return;
       }
-      const mapping = selectedMachine.perceptualMapping?.input ?? { offset: testOffset, length: sequenceEvents(selectedSeq)[0]?.length ?? 4 };
+      const mapping = selectedMachine.perceptualMapping?.input ?? { offset: testOffset, length: (selectedSeq.events ?? [])[0]?.length ?? 4 };
       onAdd({
         type: 'test',
         name: name.trim(),
@@ -193,7 +193,7 @@ export default function AddSourceModal({ onAdd, onClose, vectorSize = 256 }: Pro
         machineId: selectedMachineId,
         machineName: selectedMachine.name,
         sequenceName: selectedSeq.name,
-        inputs: sequenceEvents(selectedSeq),
+        inputs: selectedSeq.events ?? [],
         loop: testLoop,
       } as Omit<SourceConfig, 'id'>);
       return;
@@ -371,7 +371,7 @@ export default function AddSourceModal({ onAdd, onClose, vectorSize = 256 }: Pro
                 <Field label="Input Sequence">
                   <select style={input} value={selectedSeqName} onChange={e => setSelectedSeqName(e.target.value)}>
                     <option value="">— select sequence —</option>
-                    {sequences.map(s => <option key={s.name} value={s.name}>{s.name} ({sequenceEvents(s).length} steps)</option>)}
+                    {sequences.map(s => <option key={s.name} value={s.name}>{s.name} ({(s.events ?? []).length} steps)</option>)}
                   </select>
                 </Field>
               )}
