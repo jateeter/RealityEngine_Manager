@@ -11,7 +11,25 @@ function formatTime(ts: number): string {
 
 function summarize(step: Record<string, unknown> | undefined): string {
   if (!step) return 'no step data';
+
   const machineResults = step['machineResults'] as Record<string, { outputVector: number[] | null; machineName?: string }> | undefined;
+
+  // Prefer mergeBatch. It already holds exactly what this summary wants — one
+  // entry per machine that produced output — and the push path needs it anyway
+  // for trigger dispatch, so reading it here costs nothing extra.
+  //
+  // machineResults says the same thing far more expensively: an entry for every
+  // machine in the corpus, fired or not, which is 87% of a step's payload. The
+  // push no longer requests it, so this is the path that normally runs.
+  const mergeBatch = step['mergeBatch'] as Array<{ machineId?: string; machineName?: string }> | undefined;
+  if (Array.isArray(mergeBatch)) {
+    const fired = mergeBatch.map(op => op.machineName ?? op.machineId ?? 'machine');
+    if (fired.length === 0) return 'no outputs';
+    return fired.slice(0, 4).join(', ') + (fired.length > 4 ? ` +${fired.length - 4} more` : '');
+  }
+
+  // Fallback for a step fetched with the full payload — the observation views
+  // still request it, and a log entry captured from one should render the same.
   if (!machineResults) return 'processed';
 
   const fired = Object.values(machineResults)
