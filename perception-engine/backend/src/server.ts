@@ -544,6 +544,19 @@ async function doPush(): Promise<PushResult> {
       // Not a contract change. The runtimes still serve the full step to anyone
       // who asks; this is the caller declining to ask on the hot path.
       includeMachineResults: false,
+      // Same class, same reasoning. activeRegions is built by walking
+      // machineResults, so it scales with the corpus rather than with what
+      // fired, and after the line above it was 73% of what remained. Its
+      // consumers are graph overlays and e2e assertions — nothing on this path.
+      //
+      //   full                           89.4 ms   1.49 MB
+      //   no machineResults              23.8 ms   0.23 MB
+      //   + no activeRegions             15.0 ms   0.07 MB
+      //
+      // Supported by all three engines as of RealityEngine_CI#259. An engine
+      // that does not know the flag ignores it and returns the field, which is
+      // the old behaviour rather than a failure.
+      includeActiveRegions: false,
     });
     engine.advance();
     lastPush = Date.now();
