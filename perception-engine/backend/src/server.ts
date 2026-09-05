@@ -525,6 +525,25 @@ async function doPush(): Promise<PushResult> {
     const response = await reAxios.post(`${REALITY_ENGINE_URL}/api/perceive`, {
       vector,
       matchAlgorithm: engine.matchAlgorithm,
+      // Ask for what this push consumes, not for everything the step can
+      // describe. Two fields drive the result:
+      //
+      //   perceptualSpace  written back below, so machine outputs from this
+      //                    step carry into the next push
+      //   mergeBatch       scanned by triggerDispatcher.dispatchStep, one entry
+      //                    per machine that produced output
+      //
+      // machineResults is an observation surface — every consumer is a UI view
+      // (node colouring, tooltips, the push log) or a test. It is also 87% of
+      // the payload, one entry per machine across the whole corpus, and asking
+      // for it costs more than the engine spends computing the step:
+      //
+      //   full              89.4 ms   1.49 MB
+      //   no machineResults 23.8 ms   0.23 MB
+      //
+      // Not a contract change. The runtimes still serve the full step to anyone
+      // who asks; this is the caller declining to ask on the hot path.
+      includeMachineResults: false,
     });
     engine.advance();
     lastPush = Date.now();
