@@ -145,3 +145,11 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Perception Engine runtime state
+#
+# The PE writes its source store here at runtime. A regression run left a 2.4 MB
+# perception-sources.json in an un-ignored directory, which is one `git add -A`
+# away from being committed — and it is machine state, not source: it differs per
+# run and per deployment.
+perception-engine/backend/data/
