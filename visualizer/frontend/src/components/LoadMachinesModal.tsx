@@ -147,7 +147,7 @@ export function LoadMachinesModal({ onClose }: LoadMachinesModalProps) {
     const hasContent = (node.children?.length ?? 0) > 0 || node.machines.length > 0;
     return (
       <div key={node.key} className="lmm-node" style={{ marginLeft: depth * 16 }}>
-        <div className="lmm-node-row">
+        <div className="lmm-node-row" data-testid="load-machines-row">
           <button
             className="lmm-expander"
             aria-label={isExpanded ? `Collapse ${node.label}` : `Expand ${node.label}`}
@@ -241,7 +241,7 @@ export function LoadMachinesModal({ onClose }: LoadMachinesModalProps) {
               All {engineCount} engines
             </label>
           )}
-          <span className="lmm-count">{selected} selected</span>
+          <span className="lmm-count" data-testid="load-machines-count">{selected} selected</span>
           <button
             className="lmm-load-btn"
             disabled={selected === 0 || loading || catalog?.engineReachable === false}

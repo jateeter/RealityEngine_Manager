@@ -128,7 +128,7 @@ async function resetPE(request: APIRequestContext, engine: EngineTarget): Promis
 
 async function loadCompleteTree(page: Page): Promise<{ rowCount: number; loadedOk: boolean }> {
   await page.goto('/');
-  await expect(page.locator('.rep-title')).toContainText(/Reality\s*Engine/, { timeout: 30_000 });
+  await expect(page.getByTestId('re-title')).toContainText(/Reality\s*Engine/, { timeout: 30_000 });
   await expect(page.getByRole('button', { name: /PE Manager/ })).toBeVisible({ timeout: 10_000 });
   return waitForTreeRows(page);
 }

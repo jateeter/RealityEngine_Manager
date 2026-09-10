@@ -36,17 +36,17 @@ test.describe('Reality Engine Visualizer E2E', () => {
     page = testPage;
     await page.goto('/');
     // The wordmark ("Reality" + accent " Engine") renders without any backend.
-    await expect(page.locator('.rep-title')).toContainText(TITLE, { timeout: 30000 });
+    await expect(page.getByTestId('re-title')).toContainText(TITLE, { timeout: 30000 });
   });
 
   test.describe('Landing surface', () => {
     test('renders the Reality Engine header and subtitle', async () => {
-      await expect(page.locator('.rep-title')).toContainText(TITLE);
+      await expect(page.getByTestId('re-title')).toContainText(TITLE);
       await expect(page.locator('.rep-subtitle')).toContainText('perception');
     });
 
     test('shows the toolbar stats (machines · CES · domains)', async () => {
-      const stats = page.locator('.rep-toolbar-stats');
+      const stats = page.getByTestId('toolbar-stats');
       await expect(stats).toBeVisible();
       await expect(stats).toContainText('machines');
       await expect(stats).toContainText('CES');
@@ -124,7 +124,7 @@ test.describe('Reality Engine Visualizer E2E', () => {
     });
 
     test('toolbar machine count agrees with the engine', async () => {
-      const stats = page.locator('.rep-toolbar-stats');
+      const stats = page.getByTestId('toolbar-stats');
       await expect(stats).toBeVisible({ timeout: 30000 });
 
       const { count } = await corpusFromEngine(page);
@@ -141,7 +141,7 @@ test.describe('Reality Engine Visualizer E2E', () => {
       await expect(page.getByText('no machines found')).toBeVisible({ timeout: 10000 });
 
       // Clearing the search restores the tree.
-      await page.locator('.rep-search-clear').click();
+      await page.getByTestId('tree-search-clear').click();
       await expect(tree).toBeVisible();
     });
 

@@ -55,6 +55,7 @@ export function GraphFilterPanel({
             <button
               key={type}
               className="vis-filter-chip"
+              data-testid="graph-filter-chip"
               role="button"
               aria-pressed={pressed}
               onClick={() => toggleNodeType(type)}
@@ -119,6 +120,7 @@ export function GraphFilterPanel({
           <div className="vis-legend-divider" />
           <button
             className="vis-reset-filters-btn"
+            data-testid="graph-filters-reset"
             onClick={resetGraphFilters}
             title="Clear all graph filters"
             aria-label="Reset all graph filters"

@@ -69,7 +69,7 @@ test.describe('SetupToolsMenu', () => {
   test('"Visualizer Settings" menu item opens the settings modal', async ({ page }) => {
     await openApp(page);
     await openSettings(page);
-    await expect(page.locator('dialog.settings-dialog')).toBeVisible();
+    await expect(page.getByTestId('settings-dialog')).toBeVisible();
   });
 });
 
@@ -80,7 +80,7 @@ test.describe('Settings modal', () => {
   });
 
   test('modal has correct ARIA attributes', async ({ page }) => {
-    const dialog = page.locator('dialog.settings-dialog');
+    const dialog = page.getByTestId('settings-dialog');
     await expect(dialog).toHaveAttribute('aria-modal', 'true');
     const labelId = await dialog.getAttribute('aria-labelledby');
     expect(labelId).toBeTruthy();
@@ -94,12 +94,12 @@ test.describe('Settings modal', () => {
       () => !document.querySelector('dialog.settings-dialog[open]'),
       { timeout: 5_000 },
     );
-    await expect(page.locator('dialog.settings-dialog')).not.toBeVisible();
+    await expect(page.getByTestId('settings-dialog')).not.toBeVisible();
   });
 
   test('Done button closes the modal', async ({ page }) => {
     await closeWithDone(page);
-    await expect(page.locator('dialog.settings-dialog')).not.toBeVisible();
+    await expect(page.getByTestId('settings-dialog')).not.toBeVisible();
   });
 
   test('focus returns to setup-tools trigger after closing', async ({ page }) => {

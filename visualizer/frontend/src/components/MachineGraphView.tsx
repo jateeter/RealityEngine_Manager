@@ -1832,6 +1832,7 @@ export const MachineGraphView: React.FC = () => {
         <div className={`vis-legend-panel${legendOpen ? ' open' : ''}`}>
           <button
             className="vis-legend-tab"
+            data-testid="graph-legend-tab"
             onClick={() => setLegendOpen(o => !o)}
             title={legendOpen ? 'Hide legend' : 'Show legend'}
           >
@@ -1956,7 +1957,7 @@ export const MachineGraphView: React.FC = () => {
           </div>
         </div>
 
-        <svg ref={svgRef} className="machine-graph-svg" style={{ opacity: isReady && !is3D ? 1 : 0, transition: 'opacity 0.4s ease', display: is3D ? 'none' : undefined }}></svg>
+        <svg ref={svgRef} className="machine-graph-svg" data-testid="machine-graph" style={{ opacity: isReady && !is3D ? 1 : 0, transition: 'opacity 0.4s ease', display: is3D ? 'none' : undefined }}></svg>
 
         {!is3D && tooltip && (
           <SequenceTooltip

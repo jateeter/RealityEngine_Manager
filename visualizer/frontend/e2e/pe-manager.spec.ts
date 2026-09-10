@@ -23,7 +23,7 @@ const TITLE = /Reality\s*Engine/;
 
 async function loadApp(page: Page): Promise<void> {
   await page.goto('/');
-  await expect(page.locator('.rep-title')).toContainText(TITLE, { timeout: 30_000 });
+  await expect(page.getByTestId('re-title')).toContainText(TITLE, { timeout: 30_000 });
 }
 
 async function selectEngine(page: Page, instanceId: string, runtime: string): Promise<void> {

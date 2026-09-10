@@ -25,34 +25,34 @@ test.describe('Load Machines modal', () => {
   });
 
   test('corpus tree renders with counts and loaded badges', async ({ page }) => {
-    await expect(page.locator('.lmm-node-row').first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('load-machines-row').first()).toBeVisible({ timeout: 15_000 });
     const counts = page.locator('.lmm-node-count');
     expect(await counts.count()).toBeGreaterThan(0);
     await expect(counts.first()).toContainText(/\d+\/\d+ loaded/);
   });
 
   test('tri-state selection updates the footer count', async ({ page }) => {
-    await expect(page.locator('.lmm-node-row').first()).toBeVisible({ timeout: 15_000 });
-    await expect(page.locator('.lmm-count')).toHaveText('0 selected');
+    await expect(page.getByTestId('load-machines-row').first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('load-machines-count')).toHaveText('0 selected');
 
     const firstNodeCheckbox = page.locator('.lmm-node-row input[type="checkbox"]').first();
     await firstNodeCheckbox.check();
-    await expect(page.locator('.lmm-count')).not.toHaveText('0 selected');
+    await expect(page.getByTestId('load-machines-count')).not.toHaveText('0 selected');
 
     await firstNodeCheckbox.uncheck();
-    await expect(page.locator('.lmm-count')).toHaveText('0 selected');
+    await expect(page.getByTestId('load-machines-count')).toHaveText('0 selected');
   });
 
   test('filter narrows the tree', async ({ page }) => {
-    await expect(page.locator('.lmm-node-row').first()).toBeVisible({ timeout: 15_000 });
-    const before = await page.locator('.lmm-node-row').count();
+    await expect(page.getByTestId('load-machines-row').first()).toBeVisible({ timeout: 15_000 });
+    const before = await page.getByTestId('load-machines-row').count();
     await page.locator('.lmm-filter').fill('zzz-no-such-machine-zzz');
-    const after = await page.locator('.lmm-node-row').count();
+    const after = await page.getByTestId('load-machines-row').count();
     expect(after).toBeLessThan(before);
   });
 
   test('loading a small selection reports a summary', async ({ page }) => {
-    await expect(page.locator('.lmm-node-row').first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('load-machines-row').first()).toBeVisible({ timeout: 15_000 });
 
     // Pick a child node ('domains' is default-expanded); skip-if-present
     // makes re-runs report skips instead of duplicating machines.
