@@ -165,9 +165,26 @@ test.describe('Reality Engine Visualizer E2E', () => {
     test('active runtime is one the registry actually holds', async () => {
       const switcher = page.getByTitle('Switch active engine instance');
       await expect(switcher).toBeVisible({ timeout: 30000 });
-      // Whichever runtime is active, the badge names one of the four. Asserting
-      // a specific one only tests which universe was deployed.
-      await expect(switcher).toContainText(/\b(ai|scala|cpp|lsp)\b/);
+
+      // Derived from the registry, not pattern-matched. An earlier version
+      // asserted /\b(ai|scala|cpp|lsp)\b/ and failed against a correct app:
+      // the badge renders id and runtime concatenated — "defaultscala" — so
+      // there is no word boundary before the runtime and \b could never match.
+      // Asking the registry what it holds is both correct and the thing the
+      // test name claims to do.
+      const resp = await page.request.get('/api/engines');
+      expect(resp.ok(), 'Manager must serve GET /api/engines').toBeTruthy();
+      const body = await resp.json();
+      const runtimes: string[] = (body.instances ?? [])
+        .map((i: Record<string, unknown>) => String(i.runtime ?? ''))
+        .filter(Boolean);
+      expect(runtimes.length, 'the registry must hold at least one instance').toBeGreaterThan(0);
+
+      const shown = (await switcher.innerText()).toLowerCase();
+      expect(
+        runtimes.some(rt => shown.includes(rt.toLowerCase())),
+        `switcher shows "${shown.trim()}", none of the registry runtimes ${JSON.stringify(runtimes)}`,
+      ).toBeTruthy();
     });
 
     test('dropdown lists engine instances with RE/PE endpoints', async () => {
