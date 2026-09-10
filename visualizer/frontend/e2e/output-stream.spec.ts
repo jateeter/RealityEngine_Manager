@@ -60,11 +60,55 @@ test.describe('Reality Engine Visualizer E2E', () => {
     });
   });
 
-  test.describe('Machine tree (loaded from the Scala engine)', () => {
-    test('renders the domain tree with at least one machine domain', async () => {
+  test.describe('Machine tree (reflects the corpus under test)', () => {
+    /**
+     * The corpus the active engine actually booted, read through the Manager's
+     * own proxy — the same path the tree is fed from.
+     *
+     * Deriving the expectation instead of hardcoding it is the point. "At least
+     * one domain" passed against a universe missing most of its corpus, and a
+     * hardcoded list would only ever be right for one corpus. Whatever the
+     * engine holds, the tree must show — and because every runtime serves the
+     * same `GET /api/machines` shape, this reads identically against ai, cpp,
+     * lsp or scala. A tree that disagrees with its own engine is the defect,
+     * whichever engine is active.
+     */
+    async function corpusFromEngine(page: Page) {
+      const resp = await page.request.get('/api/machines');
+      expect(resp.ok(), 'Manager must proxy GET /api/machines').toBeTruthy();
+      const body = await resp.json();
+      const machines: Array<Record<string, unknown>> = body.machines ?? [];
+      const domains = new Set<string>();
+      for (const m of machines) {
+        const meta = (m.metadata ?? {}) as Record<string, unknown>;
+        const d = (meta.domain ?? m.domain) as string | undefined;
+        if (d) domains.add(String(d));
+      }
+      return { count: machines.length, domains };
+    }
+
+    test('renders every domain the active engine reports', async () => {
       const tree = page.getByRole('tree', { name: /Machines grouped by domain/ });
       await expect(tree).toBeVisible({ timeout: 30000 });
-      await expect(tree.getByRole('treeitem').first()).toBeVisible();
+
+      const { count, domains } = await corpusFromEngine(page);
+      expect(count, 'the engine must have booted a non-empty corpus').toBeGreaterThan(0);
+
+      const rows = tree.locator('[role="treeitem"][aria-level="1"]');
+      await expect(rows.first()).toBeVisible({ timeout: 15000 });
+
+      // Domain rows are the tree's top level; the engine's domain set is what
+      // they must be. Compared as sets so ordering stays the tree's business.
+      if (domains.size > 0) {
+        await expect(rows).toHaveCount(domains.size, { timeout: 15000 });
+        const shown = (await rows.allInnerTexts()).map(t => t.trim().toLowerCase());
+        for (const d of domains) {
+          expect(
+            shown.some(row => row.includes(d.toLowerCase())),
+            `domain "${d}" is in the booted corpus but absent from the tree`,
+          ).toBeTruthy();
+        }
+      }
     });
 
     test('expands a domain to reveal its machines', async () => {
@@ -77,6 +121,16 @@ test.describe('Reality Engine Visualizer E2E', () => {
       // After expanding, a level-2 (machine) row should appear.
       await expect(tree.locator('[role="treeitem"][aria-level="2"]').first())
         .toBeVisible({ timeout: 10000 });
+    });
+
+    test('toolbar machine count agrees with the engine', async () => {
+      const stats = page.locator('.rep-toolbar-stats');
+      await expect(stats).toBeVisible({ timeout: 30000 });
+
+      const { count } = await corpusFromEngine(page);
+      // The header states a number; it must be the engine's number. This is the
+      // cheapest place a corpus mismatch shows up, and it was unasserted.
+      await expect(stats).toContainText(String(count), { timeout: 15000 });
     });
 
     test('search narrows the tree and reports no matches for nonsense', async () => {
