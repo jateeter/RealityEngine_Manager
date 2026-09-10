@@ -1,0 +1,140 @@
+version: 2
+
+# Dependency currency for the Manager: four npm packages and the four images
+# built from them.
+#
+# House policy across this workspace: weekly, and **majors are proposed too** —
+# Dependabot opens the PR, a human still merges it. Worth knowing what that
+# means here: a React or Vite major is a build-tooling migration, and these
+# four packages are what `startUniverse.sh` serves. Read the PR, do not just
+# take the green check.
+#
+# Each package directory is listed separately because Dependabot resolves one
+# manifest per directory; a single root entry would silently track none of
+# them.
+
+updates:
+
+  # visualizer backend
+  - package-ecosystem: npm
+    directory: /visualizer/backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Chicago
+    groups:
+      react:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react*"
+      build-tooling:
+        patterns:
+          - "vite*"
+          - "typescript"
+          - "@vitejs/*"
+    open-pull-requests-limit: 5
+
+  # visualizer frontend
+  - package-ecosystem: npm
+    directory: /visualizer/frontend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Chicago
+    groups:
+      react:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react*"
+      build-tooling:
+        patterns:
+          - "vite*"
+          - "typescript"
+          - "@vitejs/*"
+    open-pull-requests-limit: 5
+
+  # PE backend
+  - package-ecosystem: npm
+    directory: /perception-engine/backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Chicago
+    groups:
+      react:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react*"
+      build-tooling:
+        patterns:
+          - "vite*"
+          - "typescript"
+          - "@vitejs/*"
+    open-pull-requests-limit: 5
+
+  # PE frontend
+  - package-ecosystem: npm
+    directory: /perception-engine/frontend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Chicago
+    groups:
+      react:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react*"
+      build-tooling:
+        patterns:
+          - "vite*"
+          - "typescript"
+          - "@vitejs/*"
+    open-pull-requests-limit: 5
+
+  # visualizer backend image
+  - package-ecosystem: docker
+    directory: /visualizer/backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Chicago
+    open-pull-requests-limit: 3
+
+  # visualizer frontend image
+  - package-ecosystem: docker
+    directory: /visualizer/frontend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Chicago
+    open-pull-requests-limit: 3
+
+  # PE backend image
+  - package-ecosystem: docker
+    directory: /perception-engine/backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Chicago
+    open-pull-requests-limit: 3
+
+  # PE frontend image
+  - package-ecosystem: docker
+    directory: /perception-engine/frontend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Chicago
+    open-pull-requests-limit: 3
