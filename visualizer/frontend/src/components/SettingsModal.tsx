@@ -75,6 +75,7 @@ export function SettingsModal({ open, onClose, triggerRef }: Props) {
     <dialog
       ref={dialogRef}
       className="settings-dialog"
+      data-testid="settings-dialog"
       aria-modal="true"
       aria-labelledby={headingId}
       onClick={handleBackdropClick}

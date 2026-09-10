@@ -447,7 +447,7 @@ const RealityEnginePanelView: React.FC = () => {
       <header className="rep-header">
 
         <div className="rep-wordmark">
-          <div className="rep-title">
+          <div className="rep-title" data-testid="re-title">
             Reality<span className="rep-title-accent"> Engine</span>
           </div>
           <div className="rep-subtitle">perception · sequence · visualization</div>
@@ -464,7 +464,7 @@ const RealityEnginePanelView: React.FC = () => {
               onChange={e => setSearchQuery(e.target.value)}
             />
             {searchQuery && (
-              <button className="rep-search-clear" onClick={() => setSearchQuery('')} title="Clear search">✕</button>
+              <button className="rep-search-clear" data-testid="tree-search-clear" onClick={() => setSearchQuery('')} title="Clear search">✕</button>
             )}
           </div>
         </div>
@@ -520,7 +520,7 @@ const RealityEnginePanelView: React.FC = () => {
           ))}
         </div>
 
-        <div className="rep-toolbar-stats">
+        <div className="rep-toolbar-stats" data-testid="toolbar-stats">
           <span className="rep-stat-value">{totalMachines}</span>
           <span className="rep-stat-label"> machines</span>
           <span className="rep-stat-sep">·</span>
@@ -599,6 +599,7 @@ const RealityEnginePanelView: React.FC = () => {
                   aria-expanded={hasKids ? isExp : undefined}
                   aria-selected={isFocused}
                   className={`rep-row rep-row-domain${isFocused ? ' is-focused' : ''}`}
+                  data-testid="tree-row-domain"
                   style={{ ['--dc' as any]: n.color }}
                   onClick={() => { setFocusedId(n.id); toggle(n.id); }}
                 >

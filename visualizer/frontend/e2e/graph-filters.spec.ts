@@ -60,7 +60,7 @@ test.describe('Graph Legend Filters', () => {
     await openGraphView(page);
     await openLegend(page);
 
-    const chips = page.locator('.vis-filter-chip');
+    const chips = page.getByTestId('graph-filter-chip');
     await expect(chips).toHaveCount(5); // standard, interconnect, agent-dispatcher, portals, pe-sources
 
     // All chips should start pressed (all types visible)
@@ -80,7 +80,7 @@ test.describe('Graph Legend Filters', () => {
     await expect(machinesChip).toHaveAttribute('aria-pressed', 'false');
 
     // Reset filters button should appear
-    await expect(page.locator('.vis-reset-filters-btn')).toBeVisible();
+    await expect(page.getByTestId('graph-filters-reset')).toBeVisible();
   });
 
   test('toggling chip back re-enables it', async ({ page }) => {
@@ -162,7 +162,7 @@ test.describe('Graph Legend Filters', () => {
     await expect(firstLaneCheckbox).toBeChecked();
 
     // Reset button appears when a lane is selected
-    await expect(page.locator('.vis-reset-filters-btn')).toBeVisible();
+    await expect(page.getByTestId('graph-filters-reset')).toBeVisible();
   });
 
   test('reset filters button clears all filter state', async ({ page }) => {
@@ -172,17 +172,17 @@ test.describe('Graph Legend Filters', () => {
     // Activate portal focus
     const portalFocusCheckbox = page.locator('input[aria-label="OpenClaw Portals only"]');
     await portalFocusCheckbox.check();
-    await expect(page.locator('.vis-reset-filters-btn')).toBeVisible();
+    await expect(page.getByTestId('graph-filters-reset')).toBeVisible();
 
     // Click reset
-    await page.locator('.vis-reset-filters-btn').click();
+    await page.getByTestId('graph-filters-reset').click();
 
     // Portal focus should be cleared
     await expect(portalFocusCheckbox).not.toBeChecked();
     // Reset button should disappear
-    await expect(page.locator('.vis-reset-filters-btn')).toBeHidden();
+    await expect(page.getByTestId('graph-filters-reset')).toBeHidden();
     // All chips should be active again
-    const chips = page.locator('.vis-filter-chip');
+    const chips = page.getByTestId('graph-filter-chip');
     for (const chip of await chips.all()) {
       await expect(chip).toHaveAttribute('aria-pressed', 'true');
     }
@@ -218,7 +218,7 @@ test.describe('Graph Legend Filters', () => {
     await openGraphView(page);
     await openLegend(page);
 
-    const firstChip = page.locator('.vis-filter-chip').first();
+    const firstChip = page.getByTestId('graph-filter-chip').first();
     await firstChip.focus();
 
     // Space or Enter should toggle the chip

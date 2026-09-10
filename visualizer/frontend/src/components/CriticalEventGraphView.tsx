@@ -852,6 +852,7 @@ const CriticalEventGraphView: React.FC<CriticalEventGraphViewProps> = ({ selecte
       <div className={`vis-legend-panel${legendOpen ? ' open' : ''}`}>
         <button
           className="vis-legend-tab"
+            data-testid="ces-legend-tab"
           onClick={() => setLegendOpen(o => !o)}
           title={legendOpen ? 'Hide legend' : 'Show legend'}
         >
