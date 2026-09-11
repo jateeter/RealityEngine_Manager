@@ -26,6 +26,35 @@ async function loadApp(page: Page): Promise<void> {
   await expect(page.getByTestId('re-title')).toContainText(TITLE, { timeout: 30_000 });
 }
 
+/**
+ * The instance id for a runtime, from the registry rather than assumed.
+ *
+ * These suites called `selectEngine(page, 'lsp-1', 'lsp')`. Instance ids are a
+ * property of how a universe was launched, not of the contract: a single-engine
+ * deployment registers one instance named `default`, so the dropdown never
+ * contained `lsp-1` and all three suites failed in setup — before testing any
+ * PE Manager behaviour (RealityEngine_Manager#119).
+ *
+ * Skips with a declared reason when the runtime is absent, per the
+ * participation-state discipline in RealityEngine_CI/SURFACE_SPEC.md:
+ * `not-configured` is a conforming answer, silence is not.
+ */
+async function instanceIdFor(page: Page, runtime: string): Promise<string> {
+  const res = await page.request.get('/api/engines');
+  expect(res.ok(), `GET /api/engines returned ${res.status()}`).toBeTruthy();
+  const body = await res.json();
+  const instances: Array<Record<string, unknown>> = body.instances ?? [];
+  const hit = instances.find(i => String(i.runtime ?? '').toLowerCase() === runtime);
+  const found = instances.map(i => `${i.id}:${i.runtime}`).join(', ') || '<none>';
+  test.skip(
+    !hit,
+    `no '${runtime}' instance registered; registry holds [${found}]. ` +
+    `not-configured: this universe does not run ${runtime}, so its PE Manager ` +
+    `flow is not being exercised — and is not being asserted either.`
+  );
+  return String(hit!.id);
+}
+
 async function selectEngine(page: Page, instanceId: string, runtime: string): Promise<void> {
   const switcher = page.getByTitle('Switch active engine instance');
   await expect(switcher).toBeVisible({ timeout: 15_000 });
@@ -43,7 +72,7 @@ async function selectEngine(page: Page, instanceId: string, runtime: string): Pr
 }
 
 async function openPEManager(page: Page): Promise<void> {
-  await page.getByRole('button', { name: /PE Manager/ }).click();
+  await page.getByTestId('nav-perception').click();
   // "PERCEPTION ENGINE" header in the view title confirms the view rendered.
   await expect(page.getByText('PERCEPTION ENGINE')).toBeVisible({ timeout: 20_000 });
 }
@@ -64,7 +93,7 @@ test.describe('PE Manager — lsp engine', () => {
     await loadApp(page);
 
     // Step 2 — select the LSP engine instance
-    await selectEngine(page, 'lsp-1', 'lsp');
+    await selectEngine(page, await instanceIdFor(page, 'lsp'), 'lsp');
 
     // Step 3 — open PE Manager
     await openPEManager(page);
@@ -108,7 +137,7 @@ test.describe('PE Manager — scala engine', () => {
     await loadApp(page);
 
     // Step 2 — select the Scala engine instance
-    await selectEngine(page, 'scala-1', 'scala');
+    await selectEngine(page, await instanceIdFor(page, 'scala'), 'scala');
 
     // Step 3 — open PE Manager
     await openPEManager(page);
@@ -145,7 +174,7 @@ test.describe('PE Manager — cpp engine', () => {
     await loadApp(page);
 
     // Step 2 — select the C++ engine instance
-    await selectEngine(page, 'cpp-1', 'cpp');
+    await selectEngine(page, await instanceIdFor(page, 'cpp'), 'cpp');
 
     // Step 3 — open PE Manager
     await openPEManager(page);

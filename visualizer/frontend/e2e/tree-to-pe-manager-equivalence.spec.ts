@@ -129,12 +129,12 @@ async function resetPE(request: APIRequestContext, engine: EngineTarget): Promis
 async function loadCompleteTree(page: Page): Promise<{ rowCount: number; loadedOk: boolean }> {
   await page.goto('/');
   await expect(page.getByTestId('re-title')).toContainText(/Reality\s*Engine/, { timeout: 30_000 });
-  await expect(page.getByRole('button', { name: /PE Manager/ })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByTestId('nav-perception')).toBeVisible({ timeout: 10_000 });
   return waitForTreeRows(page);
 }
 
 async function openPEManager(page: Page): Promise<void> {
-  await page.getByRole('button', { name: /PE Manager/ }).click();
+  await page.getByTestId('nav-perception').click();
   await expect(page.getByText('PERCEPTION ENGINE', { exact: true })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText(/Assembled Vector - \d+ elements|Assembled Vector . \d+ elements/)).toBeVisible({ timeout: 20_000 });
 }
@@ -156,7 +156,7 @@ async function forceAllSourcesOn(page: Page): Promise<void> {
 
 async function returnToTree(page: Page): Promise<{ rowCount: number; loadedOk: boolean }> {
   await page.getByTitle('Back to Reality Engine').click();
-  await expect(page.getByRole('button', { name: /PE Manager/ })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId('nav-perception')).toBeVisible({ timeout: 30_000 });
   return waitForTreeRows(page);
 }
 
