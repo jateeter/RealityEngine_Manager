@@ -153,3 +153,12 @@ vite.config.ts.timestamp-*
 # away from being committed — and it is machine state, not source: it differs per
 # run and per deployment.
 perception-engine/backend/data/
+
+# Playwright output. `test-results/.last-run.json` was tracked, so every local
+# e2e run showed up as a repo modification and every branch switch during a run
+# risked a checkout conflict — which cost a lost file once. These are artifacts
+# of running the suite, not inputs to it.
+visualizer/frontend/test-results/
+visualizer/frontend/playwright-report/
+perception-engine/frontend/test-results/
+perception-engine/frontend/playwright-report/
