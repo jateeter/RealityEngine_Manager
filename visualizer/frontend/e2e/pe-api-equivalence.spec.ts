@@ -54,11 +54,54 @@ function schemaStr(s: Schema): string {
 
 // ── Engine roster ─────────────────────────────────────────────────────────────
 
-const ENGINES = [
-  { id: 'lsp-1',   runtime: 'lsp'   },
-  { id: 'scala-1', runtime: 'scala' },
-  { id: 'cpp-1',   runtime: 'cpp'   },
-] as const;
+type EngineRef = { id: string; runtime: string };
+
+/** The three runtimes this comparison is about. */
+const REQUIRED_RUNTIMES = ['lsp', 'scala', 'cpp'] as const;
+
+/**
+ * The roster, resolved from the registry rather than hardcoded.
+ *
+ * This was a literal `[{id:'lsp-1'},{id:'scala-1'},{id:'cpp-1'}]`. Instance ids
+ * are a property of how a universe was launched, not of the contract: a
+ * single-engine deployment registers one instance called `default`, so
+ * `switchEngine` asked the Manager for `lsp-1`, got a correct 404, and the
+ * suite failed in setup — **before comparing a single byte**.
+ *
+ * That is worse than a red test. The failure was reported under the name
+ * "GET /api/pe/state — schema is byte-equivalent across lsp, scala, and cpp",
+ * so a reader scanning the gate saw a cross-engine schema divergence that had
+ * never been checked. The test claimed coverage it did not have, and its truth
+ * was unknown in both directions (RealityEngine_Manager#119).
+ *
+ * Now: ask the registry what it holds. If the three runtimes are not all
+ * present, skip with a *declared reason* naming what was found — the
+ * participation-state discipline from RealityEngine_CI/SURFACE_SPEC.md, where
+ * `not-configured` is a conforming answer and silence is not.
+ */
+async function resolveRoster(
+  request: Parameters<Parameters<typeof test>[1]>[0]['request']
+): Promise<EngineRef[]> {
+  const res = await request.get('/api/engines');
+  expect(res.ok(), `GET /api/engines returned ${res.status()}`).toBeTruthy();
+  const body = await res.json();
+  const instances: Array<Record<string, unknown>> = body.instances ?? [];
+
+  const roster: EngineRef[] = [];
+  for (const rt of REQUIRED_RUNTIMES) {
+    const hit = instances.find(i => String(i.runtime ?? '').toLowerCase() === rt);
+    if (hit) roster.push({ id: String(hit.id), runtime: rt });
+  }
+
+  const found = instances.map(i => `${i.id}:${i.runtime}`).join(', ') || '<none>';
+  test.skip(
+    roster.length < REQUIRED_RUNTIMES.length,
+    `needs all of [${REQUIRED_RUNTIMES.join(', ')}]; registry holds [${found}]. ` +
+    `not-configured: this universe is not multi-engine, so cross-runtime ` +
+    `byte-equivalence cannot be evaluated — it is not being asserted either.`
+  );
+  return roster;
+}
 
 // ── Canonical schemas (from TypeScript interfaces in types.ts) ────────────────
 
@@ -160,6 +203,7 @@ test.describe('PE API byte-equivalence', () => {
 
   // ── 1. GET /api/pe/state ───────────────────────────────────────────────────
   test('GET /api/pe/state — schema is byte-equivalent across lsp, scala, and cpp', async ({ request }) => {
+    const ENGINES = await resolveRoster(request);
     const schemas: Record<string, Schema> = {};
 
     for (const { id, runtime } of ENGINES) {
@@ -206,6 +250,7 @@ test.describe('PE API byte-equivalence', () => {
 
   // ── 2. POST /api/pe/sources/bootstrap-from-machines ───────────────────────
   test('POST /api/pe/sources/bootstrap-from-machines — result schema is byte-equivalent across lsp, scala, and cpp', async ({ request }) => {
+    const ENGINES = await resolveRoster(request);
     const schemas: Record<string, Schema> = {};
 
     for (const { id, runtime } of ENGINES) {
@@ -255,6 +300,7 @@ test.describe('PE API byte-equivalence', () => {
 
   // ── 3. POST /api/pe/push ──────────────────────────────────────────────────
   test('POST /api/pe/push — result schema is byte-equivalent across lsp, scala, and cpp', async ({ request }) => {
+    const ENGINES = await resolveRoster(request);
     const schemas: Record<string, Schema> = {};
 
     for (const { id, runtime } of ENGINES) {

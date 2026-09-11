@@ -55,7 +55,10 @@ test.describe('Reality Engine Visualizer E2E', () => {
 
     test('exposes the primary navigation buttons', async () => {
       await expect(page.getByRole('button', { name: /Interconnect/ })).toBeVisible();
-      await expect(page.getByRole('button', { name: /PE Manager/ })).toBeVisible();
+      // The control is labelled "Perception", not "PE Manager" — the UI was
+      // renamed and these assertions were not. Anchored on a testid so the next
+      // rename fails loudly instead of silently matching nothing.
+      await expect(page.getByTestId('nav-perception')).toBeVisible();
       await expect(page.getByRole('button', { name: 'Help' })).toBeVisible();
     });
   });

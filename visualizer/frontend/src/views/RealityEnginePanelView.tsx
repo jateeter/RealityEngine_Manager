@@ -483,6 +483,7 @@ const RealityEnginePanelView: React.FC = () => {
 
           <button
             className="rep-nav-btn"
+            data-testid="nav-perception"
             onClick={() => setCurrentView('perceptual-engine')}
             title="Open Perception Engine management"
             style={{ borderColor: 'rgba(125,211,252,0.3)', color: '#7dd3fc' }}
