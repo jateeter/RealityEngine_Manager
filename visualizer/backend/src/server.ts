@@ -9,6 +9,7 @@ import { readFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { auditMiddleware, loadAuditConfig, logAuditEvent } from './auditLogger.js';
 import { scanCorpus, resolveSelection, loadMachines } from './corpus.js';
+import { RateLimitRegistry, RATE_WINDOW_MS } from './rateLimit.js';
 
 const PORT = parseInt(process.env.VIZ_PORT || '3001', 10);
 const auditConfig = loadAuditConfig('visualizer-backend');
@@ -129,29 +130,23 @@ const server = tlsEnabled
 const wss = new WebSocketServer({ server, path: '/ws' });
 
 // ── Rate limiting ─────────────────────────────────────────────────────────────
-interface RateBucket { count: number; resetAt: number }
-const rateBuckets = new Map<string, RateBucket>();
-const RATE_WINDOW_MS = 60_000;
+// The budget logic lives in ./rateLimit so it can be unit tested; this module
+// binds ports on import, which is why the defect it carried went untested.
+const rateLimits = new RateLimitRegistry(RATE_WINDOW_MS);
 
-function rateLimit(max: number) {
+function rateLimit(max: number, scope = 'global') {
+  const limiter = rateLimits.limiter(max, scope);
   return (req: Request, res: Response, next: NextFunction): void => {
     const ip = req.ip ?? req.socket.remoteAddress ?? 'unknown';
-    const now = Date.now();
-    let bucket = rateBuckets.get(ip);
-    if (!bucket || bucket.resetAt < now) {
-      bucket = { count: 0, resetAt: now + RATE_WINDOW_MS };
-      rateBuckets.set(ip, bucket);
+    if (limiter.check(ip) === 429) {
+      res.status(429).json({ error: 'Too many requests' });
+      return;
     }
-    if (bucket.count >= max) { res.status(429).json({ error: 'Too many requests' }); return; }
-    bucket.count++;
     next();
   };
 }
 
-setInterval(() => {
-  const now = Date.now();
-  for (const [ip, bucket] of rateBuckets) { if (bucket.resetAt < now) rateBuckets.delete(ip); }
-}, 5 * 60_000);
+setInterval(() => rateLimits.sweep(), 5 * 60_000);
 
 app.use(rateLimit(RATE_LIMIT_MAX));
 
@@ -617,7 +612,7 @@ app.post('/api/corpus/load', async (req: Request, res: Response) => {
   } catch (error: any) { upstreamError(res, error, 'corpusLoad'); }
 });
 
-app.get('/api/machines', rateLimit(MACHINES_RATE_LIMIT_MAX), async (req: Request, res: Response) => {
+app.get('/api/machines', rateLimit(MACHINES_RATE_LIMIT_MAX, 'machines'), async (req: Request, res: Response) => {
   const cacheKey = 'machines:list';
   const cached = getCached(cacheKey);
   if (cached) { res.json(cached); return; }
