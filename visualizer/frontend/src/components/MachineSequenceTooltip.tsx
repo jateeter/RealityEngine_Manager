@@ -447,7 +447,7 @@ const TooltipSeqGraph: React.FC<{ sequences: TooltipSeq[]; live: TooltipLiveResu
 
 const NodeEventTip: React.FC<{
   tip: NodeTipState;
-  containerRef: React.RefObject<HTMLDivElement>;
+  containerRef: React.RefObject<HTMLDivElement | null>;
 }> = ({ tip, containerRef }) => {
   const { node, x, y, isActive } = tip;
   const cw = containerRef.current?.clientWidth ?? 380;
