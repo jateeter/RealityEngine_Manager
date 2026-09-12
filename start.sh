@@ -72,21 +72,36 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# ── Pin Node 25.5.0 via nvm ──────────────────────────────────
+# ── Select a Node that satisfies the workspace contract ──────
+# The required major comes from the engines field the workspaces
+# actually declare, so a dependency bump that raises the baseline
+# does not leave a second copy of the version to update here.
+#
 # nvm is a shell function; it modifies PATH only in the current
 # shell. We capture absolute paths to node/npm after activation
 # and export them so every subshell and background process uses
 # exactly the same binary — regardless of how their env is set up.
 
-export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
-if [[ -s "$NVM_DIR/nvm.sh" ]]; then
-  # shellcheck source=/dev/null
-  source "$NVM_DIR/nvm.sh"
-fi
+REQUIRED_NODE_MAJOR="$(sed -n 's/.*"node": ">=\([0-9][0-9]*\).*/\1/p' \
+  "$BACKEND_DIR/package.json" 2>/dev/null | head -1)"
+REQUIRED_NODE_MAJOR="${REQUIRED_NODE_MAJOR:-26}"
 
-if ! nvm use 25.5.0 > /dev/null 2>&1; then
-  echo "Error: Node 25.5.0 not found in nvm. Run: nvm install 25.5.0" >&2
-  exit 1
+current_node_major="$(node --version 2>/dev/null | sed -n 's/^v\([0-9][0-9]*\).*/\1/p')"
+
+# A PATH node that already satisfies the contract is used as-is. CI
+# provisions Node with actions/setup-node, which leaves no nvm tree.
+if [[ -z "$current_node_major" || "$current_node_major" -lt "$REQUIRED_NODE_MAJOR" ]]; then
+  export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+  if [[ -s "$NVM_DIR/nvm.sh" ]]; then
+    # shellcheck source=/dev/null
+    source "$NVM_DIR/nvm.sh"
+  fi
+
+  if ! nvm use "$REQUIRED_NODE_MAJOR" > /dev/null 2>&1; then
+    echo "Error: Node >=$REQUIRED_NODE_MAJOR not found (PATH node: ${current_node_major:-none})." >&2
+    echo "Run: nvm install $REQUIRED_NODE_MAJOR" >&2
+    exit 1
+  fi
 fi
 
 # Resolve absolute paths once — used explicitly in every subshell below
