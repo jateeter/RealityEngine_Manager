@@ -75,7 +75,29 @@ export function buildTriggerEnvelope(
 ): TriggerEnvelope {
   const md = machine.metadata ?? {};
   const values = Array.isArray(op.values) ? op.values : [];
-  const sequenceId = typeof op.sequenceId === 'string' ? op.sequenceId : '';
+  // Resolve the contributing sequence from either merge shape.
+  //
+  // A folded entry names every sequence that contributed to the output. When
+  // exactly one did, the entry projects onto that sequence and naming it is
+  // exact — the byte-identity property FOLD_PLACEMENT.md 8 asserts. When
+  // several did, no single sequenceId is true of the entry, and inventing one
+  // would misattribute the dispatch to whichever happened to sort first. It
+  // stays empty there, which the audit contract already allows for.
+  const foldedIds = Array.isArray(op.sequenceIds)
+    ? op.sequenceIds.filter((x): x is string => typeof x === 'string' && x !== '')
+    : [];
+  // governance.sequenceId is the engine's own attribution for the entry and is
+  // singular, so it is preferred over reconstructing one from the folded set.
+  const govSequenceId = typeof op.governance?.sequenceId === 'string'
+    ? op.governance.sequenceId
+    : '';
+  const sequenceId = typeof op.sequenceId === 'string' && op.sequenceId !== ''
+    ? op.sequenceId
+    : govSequenceId !== ''
+      ? govSequenceId
+      : foldedIds.length === 1
+        ? foldedIds[0]!
+        : '';
 
   return {
     schemaVersion: '1.0.0',

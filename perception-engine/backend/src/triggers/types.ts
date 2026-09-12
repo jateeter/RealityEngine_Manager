@@ -27,7 +27,19 @@ export interface MergeOpGovernance {
 
 export interface MergeOp {
   machineId: string;
+  /**
+   * Pre-fold shape: one entry per firing, so one sequence per entry.
+   * Still read for compatibility with any runtime that emits it.
+   */
   sequenceId?: string;
+  /**
+   * Post-fold shape. When the fold moved into the machine's atomic step a
+   * merge entry became the union of every sequence contributing to that
+   * output, so the engines emit `sequenceIds` and no longer emit `sequenceId`
+   * (RealityEngine_CI#327). Reading only the singular field silently yielded
+   * "" — which is why dispatch records carried a null sequenceIri.
+   */
+  sequenceIds?: string[];
   outputIndex?: number;
   region?: Region;
   values?: number[];

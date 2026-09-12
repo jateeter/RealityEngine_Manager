@@ -301,7 +301,10 @@ export class Dispatcher {
       mode: this.cfg.mode,
       target: agent,
       machineId: op.machineId,
-      sequenceId: typeof op.sequenceId === 'string' ? op.sequenceId : '',
+      // The resolved sequence, not the raw op field: post-fold the engines emit
+      // sequenceIds/governance.sequenceId and no longer emit op.sequenceId, so
+      // reading it directly left every ledger record's sequenceId empty.
+      sequenceId: envelope.ces.sequenceId,
       ragStatusCode: typeof governance.ragStatusCode === 'string' ? governance.ragStatusCode : '',
       processStatus: typeof governance.processStatus === 'string' ? governance.processStatus : '',
       attempts: 0,
