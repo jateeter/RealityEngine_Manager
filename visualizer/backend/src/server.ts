@@ -157,7 +157,7 @@ app.use(rateLimit(RATE_LIMIT_MAX));
 
 // ── Input validation ──────────────────────────────────────────────────────────
 const ID_RE = /^[a-zA-Z0-9_-]{1,128}$/;
-function isValidId(id: string): boolean { return ID_RE.test(id); }
+function isValidId(id: string | string[] | undefined): id is string { return typeof id === 'string' && ID_RE.test(id); }
 
 function upstreamError(res: Response, error: any, context: string): void {
   const status: number = (error.response?.status as number | undefined) ?? 500;
