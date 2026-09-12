@@ -25,7 +25,7 @@ import { Dispatcher } from './triggers/Dispatcher.js';
 import type { MachineRecord } from './triggers/types.js';
 import { Ledger } from './dispatch/Ledger.js';
 import { allSemanticIdentities, resolveManifestPath, semanticIdentityFor } from './semanticsManifest.js';
-import { recentPerceptionEvents, recordPerceptionEvent, semanticAuditMetrics } from './semanticAudit.js';
+import { clearSemanticAudit, recentPerceptionEvents, recordPerceptionEvent, semanticAuditMetrics } from './semanticAudit.js';
 import type { DispatchRecordPatch } from './dispatch/types.js';
 import { AdapterPipeline } from './integrations/AdapterPipeline.js';
 import { AcpAdapter, acpConfigFromRegistry } from './integrations/adapters/AcpAdapter.js';
@@ -2054,9 +2054,22 @@ app.patch('/api/config', async (req: Request, res: Response) => {
 });
 
 // Reset engine step counter and test source indices
-app.post('/api/reset', (_req: Request, res: Response) => {
+app.post('/api/reset', (req: Request, res: Response) => {
+  // clearAudit — opt-in, default false (RealityEngine_CI SURFACE_SPEC.md
+  // "Already-settled instances", 2026-09-12). Absent or false, the
+  // re:PerceptionEvent ring buffer SURVIVES the reset, which is what every
+  // runtime already did, so the default changes nothing: the audit trail is
+  // evidence, and a rewind of run state is not a reason to discard it.
+  //
+  // Read from the query string or the JSON body, because the resets are called
+  // both ways across the harness and a caller should not have to know which.
+  const fromQuery = req.query['clearAudit'];
+  const fromBody = (req.body as { clearAudit?: unknown } | undefined)?.clearAudit;
+  const clearAudit =
+    fromQuery === 'true' || fromQuery === '1' || fromBody === true || fromBody === 'true';
   resetAndBroadcast();
-  res.json({ success: true });
+  if (clearAudit) clearSemanticAudit();
+  res.json({ success: true, auditCleared: clearAudit });
 });
 
 // Default the write-tracking fields on sensor sources.
