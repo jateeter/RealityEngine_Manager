@@ -20,6 +20,13 @@ export interface Region {
 
 export interface MergeOpGovernance {
   ragStatusCode?: string;
+  /**
+   * The action the corpus prescribes for this determination. Travels beside
+   * ragStatusCode because both come from the output event's metadata
+   * (RealityEngine_CI#365). Read from here rather than from a top-level
+   * `op.action`, which no engine emits.
+   */
+  actionCode?: string;
   processStatus?: string;
   /** Any other governance keys are passed through verbatim. */
   [key: string]: unknown;

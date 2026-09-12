@@ -319,7 +319,12 @@ export class Dispatcher {
       semantics: dispatchSemantics({
         machineName: envelope.ces.machineName,
         sequenceId: envelope.ces.sequenceId,
-        actionCode: typeof op.action === 'string' ? op.action : null,
+        // governance.actionCode is where the engines put it; `op.action` was
+        // never emitted by any of them, so this read was always null and the
+        // escalation guardrail keyed on it matched nothing.
+        actionCode: typeof governance.actionCode === 'string' && governance.actionCode !== ''
+          ? governance.actionCode
+          : typeof op.action === 'string' ? op.action : null,
         ragStatusCode: typeof governance.ragStatusCode === 'string' ? governance.ragStatusCode : null,
       }),
     };
