@@ -136,6 +136,89 @@ Candidates:
 
 ---
 
+## M4 — Gen2 intake: what the redesign actually admits ⏸ after M3
+
+The Gen2 Control Center is not a reskin of the Visualizer. It takes integrated
+sources as its input and shapes domains and machines from them, so two things
+that the current UI never had to answer become load-bearing:
+
+- **Units arriving from outside are not in the corpus's units.** An integrated
+  source reports what its own instrument reports — °F from one thermostat, °C
+  from another, a rate per hour where the machine reads per minute.
+- **Domains and machines can arrive at runtime.** The universe is no longer
+  fixed at boot, so admitting a new machine has to be a decision the system can
+  make and justify, not a corpus edit followed by a restart.
+
+Intake is therefore a transformation with a contract, not a passthrough. The
+design assets in `docs/Gen2ManagerUI/` (`reality-engine-clean-spec-v4.md`,
+`reality-engine-tab3-design-v2.md`) are the source for the UI side; this
+milestone is the semantics beneath it.
+
+---
+
+## M5 — QUDT ⏸ after M4
+
+QUDT is the vocabulary for both problems above. It is already present in the
+corpus repo — `RealityEngine_Machines/semantics/ontology/qudt-subset.ttl`,
+extracted and gated by `scripts/extract-qudt-subset.sh --check` from
+`validate-corpus.sh`. The subset is deliberately small (`unit:DEG_C`, `unit:K`,
+`unit:PER-MIN`, `unit:UNITLESS` and their quantity kinds); it grows as intake
+needs it rather than by vendoring all of QUDT.
+
+### M5.1 — Unit translation on the ingress transformation
+
+Every integrated source declares the unit it reports in, as a QUDT unit IRI.
+The transformation from source to perceptual-space cell converts to the unit the
+target machine's lane declares, using QUDT's conversion multiplier and offset
+rather than a table written by hand.
+
+| Requirement | Why |
+|---|---|
+| A source without a declared unit is **rejected at registration**, not defaulted | A silent default is indistinguishable from a correct declaration once the value is in a cell, and the cell carries no unit |
+| A conversion with no QUDT path between the two units is a **registration failure** | Refusing to admit the source is the only honest outcome; writing an unconverted number into a lane that means something else is worse than refusing |
+| `UNITLESS` is declared explicitly, never inferred from absence | Distinguishes "this quantity has no unit" from "nobody said" |
+| The declared unit travels into the audit record | Otherwise a wrong value cannot be attributed to a wrong conversion after the fact |
+
+Exit criteria:
+
+- A source declaring °F writes the °C value its target lane expects, and the
+  audit record names both units.
+- A source declaring an incompatible quantity kind is refused at registration
+  with a message naming the two IRIs.
+- The QUDT subset gate stays green with whatever units intake has added.
+
+### M5.2 — Dynamic admission: shaping new domains and machines
+
+When a domain or machine arrives at runtime, QUDT constrains what it may be
+admitted as. The quantity kind a source reports decides which lanes it can drive
+and which machines can legitimately consume it, so admission is checkable rather
+than a matter of who wired it.
+
+| Requirement | Why |
+|---|---|
+| A candidate machine declares each input lane's **quantity kind**, not just a width | A 4-cell region says nothing about whether a temperature belongs in it |
+| Admission checks the candidate's lanes against the region allocation and refuses a **quantity-kind mismatch** on a shared lane | 68 output lanes are already shared; a mismatched writer corrupts every reader |
+| A dynamically admitted machine produces the same ABox and manifest entry as an authored one | Otherwise runtime-admitted machines are invisible to every semantic gate — the exact gap M5 of the semantics roadmap closed for audit records |
+| Admission is recorded with the reasoning, not only the outcome | "Why is this machine here" must be answerable later |
+
+Exit criteria:
+
+- A machine admitted at runtime appears in `semantics/abox-manifest.json` and
+  resolves in `GET /api/audit/semantics` like an authored one.
+- A candidate whose input quantity kind contradicts its target lane is refused,
+  and the refusal names the conflicting IRIs.
+- Region-allocation and arbitration gates pass over the corpus **including**
+  runtime-admitted machines.
+
+### Open question
+
+Where the conversion runs — PE ingress, or the transformation layer between
+source and PE — is not settled here. It affects whether the RE ever sees a
+pre-conversion value, and therefore whether ISRE is expressed wholly in corpus
+units. Decide it in M4 before building M5.1.
+
+---
+
 ## Blockers
 
 | Blocker | Effect | Status |
