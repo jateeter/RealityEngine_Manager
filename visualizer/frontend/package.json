@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@types/d3": "^7.4.3",
-    "@types/three": "^0.184.1",
+    "@types/three": "^0.186.0",
     "3d-force-graph": "^1.80.0",
     "axios": "^1.6.2",
     "d3": "^7.9.0",
@@ -18,7 +18,7 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "reactflow": "^11.10.1",
-    "three": "^0.184.0",
+    "three": "^0.186.0",
     "zustand": "^5.0.15"
   },
   "devDependencies": {
