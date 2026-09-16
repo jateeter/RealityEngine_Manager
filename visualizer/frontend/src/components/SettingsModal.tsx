@@ -16,10 +16,24 @@ interface Props {
 export function SettingsModal({ open, onClose, triggerRef }: Props) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const { themeId, setThemeId } = useTheme();
-  const { settings, updateSettings } = useVisualizerStore(s => ({
-    settings: s.settings,
-    updateSettings: s.updateSettings,
-  }));
+  // Two atomic selectors, not one returning an object.
+  //
+  // `s => ({ settings, updateSettings })` builds a new object on every call, so
+  // its result is never referentially equal to the last. zustand v4 tolerated
+  // that; v5 compares with Object.is and re-renders forever — React reports it
+  // as "getSnapshot should be cached" and then kills the tree with "Maximum
+  // update depth exceeded", leaving #root empty and every e2e spec failing on a
+  // missing element (#145).
+  //
+  // This component is mounted on every page load — SetupToolsMenu renders it
+  // unconditionally and `open` is only a prop — so the loop ran before anyone
+  // opened the dialog.
+  //
+  // Atomic selectors are preferred over useShallow here: each returns a value
+  // already stable in the store, so there is nothing to compare and no way to
+  // reintroduce the bug by adding a field.
+  const settings = useVisualizerStore(s => s.settings);
+  const updateSettings = useVisualizerStore(s => s.updateSettings);
   const headingId = useId();
 
   // Stable ref for onClose — avoids stale-closure in the DOM cancel listener (RC-3)
