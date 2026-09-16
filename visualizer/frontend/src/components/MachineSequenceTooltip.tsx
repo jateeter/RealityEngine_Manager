@@ -9,7 +9,7 @@
  * strips (drawVectorStrip), and the pin-able panel chrome (SequenceTooltip).
  */
 
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import './MachineGraphView.css';
 
@@ -69,6 +69,13 @@ const TT_C_TERMINAL = '#111827';
 const TT_C_DEFAULT  = '#64748b';
 const TT_C_FIRED    = '#f59e0b';
 const TT_EDGE_CLR   = '#e2e8f0';
+// Base edge opacity, carried on `stroke-opacity`. Hover emphasis is applied on
+// the *separate* `style.opacity` channel, which multiplies with this one — so
+// the mouseout reset below must be 1, never this value. See the mouseout
+// handler for the defect that rule exists to prevent (#89).
+const TT_EDGE_OP    = 0.85;
+const TT_EDGE_W     = 1.8;
+const TT_EDGE_OP_DIM = 0.06;   // non-incident edges while a node is hovered
 const TT_C_ACTIVE   = '#06b6d4';  // pulse color for activated vectors
 const TT_C_MATCHED  = '#fbbf24';  // ring for matched-but-not-fired vectors
 
@@ -240,8 +247,8 @@ const TooltipSeqGraph: React.FC<{ sequences: TooltipSeq[]; live: TooltipLiveResu
       .data(links)
       .join('line')
       .attr('stroke', TT_EDGE_CLR)
-      .attr('stroke-width', 1.5)
-      .attr('stroke-opacity', 0.45)
+      .attr('stroke-width', TT_EDGE_W)
+      .attr('stroke-opacity', TT_EDGE_OP)
       .attr('marker-end', 'url(#tt-arrowhead)');
     linkSelRef.current = link;
 
@@ -268,6 +275,33 @@ const TooltipSeqGraph: React.FC<{ sequences: TooltipSeq[]; live: TooltipLiveResu
       .attr('dx', TT_NODE_R + 3)
       .attr('dy', 3)
       .style('pointer-events', 'none');
+
+    // An empty edge set is usually *correct* — 83% of sequences in the corpus
+    // hold exactly one event, and a single-event sequence has no transitions to
+    // draw. But rendering nothing makes "this sequence has no transitions"
+    // indistinguishable from "the tooltip failed to draw them", which is half of
+    // what #89 reported. Name which case it is.
+    //
+    // The two cases are not the same finding. Single-event sequences are the
+    // shape of the corpus; a sequence carrying several events and declaring no
+    // `nextEventIds` between them is a statement about that machine's data, so
+    // it is called out separately rather than folded into the benign message.
+    if (links.length === 0) {
+      const disconnected = sequences.filter(q => q.nodes.length > 1).length;
+      svg.append('text')
+        .attr('class', 'tt-no-transitions')
+        .attr('x', W / 2)
+        .attr('y', TT_STRIP_TOP_H + GH / 2 + TT_NODE_R + 26)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', 10)
+        .attr('fill', disconnected > 0 ? TT_C_MATCHED : '#64748b')
+        .style('pointer-events', 'none')
+        .text(disconnected > 0
+          ? `no transitions declared — ${disconnected} multi-event sequence${disconnected > 1 ? 's' : ''}`
+          : nodes.length === 1
+            ? 'single event — no transitions'
+            : `no transitions — ${sequences.length} single-event sequence${sequences.length > 1 ? 's' : ''}`);
+    }
 
     // Drag — pin on drop
     const drag = d3.drag<SVGCircleElement, TTNode>()
@@ -297,7 +331,7 @@ const TooltipSeqGraph: React.FC<{ sequences: TooltipSeq[]; live: TooltipLiveResu
         link.style('opacity', (l: TTLink) => {
           const src = typeof l.source === 'object' ? (l.source as TTNode).id : l.source as string;
           const tgt = typeof l.target === 'object' ? (l.target as TTNode).id : l.target as string;
-          return src === d.id || tgt === d.id ? 1 : 0.06;
+          return src === d.id || tgt === d.id ? 1 : TT_EDGE_OP_DIM;
         });
         label.style('opacity', (n: TTNode) => n.id === d.id ? 1 : 0.15);
 
@@ -319,7 +353,15 @@ const TooltipSeqGraph: React.FC<{ sequences: TooltipSeq[]; live: TooltipLiveResu
       .on('mouseout', function() {
         d3.select(this).attr('r', TT_NODE_R);
         node.style('opacity', 1);
-        link.style('opacity', 0.45);
+        // 1, not TT_EDGE_OP. `style.opacity` multiplies with the `stroke-opacity`
+        // already on the line, so resetting this channel to the base opacity
+        // squared it: 0.45 x 0.45 = 0.2025 effective, a 1.80:1 contrast ratio on
+        // the tooltip panel — below the 3:1 floor for a graphical object, and
+        // permanent for the life of the tooltip. One hover over any event node
+        // made every transition in the sequence vanish, which is exactly the
+        // report in #89. The sibling this component's header says it matches,
+        // CriticalEventGraphView.tsx:699, resets to 1.
+        link.style('opacity', 1);
         label.style('opacity', 1);
         setNodeTip(null);
       });
@@ -394,8 +436,14 @@ const TooltipSeqGraph: React.FC<{ sequences: TooltipSeq[]; live: TooltipLiveResu
             .transition().duration(220).attr('stroke-width', 5)
             .transition().duration(380).attr('stroke-width', 2.5);
         } else {
-          sel.attr('stroke', TT_EDGE_CLR).attr('stroke-width', 1.5)
-             .attr('stroke-opacity', 0.45).attr('marker-end', 'url(#tt-arrowhead)');
+          // Back to the base paint — through the constants, not a second copy of
+          // their values. This branch runs on every WebSocket step, so a literal
+          // here silently overrode the base set at join time: in a live universe
+          // the edges were repainted to the old 0.45 within one step of the
+          // tooltip opening, whatever the join had drawn. Found only by checking
+          // a running universe; a test with no step traffic never reaches it.
+          sel.attr('stroke', TT_EDGE_CLR).attr('stroke-width', TT_EDGE_W)
+             .attr('stroke-opacity', TT_EDGE_OP).attr('marker-end', 'url(#tt-arrowhead)');
         }
       });
     }
@@ -622,6 +670,17 @@ const SequenceTooltip: React.FC<{
   const { x, y, pinned, name, data } = tooltip;
   const panelRef = useRef<HTMLDivElement>(null);
 
+  // Totals across every sequence the machine declares. Shown in the header so
+  // that "0 transitions" is readable as a fact about the machine rather than as
+  // a tooltip that failed to draw (#89).
+  const seqCounts = useMemo(() => {
+    const seqs = data?.sequences ?? [];
+    return {
+      events:      seqs.reduce((n, q) => n + q.nodes.length, 0),
+      transitions: seqs.reduce((n, q) => n + q.edges.length, 0),
+    };
+  }, [data]);
+
   // Clamp the panel within the viewport after every render.
   // Runs after React commits the style={{ left: x, top: y }} so rect is accurate.
   useLayoutEffect(() => {
@@ -663,6 +722,15 @@ const SequenceTooltip: React.FC<{
           )}
           <div className="mgv-tooltip-seq-hdr">
             Event Sequences
+            {/* Counts, so an empty graph is legible as data rather than as a
+                failed render — the ambiguity #89 reported. */}
+            <span style={{ marginLeft: 8, color: '#94a3b8', fontWeight: 400 }}>
+              · {seqCounts.events} event{seqCounts.events === 1 ? '' : 's'}
+              {' · '}
+              <span style={{ color: seqCounts.transitions === 0 ? '#64748b' : '#cbd5e1' }}>
+                {seqCounts.transitions} transition{seqCounts.transitions === 1 ? '' : 's'}
+              </span>
+            </span>
             {live.stepNumber != null && (
               <span style={{ marginLeft: 8, color: '#94a3b8', fontWeight: 400 }}>
                 · step {live.stepNumber}
