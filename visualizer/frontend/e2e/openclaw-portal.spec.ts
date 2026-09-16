@@ -7,11 +7,18 @@ test.describe('OpenClaw Domain Portals', () => {
     await page.goto(VIZ_URL);
     // Navigate to the interconnection graph view
     await page.getByRole('button', { name: /Interconnect/i }).click();
-    // Wait for the machine graph SVG to become visible (simulation settles)
-    await page.waitForSelector('.graph-svg', { timeout: 20_000 });
+    // `.graph-svg` is MachineInterconnectionGraph's svg. The Interconnect button
+    // renders MachineGraphView, whose svg is `.machine-graph-svg` — verified
+    // against a live universe, where `.graph-svg` is absent and
+    // `.machine-graph-svg` is present. Every test in this file failed here, in
+    // beforeEach, before reaching an assertion about portals.
+    await page.waitForSelector('svg.machine-graph-svg', { timeout: 20_000 });
     await page.waitForFunction(
-      () => document.querySelector('.graph-svg')?.getAttribute('style')?.includes('opacity: 1') ||
-             !document.querySelector('.graph-svg')?.getAttribute('style')?.includes('opacity: 0'),
+      () => {
+        const svg = document.querySelector('svg.machine-graph-svg');
+        const style = svg?.getAttribute('style') ?? '';
+        return !!svg && (style.includes('opacity: 1') || !style.includes('opacity: 0'));
+      },
       { timeout: 20_000 },
     );
   });
