@@ -26,6 +26,7 @@ import { vizTheme } from '../styles/vizTheme';
 import { useTheme } from '../contexts/ThemeContext';
 import { Graph3DView } from './Graph3DView';
 import { Graph3DToggle } from './Graph3DToggle';
+import { useGraph3DMachineHover } from '../hooks/useGraph3DMachineHover';
 import './MachineGraphView.css';
 import './VisLegend.css';
 
@@ -453,6 +454,26 @@ export const MachineGraphView: React.FC = () => {
   }, []);
 
   useEffect(() => { showTooltipRef.current = showTooltip; }, [showTooltip]);
+
+  // 3D hover → the same tooltip the 2D SVG handlers open (#90). This view owns
+  // the whole tooltip subsystem — the export cache, the TooltipMachineData
+  // build, the rendered <SequenceTooltip> — but all of it was reachable only
+  // from the 2D hover handlers, so toggling to 3D dropped the feature with no
+  // error anywhere. Graph3DView now requires this callback in machines mode.
+  // Identity changes with the corpus, which is harmless: Graph3DView keeps the
+  // callback in a ref it refreshes on every change.
+  const machineName = useCallback(
+    (id: string) => graphData?.nodes.find(n => n.id === id)?.name,
+    [graphData],
+  );
+  const dismissTooltip = useCallback(
+    () => setTooltip(prev => (prev?.pinned ? prev : null)),
+    [],
+  );
+  const handle3DMachineHover = useGraph3DMachineHover({
+    containerRef, timerRef: tooltipTimerRef, showTooltipRef,
+    machineName, dismiss: dismissTooltip,
+  });
 
   // ── Shared domain-visibility filter ──────────────────────────────────────────
   // Called after layout rebuild AND whenever selectedDomains changes so that
@@ -1780,7 +1801,7 @@ export const MachineGraphView: React.FC = () => {
         <Graph3DToggle is3D={is3D} onToggle={() => setIs3D(v => !v)} />
 
         {is3D && (
-          <Graph3DView mode="machines" />
+          <Graph3DView mode="machines" onMachineHover={handle3DMachineHover} />
         )}
 
         {/* ── Corpus coverage chip — top-right corner ── */}
@@ -1959,7 +1980,12 @@ export const MachineGraphView: React.FC = () => {
 
         <svg ref={svgRef} className="machine-graph-svg" data-testid="machine-graph" style={{ opacity: isReady && !is3D ? 1 : 0, transition: 'opacity 0.4s ease', display: is3D ? 'none' : undefined }}></svg>
 
-        {!is3D && tooltip && (
+        {/* Not gated on `!is3D` (#90). The panel was rendered only in 2D, so
+            wiring onMachineHover was necessary but not sufficient: the hover
+            fired, the state updated, and nothing appeared. The 2D SVG is hidden
+            above via `display`, not by unmounting this, and the sibling
+            MachineInterconnectionGraph renders the same tooltip unconditionally. */}
+        {tooltip && (
           <SequenceTooltip
             tooltip={tooltip}
             live={tooltipLive}

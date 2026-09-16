@@ -364,25 +364,54 @@ function buildDomainMembrane(
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-interface Graph3DViewProps {
-  /** Source of graph data: 'machines' for the interconnection graph, 'events' for per-machine CES */
-  mode?: 'machines' | 'events';
-  /** For 'events' mode: nodes and edges from the parent CriticalEventGraphView */
-  eventNodes?: Array<{
-    id: string;
-    label: string;
-    isInitial: boolean;
-    isActive: boolean;
-    hasOutput: boolean;
-    wasJustMatched?: boolean;
-    cluster?: string;
-  }>;
-  eventEdges?: Array<{ source: string; target: string }>;
-  /** For 'machines' mode: fired when the cursor hovers a machine sphere (or
-   *  leaves it — null). clientX/Y are viewport coordinates of the mouse at
-   *  hover time, forwarded so the parent can position its tooltip overlay. */
-  onMachineHover?: (machineId: string | null, clientX?: number, clientY?: number) => void;
+/** Fired when the cursor hovers a machine sphere, or leaves it (null).
+ *  clientX/Y are viewport coordinates of the mouse at hover time, forwarded so
+ *  the parent can position its tooltip overlay. */
+type MachineHoverHandler =
+  (machineId: string | null, clientX?: number, clientY?: number) => void;
+
+interface Graph3DEventNode {
+  id: string;
+  label: string;
+  isInitial: boolean;
+  isActive: boolean;
+  hasOutput: boolean;
+  wasJustMatched?: boolean;
+  cluster?: string;
 }
+
+/**
+ * Props are a union on `mode`, and `onMachineHover` is **required** in machines
+ * mode (#90).
+ *
+ * This component suppresses the 3d-force-graph built-in label and delegates
+ * hover presentation to its parent — the tooltip needs the parent's machine
+ * list, export cache and `<SequenceTooltip>`, none of which belong here. With
+ * the callback optional, a parent that simply never passed it produced no
+ * machine tooltip at all, and nothing distinguished that from "3D has no
+ * tooltips". Two of the three call sites were in that state, so toggling to 3D
+ * silently lost the feature.
+ *
+ * Requiring it makes the omission a type error instead. A call site that really
+ * wants no tooltip passes `() => {}`, which is a decision someone wrote down.
+ * `useGraph3DMachineHover` supplies the standard handler.
+ */
+type Graph3DViewProps =
+  | {
+      /** The interconnection graph: nodes are machines. The default. */
+      mode?: 'machines';
+      eventNodes?: never;
+      eventEdges?: never;
+      onMachineHover: MachineHoverHandler;
+    }
+  | {
+      /** Per-machine CES: nodes are Reality Events, supplied by the parent. */
+      mode: 'events';
+      eventNodes?: Graph3DEventNode[];
+      eventEdges?: Array<{ source: string; target: string }>;
+      /** Machines-mode only — events mode raycasts no machine spheres. */
+      onMachineHover?: never;
+    };
 
 export const Graph3DView: React.FC<Graph3DViewProps> = ({
   mode = 'machines',

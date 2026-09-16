@@ -9,6 +9,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useGraph3DMachineHover } from '../hooks/useGraph3DMachineHover';
 import * as d3 from 'd3';
 import './MachineInterconnectionGraph.css';
 import { useVisualizerStore } from '../store';
@@ -437,6 +438,23 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
   }, []);
 
   useEffect(() => { showTooltipRef.current = showTooltip; }, [showTooltip]);
+
+  // Shared with MachineGraphView (#90). This was the one working copy of the
+  // 3D hover glue; it now lives in the hook so the other call sites get the
+  // same debounce, coordinate mapping and pinned-tooltip handling rather than
+  // a re-derivation of them.
+  const machineName = useCallback(
+    (id: string) => machines.find(m => m.id === id)?.name,
+    [machines],
+  );
+  const dismissTooltip = useCallback(
+    () => setTooltip(prev => (prev?.pinned ? prev : null)),
+    [],
+  );
+  const handle3DMachineHover = useGraph3DMachineHover({
+    containerRef, timerRef: tooltipTimerRef, showTooltipRef,
+    machineName, dismiss: dismissTooltip,
+  });
 
   // ── Live per-step state feeding the tooltip's sequence animation ───────────
   const tooltipLive: TooltipLiveResult = useMemo(() => {
@@ -1260,26 +1278,7 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
       />
 
       {is3D && (
-        <Graph3DView
-          mode="machines"
-          onMachineHover={(id, clientX, clientY) => {
-            if (!id) {
-              if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current);
-              tooltipTimerRef.current = setTimeout(
-                () => setTooltip(prev => (prev?.pinned ? prev : null)), 220);
-              return;
-            }
-            const m = machines.find(mm => mm.id === id);
-            if (!m) return;
-            if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current);
-            const rect = containerRef.current?.getBoundingClientRect();
-            const x = rect && clientX !== undefined ? clientX - rect.left + 14 : 20;
-            const y = rect && clientY !== undefined ? clientY - rect.top  - 10 : 70;
-            tooltipTimerRef.current = setTimeout(() => {
-              showTooltipRef.current(m.id, m.name, x, y);
-            }, 160);
-          }}
-        />
+        <Graph3DView mode="machines" onMachineHover={handle3DMachineHover} />
       )}
 
       <svg ref={svgRef} className="graph-svg" style={{ display: is3D ? 'none' : undefined }}></svg>
