@@ -131,7 +131,12 @@ export function EngineSwitcher({ onSwitch }: Props) {
       </button>
 
       {open && (
-        <div style={{
+        // Anchored so a test can scope to the open dropdown. Without it the
+        // only way to assert "instance X is listed" is a page-wide text match,
+        // which also hits the collapsed button — that already renders the
+        // active instance's id — and Playwright's strict mode rejects the two
+        // matches. The CI workflow excludes the affected spec by name today.
+        <div data-testid="engine-switcher-dropdown" style={{
           position: 'absolute', top: '110%', right: 0, zIndex: 1000,
           background: '#1e2127', border: '1px solid rgba(255,255,255,0.15)',
           borderRadius: 8, minWidth: 280, boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
