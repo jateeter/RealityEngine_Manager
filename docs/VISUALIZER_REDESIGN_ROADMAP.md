@@ -1,6 +1,6 @@
 # Visualizer Redesign — Test Alignment Roadmap
 
-Last reviewed: 2026-09-10 · Status: **M1 delivered, M2–M3 waiting on the redesign**
+Last reviewed: 2026-09-16 · Status: **M1 delivered and runtime-verified, M2–M3 waiting on the redesign**
 
 Owner-supplied design assets go in [Design Assets](#design-assets); that section
 is deliberately empty and is not a placeholder for generated content.
@@ -48,10 +48,45 @@ load-machines-row · load-machines-count
 settings-dialog · graph-legend-tab · ces-legend-tab · machine-graph
 ```
 
-**Unverified at runtime.** The Manager e2e suite currently fails before reaching
-any assertion — see [Blockers](#blockers) — so the migrated locators are
-compile-verified only. A wrong locator surfaces when the suite first runs green,
-not before. Stated rather than glossed: a green build is not a passing test.
+**Verified at runtime 2026-09-16**, against a live 3-engine universe
+(cpp-1 / lsp-1 / scala-1, registry corpus, Manager `:3001`/`:5173`). This
+paragraph previously read *"Unverified at runtime — a wrong locator surfaces
+when the suite first runs green, not before."* It did, and three did.
+
+All 12 testid anchors resolve. The suite run that first reached the assertions
+found **five failures, none of them an app defect and none in a migrated
+locator** — three stale spec-side locators that had never been executed:
+
+| Spec | Locator | Why it could not have passed |
+|---|---|---|
+| `graph-filters.spec.ts:47` | `.filter({ has: page.locator('') })` | A no-op filter Playwright now rejects: `Unexpected token "" while parsing css selector ""` |
+| `graph-filters.spec.ts:204` | `.graph-3d-toggle` | **The class exists only in the spec.** `Graph3DToggle` has never rendered it |
+| `theme-settings.spec.ts` ×3 | `input[name="theme"][value=…]` + `.check()` | The radio is visually replaced by its swatch row, so `<span class="theme-swatch">` intercepts the pointer event |
+
+Fixed in #148: the no-op filter removed; `Graph3DToggle` given
+`data-testid="graph-3d-toggle"` (its title *and* its label both flip with state,
+so no content-derived locator survives a there-and-back toggle) and the two
+`waitForTimeout` sleeps around it replaced with assertions on that flip; theme
+selection routed through a `selectTheme()` helper that clicks the wrapping
+`<label class="theme-option">`, which is the control a user actually hits.
+
+Both files now pass in full — **21 passed, 2 skipped, 0 failed**.
+
+This is the whole argument for M1 stated in one result: a locator that is only
+compile-checked is not checked. `tsc --noEmit` and `npm run build` were green
+over `.graph-3d-toggle` for as long as it existed, because neither renders the
+app — the same blind spot that let the zustand bump through in
+[Blockers](#blockers).
+
+### Noted, not fixed here
+
+Twelve further specs fail against a **regression-corpus** universe (28 machines,
+no `health-services`): `openclaw-portal` ×5, `pe-source-arcs` ×3,
+`output-stream` ×2, `pe-api-equivalence`, `tree-to-pe-manager-equivalence`. They
+assert on domains and PE-source graph nodes the loaded corpus does not contain,
+and they **fail rather than skip** — a corpus-scope-dependent spec with no
+corpus guard reports "broken" where it means "not applicable". Not an M1 defect
+and not touched here; the remaining 40 specs pass.
 
 ### Also delivered (#91)
 
@@ -221,14 +256,46 @@ units. Decide it in M4 before building M5.1.
 
 ## Blockers
 
-| Blocker | Effect | Status |
-|---|---|---|
-| Manager e2e fails on the `:5173` → HTTPS redirect | Suite never reaches an assertion, so M1's migration is unproven and M2 cannot be validated | **open, unfiled** |
+None open.
 
-The frontend e2e navigates to `http://localhost:5173` per its `baseURL`; both
-`:5173` and `:3001` answer `302` to `https://`. Nothing downstream of page load
-is tested today — including tests reporting failures for reasons unrelated to
-their subject.
+### Resolved — the e2e suite reaches its assertions again (2026-09-16)
+
+| Was | Actually | Status |
+|---|---|---|
+| "Manager e2e fails on the `:5173` → HTTPS redirect" | The Visualizer crashed on load and rendered nothing | **closed** — #145, #146 |
+
+This entry was **wrong**, and it was wrong in a way that cost real judgement, so
+it is corrected here rather than deleted.
+
+**What it claimed.** That the frontend e2e navigates to `http://localhost:5173`
+while `:5173` and `:3001` both answer `302` to `https://`, so nothing downstream
+of page load is tested.
+
+**What was measured on 2026-09-16:**
+
+| check | result |
+|---|---|
+| `http://localhost:5173/` | `200`, Vite dev HTML, **no redirect** |
+| `http://localhost:5173/api/engines` | `200`, real JSON, all three instances |
+| `playwright.config.ts` baseURL | already `https://…` |
+| CI workflow | sets `VIZ_FRONTEND_URL` explicitly, with a comment recording that the scheme mismatch was fixed |
+
+**What was actually wrong.** `SettingsModal` read the store through an
+object-literal selector. zustand v4 tolerated that; v5 compares with `Object.is`
+and loops, so React reported "getSnapshot should be cached", then "Maximum
+update depth exceeded", then unmounted the tree — `#root` empty, every element
+absent. The component is mounted on every page load, so the whole Visualizer
+failed to render. Introduced by the zustand 4.5.7 → 5.0.15 bump in #140.
+
+**Why the stale entry mattered.** It was cited as grounds for merging past a red
+`Multi-Engine & Tri-Runtime Parity` check on RealityEngine_CI #379, #381 and
+#382. The check was red for a real defect the entire time. A blocker entry that
+names the wrong cause is worse than no entry: it supplies a reason not to look.
+
+Fixed in #146 (selector), #147 and RealityEngine_Machines#147 (dropdown testid
+anchor so the excluded spec could run), RealityEngine_CI#384 (exclusion
+removed). All three engine-switcher specs pass, and the hosted parity job is
+green — 9 of 9.
 
 ---
 

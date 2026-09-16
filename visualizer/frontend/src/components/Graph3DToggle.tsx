@@ -17,6 +17,10 @@ export const Graph3DToggle: React.FC<Graph3DToggleProps> = ({ is3D, onToggle }) 
   return (
     <button
       onClick={onToggle}
+      // A stable anchor for e2e. The title and the label both flip with `is3D`,
+      // so a spec that toggles twice cannot hold one locator across both
+      // clicks; the testid does not move.
+      data-testid="graph-3d-toggle"
       title={is3D ? 'Switch to 2D view' : 'Switch to 3D view'}
       style={{
         position: 'absolute',

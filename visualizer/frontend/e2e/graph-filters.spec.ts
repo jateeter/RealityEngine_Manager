@@ -42,9 +42,10 @@ async function openLegend(page: Page) {
 }
 
 async function countVisibleNodes(page: Page): Promise<number> {
-  return page.locator('svg.machine-graph-svg g.node').filter({
-    has: page.locator('') /* all nodes */,
-  }).evaluateAll((nodes: Element[]) =>
+  // No `.filter()`: `has: page.locator('')` was a no-op that Playwright now
+  // rejects outright — `Unexpected token "" while parsing css selector ""`. The
+  // comment said "all nodes", which is what the unfiltered locator already is.
+  return page.locator('svg.machine-graph-svg g.node').evaluateAll((nodes: Element[]) =>
     nodes.filter(n => {
       const opacity = (n as HTMLElement).style.opacity;
       return !opacity || parseFloat(opacity) > 0.1;
@@ -200,14 +201,18 @@ test.describe('Graph Legend Filters', () => {
     // Close legend (so the toggle button is accessible)
     await page.locator('.vis-legend-tab').click();
 
-    // Toggle to 3D
-    const toggle3D = page.locator('.graph-3d-toggle');
+    // Toggle to 3D. `.graph-3d-toggle` never existed in the app — the class
+    // appears only in this spec, so the locator matched nothing and the click
+    // timed out. Graph3DToggle now carries a testid, which is what this needs:
+    // its title and label both flip with state, so neither survives a
+    // there-and-back toggle as a single locator.
+    const toggle3D = page.getByTestId('graph-3d-toggle');
     await toggle3D.click();
-    await page.waitForTimeout(800); // 3D graph needs a moment to mount
+    await expect(toggle3D).toHaveAttribute('title', 'Switch to 2D view');
 
     // Toggle back to 2D
     await toggle3D.click();
-    await page.waitForTimeout(400);
+    await expect(toggle3D).toHaveAttribute('title', 'Switch to 3D view');
 
     // Legend should still show MQTT filter active
     await page.locator('.vis-legend-tab').click();

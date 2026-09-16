@@ -34,6 +34,21 @@ async function openSettings(page: Page) {
   await page.waitForSelector('dialog.settings-dialog[open]', { timeout: 5_000 });
 }
 
+/**
+ * Select a theme the way a user does — by clicking the option, not the input.
+ *
+ * `input[name="theme"][value="…"]` resolves fine, but `.check()` fails with
+ * `<span class="theme-swatch"> from <div class="theme-swatches"> subtree
+ * intercepts pointer events`: the radio is visually replaced by the swatch row
+ * it sits behind. The wrapping `<label class="theme-option">` is the control
+ * the user actually hits, and clicking it drives the same onChange.
+ */
+async function selectTheme(page: Page, value: string) {
+  const radio = page.locator(`input[name="theme"][value="${value}"]`);
+  await radio.locator('xpath=ancestor::label[1]').click();
+  await expect(radio).toBeChecked();
+}
+
 async function closeWithDone(page: Page) {
   await page.getByRole('button', { name: /Done/i }).click();
   await page.waitForFunction(
@@ -120,16 +135,16 @@ test.describe('Settings modal', () => {
   });
 
   test('selecting Light theme changes data-theme on <html>', async ({ page }) => {
-    await page.locator('input[name="theme"][value="light"]').check();
+    await selectTheme(page, 'light');
     const attr = await page.evaluate(() => document.documentElement.getAttribute('data-theme'));
     expect(attr).toBe('light');
   });
 
   test('theme selection round-trip: dark → nord → dark', async ({ page }) => {
-    await page.locator('input[name="theme"][value="nord"]').check();
+    await selectTheme(page, 'nord');
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'nord');
 
-    await page.locator('input[name="theme"][value="dark"]').check();
+    await selectTheme(page, 'dark');
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   });
 });
@@ -138,7 +153,7 @@ test.describe('Theme persistence', () => {
   test('selected theme persists across page reload', async ({ page }) => {
     await openApp(page);
     await openSettings(page);
-    await page.locator('input[name="theme"][value="solarized"]').check();
+    await selectTheme(page, 'solarized');
     await closeWithDone(page);
 
     await page.reload();
