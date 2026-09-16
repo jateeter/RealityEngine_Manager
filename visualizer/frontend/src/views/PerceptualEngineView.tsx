@@ -808,7 +808,7 @@ export const PerceptualEngineView: React.FC = () => {
         </button>
 
         <div>
-          <div style={{ fontWeight: 700, fontSize: 14, color: '#7dd3fc' }}>PERCEPTION ENGINE</div>
+          <div data-testid="pe-view-title" style={{ fontWeight: 700, fontSize: 14, color: '#7dd3fc' }}>PERCEPTION ENGINE</div>
           <div style={{ fontSize: 10, color: '#64748b' }}>perceptual space management</div>
         </div>
 

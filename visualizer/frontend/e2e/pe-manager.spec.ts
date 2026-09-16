@@ -73,8 +73,11 @@ async function selectEngine(page: Page, instanceId: string, runtime: string): Pr
 
 async function openPEManager(page: Page): Promise<void> {
   await page.getByTestId('nav-perception').click();
-  // "PERCEPTION ENGINE" header in the view title confirms the view rendered.
-  await expect(page.getByText('PERCEPTION ENGINE')).toBeVisible({ timeout: 20_000 });
+  // Anchored on the title's testid, not its text. `getByText('PERCEPTION ENGINE')`
+  // matched two elements — the heading and an ancestor whose innerText contains
+  // it — so Playwright's strict mode failed all three engine cases on the same
+  // line, before any assertion about the PE ran.
+  await expect(page.getByTestId('pe-view-title')).toBeVisible({ timeout: 20_000 });
 }
 
 async function importSources(page: Page): Promise<void> {
