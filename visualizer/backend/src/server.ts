@@ -540,6 +540,71 @@ app.delete('/api/pe/sources/:id', async (req: Request, res: Response) => {
 // Per-instance health check — proxied so the browser never makes cross-origin
 // requests to arbitrary engine host:port addresses.  Callers use the instance
 // id (from /api/engines) so the browser only ever talks to the visualizer backend.
+// ── Engine-qualified resource reads ──────────────────────────────────────────
+//
+// A vector id and a sequence id are BOTH engine-scoped: each runtime keeps its
+// own store, so the same id can name different documents on different engines,
+// or exist on exactly one. A bare `/api/vectors/:id` answers from whichever
+// engine happens to be active, and the caller cannot tell which answer they
+// got — so an id read from one engine and used against another silently
+// returns the wrong thing, or a 404 for something that does exist.
+//
+// These routes are the external surface: the id is always used in the context
+// of the engine that minted it. The engines' own unqualified routes stay as the
+// internal surface these proxy to. RealityEngine_CI#397.
+//
+// An unknown instance is refused, never substituted — the same rule the
+// X-RE-Instance binding follows, and for the same reason.
+async function readFromEngine(
+  req: Request, res: Response, upstream: (base: string) => string, context: string,
+): Promise<void> {
+  const { id } = req.params;
+  if (!isValidId(id)) { res.status(400).json({ error: 'Invalid instance id' }); return; }
+
+  const inst = engineInstances.find(i => i.id === id);
+  if (!inst) {
+    res.status(404).json({
+      error: `Engine instance '${id}' is not registered`,
+      available: engineInstances.map(i => i.id),
+    });
+    return;
+  }
+
+  try {
+    const r = await axios.get(upstream(inst.re_url));
+    res.json(r.data);
+  } catch (e: any) {
+    // A 404 from the engine means that engine does not hold the id. Passed
+    // through with the engine named, so "no such id" and "not on this engine"
+    // stay distinguishable to the caller.
+    const status = e?.response?.status;
+    if (status === 404) {
+      res.status(404).json({
+        error: e?.response?.data?.error ?? 'Not found',
+        engine: inst.id,
+      });
+      return;
+    }
+    upstreamError(res, e, context);
+  }
+}
+
+app.get('/api/engines/:id/vectors/:vectorId', async (req: Request, res: Response) => {
+  const { vectorId } = req.params;
+  if (!isValidId(vectorId)) { res.status(400).json({ error: 'Invalid vector id' }); return; }
+  await readFromEngine(req, res,
+    base => `${base}/api/vectors/${encodeURIComponent(vectorId)}`,
+    'engineVectorRead');
+});
+
+app.get('/api/engines/:id/sequences/:sequenceId', async (req: Request, res: Response) => {
+  const { sequenceId } = req.params;
+  if (!isValidId(sequenceId)) { res.status(400).json({ error: 'Invalid sequence id' }); return; }
+  await readFromEngine(req, res,
+    base => `${base}/api/sequences/${encodeURIComponent(sequenceId)}`,
+    'engineSequenceRead');
+});
+
 app.get('/api/engines/:id/health', async (req: Request, res: Response) => {
   const { id } = req.params;
   const inst = engineInstances.find(i => i.id === id);
