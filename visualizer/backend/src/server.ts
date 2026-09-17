@@ -626,6 +626,93 @@ app.get('/api/engine/:id/sequences/:sequenceId', async (req: Request, res: Respo
     'engineSequenceRead');
 });
 
+// ── Engine configuration, the settable/gettable pathway ─────────────────────
+//
+// `/api/engine/config` is the single place a runtime control is read or written
+// (RealityEngine_CI#271). All three engines implement it; none of it was
+// reachable from here, so the Visualizer — the pathway's main consumer — had no
+// route to it and no configuration surface at all.
+//
+// Qualified by engine for the same reason reads are: a control value belongs to
+// one runtime. `historyLimit` is 100 on cpp, 250 on lsp and 1000 on scala today,
+// so "the current value" is not a question that can be asked without naming the
+// engine.
+//
+// Writes go through `writeToEngine`, which differs from the read helper only in
+// forwarding a body and a method — kept separate rather than overloading the
+// reader, because a write that silently lands on the wrong engine is the failure
+// this qualification exists to prevent.
+async function writeToEngine(
+  req: Request, res: Response,
+  method: 'put' | 'delete',
+  upstream: (base: string) => string,
+  context: string,
+): Promise<void> {
+  const { id } = req.params;
+  if (!isValidId(id)) { res.status(400).json({ error: 'Invalid instance id' }); return; }
+
+  const inst = engineInstances.find(i => i.id === id);
+  if (!inst) {
+    res.status(404).json({
+      error: `Engine instance '${id}' is not registered`,
+      available: engineInstances.map(i => i.id),
+    });
+    return;
+  }
+
+  try {
+    const url = upstream(inst.re_url);
+    const r = method === 'put'
+      ? await axios.put(url, req.body)
+      : await axios.delete(url);
+    // A control write changes what the engine reports; drop cached reads of it
+    // rather than let a stale value outlive the change.
+    invalidate('re:config');
+    res.json(r.data);
+  } catch (e: any) {
+    const status = e?.response?.status;
+    if (status === 404 || status === 400) {
+      res.status(status).json({
+        error: e?.response?.data?.error ?? (status === 404 ? 'Not found' : 'Bad request'),
+        engine: inst.id,
+      });
+      return;
+    }
+    upstreamError(res, e, context);
+  }
+}
+
+app.get('/api/engine/:id/config', async (req: Request, res: Response) => {
+  await readFromEngine(req, res, base => `${base}/api/engine/config`, 'engineConfigRead');
+});
+
+app.get('/api/engine/:id/config/:control', async (req: Request, res: Response) => {
+  const { control } = req.params;
+  if (!isValidId(control)) { res.status(400).json({ error: 'Invalid control name' }); return; }
+  await readFromEngine(req, res,
+    base => `${base}/api/engine/config/${encodeURIComponent(control)}`,
+    'engineControlRead');
+});
+
+app.put('/api/engine/:id/config/:control', async (req: Request, res: Response) => {
+  const { control } = req.params;
+  if (!isValidId(control)) { res.status(400).json({ error: 'Invalid control name' }); return; }
+  await writeToEngine(req, res, 'put',
+    base => `${base}/api/engine/config/${encodeURIComponent(control)}`,
+    'engineControlWrite');
+});
+
+// DELETE is "restore the declared default", not "remove the control" —
+// SURFACE_SPEC is explicit that controls cannot be created or destroyed over
+// the API.
+app.delete('/api/engine/:id/config/:control', async (req: Request, res: Response) => {
+  const { control } = req.params;
+  if (!isValidId(control)) { res.status(400).json({ error: 'Invalid control name' }); return; }
+  await writeToEngine(req, res, 'delete',
+    base => `${base}/api/engine/config/${encodeURIComponent(control)}`,
+    'engineControlReset');
+});
+
 app.get('/api/engine/:id/health', async (req: Request, res: Response) => {
   const { id } = req.params;
   const inst = engineInstances.find(i => i.id === id);
