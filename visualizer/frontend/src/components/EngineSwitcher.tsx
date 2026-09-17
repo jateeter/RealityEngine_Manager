@@ -24,7 +24,7 @@ function runtimeBadge(runtime: string) {
 }
 
 // proxyPath is a same-origin path on the visualizer backend (e.g.
-// /api/engines/default/health).  All engine health checks route through
+// /api/engine/default/health).  All engine health checks route through
 // the backend proxy so the browser never makes cross-origin requests to
 // arbitrary engine host:port addresses, avoiding CORS blocks.
 function StatusDot({ proxyPath }: { proxyPath: string }) {
@@ -135,7 +135,7 @@ export function EngineSwitcher({ onSwitch }: Props) {
           opacity: switching ? 0.7 : 1,
         }}
       >
-        <StatusDot proxyPath={`/api/engines/${active.id}/health`} />
+        <StatusDot proxyPath={`/api/engine/${active.id}/health`} />
         {active.id}
         {runtimeBadge(active.runtime)}
         <span style={{ marginLeft: 4, opacity: 0.7, fontSize: '0.7rem' }}>▾</span>
@@ -176,7 +176,7 @@ export function EngineSwitcher({ onSwitch }: Props) {
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <StatusDot proxyPath={`/api/engines/${inst.id}/health`} />
+                  <StatusDot proxyPath={`/api/engine/${inst.id}/health`} />
                   <span style={{ fontWeight: isActive ? 700 : 400, fontSize: '0.85rem' }}>
                     {inst.id}
                   </span>
