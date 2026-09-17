@@ -1,6 +1,7 @@
 # Visualizer Redesign — Test Alignment Roadmap
 
 Last reviewed: 2026-09-16 · Status: **M1 delivered and runtime-verified, M2–M3 waiting on the redesign**
+· e2e suite: 34 passed / 17 failed / 3 skipped at full corpus — see [Blockers](#blockers) and #151
 
 Owner-supplied design assets go in [Design Assets](#design-assets); that section
 is deliberately empty and is not a placeholder for generated content.
@@ -256,7 +257,30 @@ units. Decide it in M4 before building M5.1.
 
 ## Blockers
 
-None open.
+None blocking the redesign. One open finding the redesign should know about.
+
+### Open — the node-role classifier reads fields the corpus does not use (#151)
+
+`getNodeRole` in `machineDomains.ts` classifies `agent-dispatcher` from
+`metadata.tags` or `metadata.function`. The corpus declares
+`metadata.machineClass`. Counted against a live 1338-machine corpus:
+
+| source | count |
+|---|---|
+| `metadata.tags` contains agent-dispatcher | 22 |
+| `metadata.function` says agent dispatcher | 22 |
+| **`metadata.machineClass == 'agent-dispatcher'`** | **1058** — never read |
+| name contains `Interconnect` (that path works) | 134 |
+
+The Visualizer's own legend agrees: **"Dispatcher (ACP) · 22"**. OpenClaw portals
+are built per domain from dispatcher nodes, so **no domain gets a portal and the
+portal feature is dead against the real corpus**.
+
+It matters here because the redesign will inherit this classifier. Fixing it
+turns 1058 nodes into dispatchers and creates portals in most domains — a large
+visual change that should be decided *with* the redesign rather than discovered
+during it.
+
 
 ### Resolved — the e2e suite reaches its assertions again (2026-09-16)
 
