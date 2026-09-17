@@ -151,6 +151,18 @@ if [[ "$SKIP_RE" == "0" ]]; then
   check GET   "$RE_URL" "/api/runtime/storage-footprint"
   check GET   "$RE_URL" "/api/runtime/options"
   check PATCH "$RE_URL" "/api/runtime/options" "$RUNTIME_PATCH"
+  # Put it back. This PATCH used to leave historyLimit at 100 on whatever engine
+  # the smoke run touched, permanently — and because /api/runtime/options
+  # reports a value with no default beside it, the residue was indistinguishable
+  # from a shipped default. It was read as one: RealityEngine_CI#402 recorded
+  # "historyLimit is 100 on cpp" in SURFACE_SPEC on the strength of a live read
+  # of an engine this script had written to. The declared default is 250
+  # (SURFACE_SPEC.md, "The universal control set").
+  #
+  # A test that leaves state behind is a test that changes what the next
+  # measurement means. DELETE on the control pathway restores the declared
+  # default without this script needing to know what it is.
+  check DELETE "$RE_URL" "/api/engine/config/historyLimit"
 
   # These hit an engine directly — the internal surface. The external read is
   # the Manager's engine-qualified route, /api/engine/<engine>/vectors/<id>,
