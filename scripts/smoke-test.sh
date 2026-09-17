@@ -147,6 +147,10 @@ if [[ "$SKIP_RE" == "0" ]]; then
   check GET   "$RE_URL" "/api/runtime/options"
   check PATCH "$RE_URL" "/api/runtime/options" "$RUNTIME_PATCH"
 
+  # These hit an engine directly, which is the internal surface and is what this
+  # script is for. The EXTERNAL read is the Manager's engine-qualified route,
+  # /api/engines/<engine>/vectors/<vectorId>, because a vector id only means
+  # anything in the context of the engine that minted it (RealityEngine_CI#397).
   echo "── Vectors"
   check POST   "$RE_URL" "/api/vectors" "$VEC_BODY"
   check POST   "$RE_URL" "/api/vectors/search" "$SEARCH_BODY"
