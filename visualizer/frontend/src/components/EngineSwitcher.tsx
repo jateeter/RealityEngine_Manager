@@ -95,7 +95,18 @@ export function EngineSwitcher({ onSwitch }: Props) {
   const active = instances.find(i => i.id === activeId) ?? instances[0];
 
   const handleSelect = async (inst: EngineInstance) => {
-    if (inst.id === activeId || switching) return;
+    if (switching) return;
+
+    // Choosing the instance already active is still a choice, and the menu has
+    // to acknowledge it. This used to share the `switching` early-return, so a
+    // click on the active row did nothing at all: no switch, correctly, but
+    // also no dismissal — the panel stayed open with no feedback, and the user
+    // had to click away to close a menu they had just used.
+    //
+    // It is the common case, not an edge one: the active instance is listed,
+    // and on a single-instance universe it is the only thing to click.
+    if (inst.id === activeId) { setOpen(false); return; }
+
     setSwitching(true);
     setOpen(false);
     try {

@@ -75,43 +75,74 @@ test.describe('Reality Engine Visualizer E2E', () => {
      * same `GET /api/machines` shape, this reads identically against ai, cpp,
      * lsp or scala. A tree that disagrees with its own engine is the defect,
      * whichever engine is active.
+     *
+     * WHAT THIS DELIBERATELY NO LONGER DOES
+     * -------------------------------------
+     * It used to derive a domain SET from `metadata.domain ?? m.domain` and
+     * assert the tree had exactly that many top-level rows. That failed in
+     * every run — expected 280, received 12 — and the expectation was the wrong
+     * one, not the tree.
+     *
+     * Measured against the live 1338-machine corpus:
+     *
+     *   metadata.domain        280 distinct   free text, e.g.
+     *                                         "AI Infrastructure — Thermal / Cooling Control"
+     *   metadata.category       16 distinct   the actual taxonomy
+     *   m.domain                 0            not a field on this payload
+     *   tagging.primaryDomain    0            not a field on this payload
+     *
+     * So `metadata.domain` is a descriptive label, roughly one per machine
+     * family, and never was the domain. Worse, no corpus field could satisfy
+     * the assertion: the tree groups by the frontend's own `classifyMachine`
+     * in `components/machineDomains.ts`, which maps category, tags, id and name
+     * onto the 13 `DOMAIN_ORDER` ids. Row count is a classification decision,
+     * not a property of the corpus.
+     *
+     * Asserting the row count against a re-implementation of that classifier
+     * would only test the classifier against itself. What is worth asserting,
+     * and what this now does, is that the classification loses nothing.
      */
     async function corpusFromEngine(page: Page) {
       const resp = await page.request.get('/api/machines');
       expect(resp.ok(), 'Manager must proxy GET /api/machines').toBeTruthy();
       const body = await resp.json();
       const machines: Array<Record<string, unknown>> = body.machines ?? [];
-      const domains = new Set<string>();
-      for (const m of machines) {
-        const meta = (m.metadata ?? {}) as Record<string, unknown>;
-        const d = (meta.domain ?? m.domain) as string | undefined;
-        if (d) domains.add(String(d));
-      }
-      return { count: machines.length, domains };
+      return { count: machines.length };
     }
 
-    test('renders every domain the active engine reports', async () => {
+    test('accounts for every machine the active engine reports', async () => {
       const tree = page.getByRole('tree', { name: /Machines grouped by domain/ });
       await expect(tree).toBeVisible({ timeout: 30000 });
 
-      const { count, domains } = await corpusFromEngine(page);
+      const { count } = await corpusFromEngine(page);
       expect(count, 'the engine must have booted a non-empty corpus').toBeGreaterThan(0);
 
       const rows = tree.locator('[role="treeitem"][aria-level="1"]');
       await expect(rows.first()).toBeVisible({ timeout: 15000 });
 
-      // Domain rows are the tree's top level; the engine's domain set is what
-      // they must be. Compared as sets so ordering stays the tree's business.
-      if (domains.size > 0) {
-        await expect(rows).toHaveCount(domains.size, { timeout: 15000 });
-        const shown = (await rows.allInnerTexts()).map(t => t.trim().toLowerCase());
-        for (const d of domains) {
-          expect(
-            shown.some(row => row.includes(d.toLowerCase())),
-            `domain "${d}" is in the booted corpus but absent from the tree`,
-          ).toBeTruthy();
-        }
-      }
+      // Each domain row states its own counts in `.rep-row-meta`, rendered as
+      // "<machines> m·<ces> ces" (RealityEnginePanelView). Read that element
+      // rather than the row's full text: the row also carries the domain label,
+      // and a label containing a digit would be parsed as a count.
+      //
+      // Summing them is the assertion with teeth — a machine the tree cannot
+      // place is a machine the user cannot reach, and it is otherwise silent.
+      const metas = await rows.locator('.rep-row-meta').allInnerTexts();
+      expect(metas.length, 'every domain row must state its counts')
+        .toBe(await rows.count());
+
+      const perRow = metas.map(t => {
+        const m = /(\d+)/.exec(t);
+        expect(m, `domain row states no machine count: ${JSON.stringify(t)}`).toBeTruthy();
+        return parseInt(m![1], 10);
+      });
+      const shown = perRow.reduce((a, b) => a + b, 0);
+
+      expect(
+        shown,
+        `the tree shows ${shown} machines across ${perRow.length} domains, but the ` +
+        `engine booted ${count}. A machine the tree cannot place is unreachable.`,
+      ).toBe(count);
     });
 
     test('expands a domain to reveal its machines', async () => {

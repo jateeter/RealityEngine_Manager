@@ -1098,7 +1098,17 @@ export const MachineGraphView: React.FC = () => {
       .selectAll<SVGGElement, MachineNode & d3.SimulationNodeDatum>('g')
       .data(simNodes)
       .join('g')
-      .attr('class', (d: any) => d.role === 'pe-source' ? 'node pe-source' : 'node');
+      // Portals get their own class, as pe-sources already did and as the
+      // sibling MachineInterconnectionGraph does for both. Without it a portal
+      // was a plain `g.node` indistinguishable from the 1338 machine nodes
+      // around it — unaddressable from CSS, so nothing outside this file could
+      // find one. `isPortalNode(d.id)` rather than a role check: these carry
+      // role 'openclaw-virtual' here and 'openclaw-portal' there, and the id
+      // prefix is the one marker both agree on.
+      .attr('class', (d: any) =>
+        isPortalNode(d.id)       ? 'node openclaw-portal'
+        : d.role === 'pe-source' ? 'node pe-source'
+        : 'node');
 
     nodeSelRef.current = node as any;
 
