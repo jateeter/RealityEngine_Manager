@@ -1,6 +1,6 @@
 # Codex Guidance: RealityEngine_Manager
 
-Read `claude.md` for the current codebase map and integration context.
+Read `CLAUDE.md` for the current codebase map and integration context.
 
 ## Role
 

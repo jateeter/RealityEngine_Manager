@@ -2,7 +2,7 @@
 
 Last reviewed: 2026-06-22
 
-See `/Users/johnt/workspace/GitHub/claude.md` for the integrated application map. Update both this file and the root map when Manager ownership of runtime surfaces, PE behavior, or integration paths changes.
+See `/Users/johnt/workspace/GitHub/CLAUDE.md` for the integrated application map. Update both this file and the root map when Manager ownership of runtime surfaces, PE behavior, or integration paths changes.
 
 ## Role
 
@@ -54,7 +54,7 @@ Use TypeScript language server in each Node/React subproject. Open the relevant 
 ## Standing rules — authoritative in `../RealityEngine_CI/docs/ENGINEERING_CONTRACT.md`
 
 These apply here and are **not** restated in this file. They were previously
-copied into eighteen `claude.md` files across six repositories, which is the
+copied into eighteen `CLAUDE.md` files across six repositories, which is the
 duplication problem the rules themselves warn about: copies drift, a rule added
 to one applies only where someone looked, and with no authority a reader cannot
 tell which copy is current.
