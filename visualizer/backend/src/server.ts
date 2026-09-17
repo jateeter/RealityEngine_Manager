@@ -5,6 +5,10 @@ import axios from 'axios';
 import { WebSocketServer, WebSocket } from 'ws';
 import * as http from 'http';
 import * as https from 'https';
+import {
+  RE_INSTANCE_HEADER, resolveBinding, runBound, boundInstance,
+  bindingScope as computeScope, scopedKey as toScopedKey, unscope,
+} from './engineBinding.js';
 import { readFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { auditMiddleware, loadAuditConfig, logAuditEvent } from './auditLogger.js';
@@ -49,7 +53,46 @@ interface EngineInstance {
 let engineInstances: EngineInstance[] = [];
 let activeEngineId: string | null = null;
 
+// ── Per-request engine binding ────────────────────────────────────────────────
+//
+// `activeEngineId` is process-global, and `POST /api/engines/active` reassigns
+// it. Every concurrent client therefore shares one notion of "the" engine: a
+// switch by one caller retargets requests already in flight for another, and
+// the response cache below — keyed only by path — could serve one engine's
+// machines to a request meant for a different one.
+//
+// That is not hypothetical. The Playwright suite hit it hard enough to look
+// like flake: under parallel workers, specs that switch the engine
+// (pe-api-equivalence walks cpp -> lsp -> scala) ran alongside specs reading
+// /api/machines, and the pass count drifted 37 -> 32 -> 21 across three
+// identical runs with 17 "deterministic" failures and 8 that flipped.
+// RealityEngine_Manager#156 pinned the suite to one worker to stop the
+// bleeding and said the durable fix belongs here. This is that fix.
+//
+// `X-RE-Instance: <instance id>` names the engine a request is addressed to,
+// and it is pinned for the whole request. The binding lives in an
+// AsyncLocalStorage rather than a module variable, which is the point:
+// concurrent requests addressed to different engines cannot disturb each
+// other, the same property localAIStack gets from a ContextVar in
+// `core/bridge_binding.py`.
+//
+// A named instance that is not running resolves to NOTHING, never to a
+// substitute. Falling back to whichever engine happens to be active is exactly
+// the cross-talk this exists to prevent, so such a request is refused rather
+// than answered by the wrong engine. Without the header the global active
+// engine is used, so every existing caller behaves as before.
+//
+// The resolution and scoping logic lives in ./engineBinding so it can be unit
+// tested; this module binds ports on import.
+
+/** Which instance a cache entry belongs to. */
+function bindingScope(): string {
+  return computeScope(activeEngineId, engineInstances[0]?.id);
+}
+
 function activeReUrl(): string {
+  const bound = boundInstance();
+  if (bound) return bound.re_url;
   if (engineInstances.length > 0) {
     const inst = activeEngineId
       ? engineInstances.find(i => i.id === activeEngineId)
@@ -60,6 +103,8 @@ function activeReUrl(): string {
 }
 
 function activePeUrl(): string {
+  const bound = boundInstance();
+  if (bound) return bound.pe_url;
   if (engineInstances.length > 0) {
     const inst = activeEngineId
       ? engineInstances.find(i => i.id === activeEngineId)
@@ -123,6 +168,36 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '10mb' }));
 
+// Resolve the addressed engine once, and run the rest of the request inside
+// that binding. Registered before the routes so every handler — and every
+// cache read and write they make — sees the same engine for the whole request.
+app.use((req: Request, res: Response, next: NextFunction): void => {
+  const raw = req.headers[RE_INSTANCE_HEADER];
+  const id = Array.isArray(raw) ? raw[0] : raw;
+
+  if (!id) { next(); return; }
+
+  if (!isValidId(id)) {
+    res.status(400).json({ error: `Invalid ${RE_INSTANCE_HEADER} header` });
+    return;
+  }
+
+  const inst = engineInstances.find(i => i.id === id);
+  if (!inst) {
+    // Named but not running. Answering from the active engine would be the
+    // cross-talk this whole mechanism exists to prevent: the caller addressed
+    // a specific engine, and silently substituting another makes the mismatch
+    // invisible at the call site and downstream.
+    res.status(404).json({
+      error: `Engine instance '${id}' is not registered`,
+      available: engineInstances.map(i => i.id),
+    });
+    return;
+  }
+
+  runBound({ id: inst.id, re_url: inst.re_url, pe_url: inst.pe_url }, next);
+});
+
 const server = tlsEnabled
   ? https.createServer({ cert: readFileSync(certPath!), key: readFileSync(keyPath!) }, app)
   : http.createServer(app);
@@ -168,11 +243,21 @@ const CACHE_MAX    = 100;
 interface CacheEntry { data: any; ts: number }
 const responseCache = new Map<string, CacheEntry>();
 
+// Cache keys are scoped by engine instance. Callers pass the logical key
+// ('machines:list'); the stored key is '<instance> machines:list'. Doing it
+// here rather than at ~10 call sites means a new cached route cannot forget to
+// scope itself — and forgetting would mean serving one engine's data for
+// another, which is silent and looks like an engine divergence.
+function scopedKey(key: string): string {
+  return toScopedKey(bindingScope(), key);
+}
+
 function getCached(key: string): any | null {
-  const entry = responseCache.get(key);
+  const scoped = scopedKey(key);
+  const entry = responseCache.get(scoped);
   if (!entry) return null;
   if (Date.now() - entry.ts < CACHE_TTL_MS) return entry.data;
-  responseCache.delete(key);
+  responseCache.delete(scoped);
   return null;
 }
 
@@ -181,12 +266,16 @@ function setCached(key: string, data: any): void {
     const oldest = responseCache.keys().next().value;
     if (oldest !== undefined) responseCache.delete(oldest);
   }
-  responseCache.set(key, { data, ts: Date.now() });
+  responseCache.set(scopedKey(key), { data, ts: Date.now() });
 }
 
+// Invalidates the prefix across EVERY instance, not just the bound one. A
+// corpus load or a machine mutation changes what all engines should report, and
+// scoping the invalidation to the caller's engine would leave the others
+// serving stale entries until the TTL expired.
 function invalidate(prefix: string): void {
   for (const key of responseCache.keys()) {
-    if (key.startsWith(prefix)) responseCache.delete(key);
+    if (unscope(key).startsWith(prefix)) responseCache.delete(key);
   }
 }
 
