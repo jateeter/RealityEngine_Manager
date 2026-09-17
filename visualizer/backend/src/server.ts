@@ -406,8 +406,29 @@ app.get('/health', (_req: Request, res: Response) => {
 
 // ── Engine registry endpoints ─────────────────────────────────────────────
 
+// The engine collection. Plural names the set; singular `/api/engine/:id/...`
+// names one engine's resources — a vector or sequence id is only meaningful in
+// the context of the engine that minted it (RealityEngine_CI#397).
+//
+// `engines` is the list a caller wants: the instances currently registered and
+// running, each with the urls needed to address it, and which one is active.
+// `instances` and `activeId` are kept beside it because the Visualizer frontend
+// already reads them, and renaming a field the UI depends on is not what this
+// route is for.
+//
+// `status` is the instance registry's own word for the instance. This route
+// does not probe liveness — `/api/engine/:id/health` does that, per engine, and
+// reports `unreachable` when the engine does not answer.
 app.get('/api/engines', (_req: Request, res: Response) => {
-  res.json({ instances: engineInstances, activeId: activeEngineId });
+  const engines = engineInstances.map(i => ({
+    id:      i.id,
+    runtime: i.runtime,
+    re_url:  i.re_url,
+    pe_url:  i.pe_url,
+    status:  i.status,
+    active:  i.id === activeEngineId,
+  }));
+  res.json({ engines, count: engines.length, activeId: activeEngineId, instances: engineInstances });
 });
 
 app.post('/api/engines/active', (req: Request, res: Response) => {
@@ -589,7 +610,7 @@ async function readFromEngine(
   }
 }
 
-app.get('/api/engines/:id/vectors/:vectorId', async (req: Request, res: Response) => {
+app.get('/api/engine/:id/vectors/:vectorId', async (req: Request, res: Response) => {
   const { vectorId } = req.params;
   if (!isValidId(vectorId)) { res.status(400).json({ error: 'Invalid vector id' }); return; }
   await readFromEngine(req, res,
@@ -597,7 +618,7 @@ app.get('/api/engines/:id/vectors/:vectorId', async (req: Request, res: Response
     'engineVectorRead');
 });
 
-app.get('/api/engines/:id/sequences/:sequenceId', async (req: Request, res: Response) => {
+app.get('/api/engine/:id/sequences/:sequenceId', async (req: Request, res: Response) => {
   const { sequenceId } = req.params;
   if (!isValidId(sequenceId)) { res.status(400).json({ error: 'Invalid sequence id' }); return; }
   await readFromEngine(req, res,
@@ -605,7 +626,7 @@ app.get('/api/engines/:id/sequences/:sequenceId', async (req: Request, res: Resp
     'engineSequenceRead');
 });
 
-app.get('/api/engines/:id/health', async (req: Request, res: Response) => {
+app.get('/api/engine/:id/health', async (req: Request, res: Response) => {
   const { id } = req.params;
   const inst = engineInstances.find(i => i.id === id);
   if (!inst) { res.status(404).json({ error: 'Instance not found' }); return; }

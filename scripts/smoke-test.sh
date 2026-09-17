@@ -17,6 +17,7 @@ set -euo pipefail
 
 RE_URL="https://localhost:5001"
 PE_URL="https://localhost:3004"
+VIZ_URL=""
 SKIP_PE=0
 SKIP_RE=0
 VERBOSE=0
@@ -25,6 +26,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --target)  RE_URL="$2";  shift 2 ;;
     --pe-target|--pe) PE_URL="$2";  shift 2 ;;
+    # The Manager, which is where the engine-qualified external API lives.
+    # Optional: without it the external surface is simply not exercised, and
+    # the run says so rather than reporting a pass it did not earn.
+    --viz-target|--viz) VIZ_URL="$2"; shift 2 ;;
     --skip-pe) SKIP_PE=1;    shift   ;;
     --skip-re) SKIP_RE=1;    shift   ;;
     --verbose) VERBOSE=1;    shift   ;;
@@ -147,10 +152,11 @@ if [[ "$SKIP_RE" == "0" ]]; then
   check GET   "$RE_URL" "/api/runtime/options"
   check PATCH "$RE_URL" "/api/runtime/options" "$RUNTIME_PATCH"
 
-  # These hit an engine directly, which is the internal surface and is what this
-  # script is for. The EXTERNAL read is the Manager's engine-qualified route,
-  # /api/engines/<engine>/vectors/<vectorId>, because a vector id only means
-  # anything in the context of the engine that minted it (RealityEngine_CI#397).
+  # These hit an engine directly — the internal surface. The external read is
+  # the Manager's engine-qualified route, /api/engine/<engine>/vectors/<id>,
+  # because a vector id only means anything in the context of the engine that
+  # minted it (RealityEngine_CI#397). Covered by the Visualizer section below
+  # when --viz-target is given.
   echo "── Vectors"
   check POST   "$RE_URL" "/api/vectors" "$VEC_BODY"
   check POST   "$RE_URL" "/api/vectors/search" "$SEARCH_BODY"
@@ -228,6 +234,56 @@ if [[ "$SKIP_RE" == "0" ]]; then
   sleep 1
   kill $SSE_PID 2>/dev/null || true
   PASS=$((PASS + 1))
+fi
+
+# ── Visualizer: the EXTERNAL engine-qualified surface ────────────────────────
+#
+# Everything above addresses an engine or a PE directly, which is the internal
+# surface. This section is the only part that exercises the API an outside
+# caller is meant to use, where an id is always qualified by the engine that
+# minted it (RealityEngine_CI#397).
+#
+# Skipped without --viz-target, and it says so. A smoke run that silently omits
+# a surface reports a pass it did not earn.
+if [[ -n "$VIZ_URL" ]]; then
+  echo ""
+  echo "━━━ Visualizer (external API)  $VIZ_URL ━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  echo "── Engine collection"
+  check GET "$VIZ_URL" "/api/engines"
+
+  # Resolve the engine id for the RE under test by matching its url, rather than
+  # taking the first engine in the list. The qualified route is only meaningful
+  # against the engine that actually holds the document, and --target need not
+  # be the active one.
+  ENGINE_ID="$(curl -s -k --max-time 5 "${VIZ_URL}/api/engines" \
+    | python3 -c "
+import json,sys
+try: engines = json.load(sys.stdin).get('engines', [])
+except Exception: sys.exit(0)
+target = '${RE_URL}'.rstrip('/')
+for e in engines:
+    if (e.get('re_url') or '').rstrip('/') == target:
+        print(e['id']); break
+" 2>/dev/null)"
+
+  if [[ -n "$ENGINE_ID" ]]; then
+    echo "── Engine-qualified reads  (engine: $ENGINE_ID)"
+    check GET "$VIZ_URL" "/api/engine/${ENGINE_ID}/health"
+
+    # Seed a document of this section's own. The RE section above stores
+    # smoke-vec and then DELETES it, so reading that id here would 404 for a
+    # reason that has nothing to do with the route under test.
+    VIZ_VEC_ID="smoke-viz-vec"
+    check POST "$RE_URL" "/api/vectors" "{\"id\":\"${VIZ_VEC_ID}\",\"elements\":[{\"value\":0.5}]}"
+    check GET  "$VIZ_URL" "/api/engine/${ENGINE_ID}/vectors/${VIZ_VEC_ID}"
+    check DELETE "$RE_URL" "/api/vectors/${VIZ_VEC_ID}"
+  else
+    echo "   ! no engine in /api/engines matches ${RE_URL} — qualified reads skipped"
+  fi
+else
+  echo ""
+  echo "━━━ Visualizer (external API) — SKIPPED, no --viz-target given ━━━"
 fi
 
 if [[ "$SKIP_PE" == "0" ]]; then
