@@ -254,9 +254,17 @@ const CANONICAL_PE_STATE: Schema = {
   // incompatible types. Filed as RealityEngine_CI#407, which has to settle
   // which shape is the contract before this line can assert it.
   //
-  // Until then this gate detects the divergence only when something pushed
-  // before it ran — which is a moving ruler, and is named here rather than
-  // left for the next reader to rediscover.
+  // **Settled**: `lastPush` is the last step object, carrying its own
+  // `timestamp`, and `null` before any push. SURFACE_SPEC declares it under
+  // "`lastPush` is the last step, not when it happened", and CPP and Scala are
+  // being moved onto LSP's shape.
+  //
+  // Still asserted as `'null'` here, because this test reads state without
+  // pushing first — so `null` is the conforming value at this point in the run,
+  // and asserting the post-push shape would assert something that has not
+  // happened yet. The step's shape is checked by the push test below, at
+  // declared probe points, which is the only place it can be compared without
+  // the comparison tripping over engine-scoped machine ids.
   lastPush: 'null',
   matchAlgorithm: 'string',
   sources: [{
