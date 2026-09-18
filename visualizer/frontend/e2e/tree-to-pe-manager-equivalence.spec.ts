@@ -319,6 +319,16 @@ const ENGINE_MINTED = [
   /^machine-[A-Za-z0-9]+-[A-Za-z0-9]+$/,
   /^machine-output-[A-Za-z0-9-]+$/,
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,  // scala UUIDs
+  // A minted id wearing a prefix. PE test sources are `test-<machineId>`, so a
+  // source built for a machine the corpus named is `test-machine-aicapacity…`
+  // and identical across runtimes, while one built for a machine loaded at
+  // runtime is `test-machine-1U4QOYP-NZPBT8IK7GZI` on LSP and
+  // `test-machine-1789742690949-b81cdae0` on CPP — minted, and not comparable.
+  //
+  // The first measurement of this surface saw only the corpus-named form and
+  // recorded "non-sensor ids identical across runtimes: True", which was true
+  // of what was there and not of what the suite creates later.
+  /^test-machine-[A-Za-z0-9]+-[A-Za-z0-9]+$/,
 ];
 
 function withoutEngineIdentity(value: unknown): unknown {
