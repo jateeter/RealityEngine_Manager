@@ -68,6 +68,32 @@ test.describe('Load Machines modal', () => {
     if (await childCheckbox.count() === 0) test.skip(true, 'no child nodes in corpus tree');
     await childCheckbox.check();
 
+    // Load into EVERY engine, not just the active one.
+    //
+    // `POST /api/corpus/load` targets the active engine unless `allEngines` is
+    // set — deliberately, "never implicit" (Manager#31 Phase 4) — and the
+    // modal defaults the box to false. So this test used to leave one engine
+    // holding machines the other two did not, and the suite switches engines as
+    // it runs, so which engine ended up ahead depended on ordering.
+    //
+    // That asymmetry outlives this test. Every later cross-runtime comparison in
+    // the suite is then made against runtimes holding different corpora, which
+    // `RealityEngine_CI/scripts/CLAUDE.md` names as the thing that must not
+    // happen: "sources must be equalised before anything is compared ... the
+    // trajectory comparison will faithfully report the difference as engine
+    // divergence."
+    //
+    // It is what `tree-to-pe-manager-equivalence` was still failing on after its
+    // own comparison defects were fixed — that test passes alone and failed in
+    // suite (RealityEngine_Manager#151). The guardrail is right; a test that
+    // mutates a shared universe is the one that has to opt in.
+    const allEngines = page.locator('.lmm-bootstrap input[type="checkbox"]').last();
+    const single = await page.getByText(/^All \d+ engines$/).count() === 0;
+    if (!single) {
+      await allEngines.check();
+      await expect(allEngines).toBeChecked();
+    }
+
     const loadBtn = page.locator('.lmm-load-btn');
     await expect(loadBtn).toBeEnabled();
     await loadBtn.click();
