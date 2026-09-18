@@ -710,7 +710,9 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/Machine'
+              oneOf:
+              - $ref: '#/components/schemas/Machine'
+              - $ref: '#/components/schemas/MachineEnvelope'
       responses:
         '200':
           description: Success
@@ -754,7 +756,9 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/Machine'
+              oneOf:
+              - $ref: '#/components/schemas/Machine'
+              - $ref: '#/components/schemas/MachineEnvelope'
       responses:
         '200':
           description: Success
@@ -1738,6 +1742,18 @@ components:
           items:
             type: object
             additionalProperties: true
+    MachineEnvelope:
+      type: object
+      required:
+      - version
+      - machine
+      properties:
+        version:
+          type: string
+          description: Corpus file format version. Required in this shape and validated on its major component; the bare Machine
+            schema does not declare it.
+        machine:
+          $ref: '#/components/schemas/Machine'
     MachineMutationResponse:
       type: object
       properties:
