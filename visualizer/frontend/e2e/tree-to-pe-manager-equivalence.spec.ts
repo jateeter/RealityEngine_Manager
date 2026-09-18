@@ -172,13 +172,33 @@ async function forceAllSourcesOn(page: Page): Promise<void> {
     await toggleAll.first().click();
   }
   await expect(page.getByTitle('Disable source').first()).toBeVisible({ timeout: 15_000 });
-  let previous = -1;
+
+  // Wait for the screen to AGREE WITH THE ENGINE, not merely to stop moving.
+  //
+  // "Stopped moving" is not the property this test asserts, and the two come
+  // apart here: the view polls every 5 s (POLL_IDLE_MS), while a settle-loop
+  // sampling twice a second calls a wrong-but-static count settled after ~1 s —
+  // four seconds before the app would have corrected it. That is how this
+  // recorded 0 "Enable source" toggles against an engine reporting 15 inactive
+  // sources, on one runtime and not the others, purely on timing
+  // (RealityEngine_Manager#151).
+  //
+  // Waiting on the asserted property instead means a genuine disagreement still
+  // fails — it just has to survive the poll that would have fixed a stale view.
+  const inactiveOnEngine = async (): Promise<number> => {
+    const res = await page.request.get('/api/pe/state');
+    const body = await res.json();
+    const sources: Array<{ active?: boolean }> = body?.sources ?? [];
+    return sources.filter(s => s.active === false).length;
+  };
   await expect(async () => {
-    const current = await page.getByTitle('Enable source').count();
-    const settled = current === previous;
-    previous = current;
-    expect(settled, 'source toggle counts are still changing').toBe(true);
-  }).toPass({ timeout: 20_000, intervals: [500, 500, 1000] });
+    const [shown, expected] = await Promise.all([
+      page.getByTitle('Enable source').count(),
+      inactiveOnEngine(),
+    ]);
+    expect(shown, `view offers ${shown} "Enable source" toggles; engine reports ` +
+                  `${expected} inactive sources`).toBe(expected);
+  }).toPass({ timeout: 30_000, intervals: [1000, 1000, 2000, 2000] });
 }
 
 async function returnToTree(page: Page): Promise<{ rowCount: number; loadedOk: boolean }> {
