@@ -795,7 +795,6 @@ export const PerceptualEngineView: React.FC = () => {
   const handleToggleAll = useCallback(async (active: boolean) => {
     const sources = state?.sources ?? [];
     const targets = sources.filter(s => s.active !== active);
-    if (targets.length === 0) return;
     const targetIds = new Set(targets.map(s => s.id));
     setState(prev => prev ? {
       ...prev,
@@ -803,8 +802,19 @@ export const PerceptualEngineView: React.FC = () => {
     } : prev);
     await Promise.all(targets.map(s =>
       api.peUpdateSource(s.id, { active } as Partial<PESource>).catch(console.error)));
-    // Awaited: this function must not resolve while the screen still shows what
-    // was requested rather than what happened.
+    // Awaited, and reached even when `targets` was empty.
+    //
+    // This used to `return` early on no targets, which is only safe if the view
+    // already agrees with the engine — and the one moment it does not is
+    // exactly when this matters. A view wrongly showing every source ON found
+    // nothing to change, returned without reconciling, and kept the wrong
+    // state; the master button then read "All On", so nothing prompted another
+    // attempt. The error was self-perpetuating, and it is how the Visualizer
+    // came to report 1351/1351 active while the engine reported 1336 active and
+    // 15 inactive (RealityEngine_Manager#151).
+    //
+    // Asking for "all on" is a request to end up agreeing with the engine.
+    // Believing there is nothing to do is not a reason to skip finding out.
     try {
       setState(await api.getPEFullState());
     } catch {
