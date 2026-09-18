@@ -294,6 +294,60 @@ function latestComparableBySignature(run: EngineRun): Map<string, CapturedRespon
   return out;
 }
 
+/**
+ * A body with engine-minted identity replaced, so two runtimes can be compared.
+ *
+ * Raw byte equality is the right test for most of this surface and the wrong
+ * one wherever a payload carries an id the engine generated. Those ids differ
+ * by construction — the same sensor source is
+ * `source-1U4PQIK-KI7F6KCTIMXK` on LSP, `source-1789698043796-644662082` on
+ * CPP and a bare UUID on Scala — so comparing them requires an equality id
+ * generation forbids. RealityEngine_CI/SURFACE_SPEC.md states the rule:
+ * **engine-specific ids are never compared** (#397, #407).
+ *
+ * This replaces them rather than dropping the field, so a payload that gains
+ * or loses an id still fails. Only values that LOOK engine-minted are touched;
+ * name-derived ids like `test-machine-aicapacitythrottler` are identical across
+ * runtimes and are left alone, which was confirmed by measurement: of 1343
+ * sources, the non-sensor ids match exactly on all three.
+ *
+ * Timestamps are normalised for the same reason — a run happens at a different
+ * millisecond on each runtime, and that is not a divergence.
+ */
+const ENGINE_MINTED = [
+  /^source-[A-Za-z0-9]+-[A-Za-z0-9]+$/,        // cpp, lsp
+  /^machine-[A-Za-z0-9]+-[A-Za-z0-9]+$/,
+  /^machine-output-[A-Za-z0-9-]+$/,
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,  // scala UUIDs
+];
+
+function withoutEngineIdentity(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutEngineIdentity);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([k, v]) => [k, withoutEngineIdentity(v)])
+    );
+  }
+  if (typeof value === 'string' && ENGINE_MINTED.some(re => re.test(value))) return '<engine-id>';
+  // Epoch milliseconds. Bounded below so a region offset or a count is never
+  // mistaken for a clock reading.
+  if (typeof value === 'number' && value > 1_600_000_000_000) return '<timestamp>';
+  return value;
+}
+
+/** The comparable form of a captured body: parsed, id-free, key-sorted. */
+function comparableBody(capture: CapturedResponse): string {
+  const raw = Buffer.from(capture.bodyBase64, 'base64').toString('utf-8');
+  try {
+    return JSON.stringify(withoutEngineIdentity(JSON.parse(raw)));
+  } catch {
+    // Not JSON — compare it verbatim, which is the stricter test.
+    return raw;
+  }
+}
+
 function compareRuns(runs: EngineRun[]) {
   const byRuntime = Object.fromEntries(
     runs.map(run => [run.engine.runtime, latestComparableBySignature(run)])
@@ -309,13 +363,39 @@ function compareRuns(runs: EngineRun[]) {
     const scala = byRuntime.scala.get(signature)!;
     const cpp = byRuntime.cpp.get(signature)!;
     const sameStatus = lsp.status === scala.status && lsp.status === cpp.status;
-    const sameBytes = lsp.bodyBase64 === scala.bodyBase64 && lsp.bodyBase64 === cpp.bodyBase64;
+    const [l, s, c] = [comparableBody(lsp), comparableBody(scala), comparableBody(cpp)];
+    const sameBytes = l === s && l === c;
     if (!sameStatus || !sameBytes) {
+      // The first differing path, so a failure names what diverged rather than
+      // three sha256s that say only "not equal".
+      const firstDifference = (() => {
+        try {
+          const [a, b] = [JSON.parse(l), JSON.parse(s === l ? c : s)];
+          const walk = (x: unknown, y: unknown, path: string): string | null => {
+            if (JSON.stringify(x) === JSON.stringify(y)) return null;
+            if (x && y && typeof x === 'object' && typeof y === 'object' && !Array.isArray(x)) {
+              for (const k of new Set([...Object.keys(x), ...Object.keys(y as object)])) {
+                const hit = walk((x as never)[k], (y as never)[k], `${path}.${k}`);
+                if (hit) return hit;
+              }
+            }
+            if (Array.isArray(x) && Array.isArray(y)) {
+              for (let i = 0; i < Math.max(x.length, y.length); i++) {
+                const hit = walk(x[i], y[i], `${path}[${i}]`);
+                if (hit) return hit;
+              }
+            }
+            return `${path}: ${JSON.stringify(x)?.slice(0, 60)} vs ${JSON.stringify(y)?.slice(0, 60)}`;
+          };
+          return walk(a, b, '') ?? '(identical after normalisation)';
+        } catch { return '(unparsed)'; }
+      })();
       mismatches.push({
         signature,
         status: { lsp: lsp.status, scala: scala.status, cpp: cpp.status },
         byteLength: { lsp: lsp.byteLength, scala: scala.byteLength, cpp: cpp.byteLength },
         sha256: { lsp: lsp.sha256, scala: scala.sha256, cpp: cpp.sha256 },
+        firstDifference,
       });
     }
   }
