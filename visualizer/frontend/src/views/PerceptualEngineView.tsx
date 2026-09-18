@@ -765,13 +765,51 @@ export const PerceptualEngineView: React.FC = () => {
     api.getPEFullState().then(setState).catch(() => {});
   }, []);
 
+  /**
+   * Ask the engine to set every source, then render what the engine says — not
+   * what was asked for.
+   *
+   * This used to mark every source active optimistically, fire the writes, and
+   * refresh without awaiting. Two of those are wrong when a source can refuse:
+   *
+   *   - **Not every source can be turned on.** A `sensor` source is active iff
+   *     it holds a value inside its TTL, and ingress is the only thing that
+   *     activates it (SURFACE_SPEC, PE source contract). PATCHing `active:true`
+   *     on one the engine has no value for returns **200** and does not take —
+   *     verified against cpp-1, lsp-1 and scala-1, which each hold 15 such
+   *     sensors. There is no error to catch; the write simply does not happen.
+   *   - **The refresh was fire-and-forget**, so this resolved before the truth
+   *     arrived.
+   *
+   * The visible result was a screen disagreeing with itself: the header read
+   * "1351/1351 active" from the optimistic update while 15 rows still offered
+   * an "Enable source" button from refreshed data. Which one an observer saw
+   * depended on when they looked, which is why the e2e capture recorded 15 / 0
+   * / 15 across three runtimes that were in identical states
+   * (RealityEngine_Manager#151).
+   *
+   * Optimism is kept for the sources that *can* change, because the round trip
+   * over ~1350 sources is slow enough to feel broken without it. It is just no
+   * longer applied to the answer.
+   */
   const handleToggleAll = useCallback(async (active: boolean) => {
     const sources = state?.sources ?? [];
     const targets = sources.filter(s => s.active !== active);
     if (targets.length === 0) return;
-    setState(prev => prev ? { ...prev, sources: prev.sources.map(s => ({ ...s, active })) } : prev);
-    await Promise.all(targets.map(s => api.peUpdateSource(s.id, { active } as Partial<PESource>).catch(console.error)));
-    api.getPEFullState().then(setState).catch(() => {});
+    const targetIds = new Set(targets.map(s => s.id));
+    setState(prev => prev ? {
+      ...prev,
+      sources: prev.sources.map(s => (targetIds.has(s.id) ? { ...s, active } : s)),
+    } : prev);
+    await Promise.all(targets.map(s =>
+      api.peUpdateSource(s.id, { active } as Partial<PESource>).catch(console.error)));
+    // Awaited: this function must not resolve while the screen still shows what
+    // was requested rather than what happened.
+    try {
+      setState(await api.getPEFullState());
+    } catch {
+      /* the optimistic view stands until the next poll corrects it */
+    }
   }, [state?.sources]);
 
   const handleBootstrap = useCallback(async (opts?: { machineIds?: string[] }): Promise<PEBootstrapResult> => {
