@@ -31,6 +31,8 @@ interface EngineRun {
   treeLoadedOk: boolean;
   disableSourceCount: number;
   enableSourceCount: number;
+  engineActiveCount: number;
+  engineInactiveCount: number;
   sourcePresentationOk: boolean;
   errors: string[];
 }
@@ -146,12 +148,37 @@ async function importSources(page: Page): Promise<void> {
   await expect(importButton).toContainText('Import', { timeout: 60_000 });
 }
 
+/**
+ * Click "All On" and wait for the screen to settle on the engine's answer.
+ *
+ * This used to end with `expect(getByTitle('Enable source')).toHaveCount(0)` —
+ * "every source is now ON". That state is unreachable: a `sensor` source is
+ * active iff it holds a value inside its TTL, and ingress is the only thing
+ * that activates it, so PATCHing `active:true` on one the engine has no value
+ * for returns 200 and does not take. cpp-1, lsp-1 and scala-1 each hold 15 such
+ * sensors, and each correctly leaves them off.
+ *
+ * The old assertion passed anyway, because the view optimistically marked every
+ * source active before the refresh landed — so it was measuring the request,
+ * not the result, and a later count in the same test read 15 / 0 / 15 across
+ * three runtimes that were in identical states (RealityEngine_Manager#151).
+ *
+ * Now: click, then wait for the toggle counts to stop moving, so what follows
+ * measures a settled screen rather than a moment inside the round trip.
+ */
 async function forceAllSourcesOn(page: Page): Promise<void> {
   const toggleAll = page.getByRole('button', { name: /^(All Off|Mixed)$/ });
   if (await toggleAll.count() && await toggleAll.first().isEnabled()) {
     await toggleAll.first().click();
   }
-  await expect(page.getByTitle('Enable source')).toHaveCount(0, { timeout: 15_000 });
+  await expect(page.getByTitle('Disable source').first()).toBeVisible({ timeout: 15_000 });
+  let previous = -1;
+  await expect(async () => {
+    const current = await page.getByTitle('Enable source').count();
+    const settled = current === previous;
+    previous = current;
+    expect(settled, 'source toggle counts are still changing').toBe(true);
+  }).toPass({ timeout: 20_000, intervals: [500, 500, 1000] });
 }
 
 async function returnToTree(page: Page): Promise<{ rowCount: number; loadedOk: boolean }> {
@@ -206,6 +233,13 @@ async function captureEngineFlow(page: Page, engine: EngineTarget): Promise<Engi
     const activeCountText = await page.locator('text=/\\d+\\/\\d+ active/').first().innerText().catch(() => '?/? active');
     const disableSourceCount = await page.getByTitle('Disable source').count();
     const enableSourceCount = await page.getByTitle('Enable source').count();
+    // What the engine says, so the screen can be compared against the contract
+    // rather than against a constant. `active` is the engine's answer; a sensor
+    // with no ingress is inactive and must stay that way.
+    const peState = await page.request.get('/api/pe/state').then(r => r.json()).catch(() => null);
+    const peSources: Array<{ active?: boolean }> = peState?.sources ?? [];
+    const engineInactiveCount = peSources.filter(s => s.active === false).length;
+    const engineActiveCount = peSources.filter(s => s.active === true).length;
 
     const returnedTree = await returnToTree(page);
     if (!returnedTree.loadedOk) {
@@ -221,6 +255,8 @@ async function captureEngineFlow(page: Page, engine: EngineTarget): Promise<Engi
       treeLoadedOk: tree.loadedOk && returnedTree.loadedOk,
       disableSourceCount,
       enableSourceCount,
+      engineActiveCount,
+      engineInactiveCount,
       sourcePresentationOk,
       errors,
     };
@@ -338,6 +374,8 @@ test('tree view to PE Manager verifies all sources on and compares captured API 
       activeCountText: run.activeCountText,
       disableSourceCount: run.disableSourceCount,
       enableSourceCount: run.enableSourceCount,
+      engineActiveCount: run.engineActiveCount,
+      engineInactiveCount: run.engineInactiveCount,
       sourcePresentationOk: run.sourcePresentationOk,
       errors: run.errors,
       capturedApiResponses: run.captures.length,
@@ -364,7 +402,25 @@ test('tree view to PE Manager verifies all sources on and compares captured API 
     expect(run.treeRowCount, `${run.engine.runtime} tree should contain rows`).toBeGreaterThan(0);
     expect(run.sourcePresentationOk, `${run.engine.runtime} should present imported active sources: ${run.errors.join('; ')}`).toBe(true);
     expect(run.disableSourceCount, `${run.engine.runtime} should present active source toggles`).toBeGreaterThan(0);
-    expect(run.enableSourceCount, `${run.engine.runtime} should have all visible sources ON`).toBe(0);
+    // The screen agrees with the engine — which is what this test is for.
+    //
+    // Not `toBe(0)`. "All visible sources ON" is unreachable: a sensor source
+    // is active iff it holds a value inside its TTL, so the 15 sensors each
+    // runtime holds without ingress are correctly OFF, and an assertion that
+    // they be ON asks the PE to break its own contract. The old assertion
+    // passed only against an optimistic render of the request rather than the
+    // result (RealityEngine_Manager#151, and the same class as #155).
+    expect(
+      run.enableSourceCount,
+      `${run.engine.runtime}: the view offers ${run.enableSourceCount} "Enable source" ` +
+      `toggles but the engine reports ${run.engineInactiveCount} inactive sources — ` +
+      `the screen and the engine disagree`,
+    ).toBe(run.engineInactiveCount);
+    expect(
+      run.disableSourceCount,
+      `${run.engine.runtime}: the view offers ${run.disableSourceCount} "Disable source" ` +
+      `toggles but the engine reports ${run.engineActiveCount} active sources`,
+    ).toBe(run.engineActiveCount);
   }
 
   expect(
