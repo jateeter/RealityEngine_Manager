@@ -265,8 +265,17 @@ setInterval(refreshMachineCatalog, 60_000).unref();
 // (which read + PATCH).  When DISPATCH_LEDGER_FILE is set the ledger appends
 // every mutation as JSONL and replays it on restart for crash-survivable
 // audit.
+//
+// The ledger is a diagnostic window, not an audit trail (INTEGRATION_ROADMAP.md
+// §6 Q2). Capacity is TRIGGER_DISPATCH_LEDGER_LIMIT, default 256, the same in
+// every runtime; this PE ignored the variable while LSP and Scala read it. The
+// JSONL file is a TS-only development aid, not a durability guarantee.
 const dispatchLedgerFile = process.env['DISPATCH_LEDGER_FILE'] ?? null;
-const dispatchLedger = new Ledger({ persistencePath: dispatchLedgerFile });
+const dispatchLedgerLimit = Number.parseInt(process.env['TRIGGER_DISPATCH_LEDGER_LIMIT'] ?? '', 10);
+const dispatchLedger = new Ledger({
+  persistencePath: dispatchLedgerFile,
+  capacity: Number.isInteger(dispatchLedgerLimit) && dispatchLedgerLimit > 0 ? dispatchLedgerLimit : undefined,
+});
 if (dispatchLedgerFile) {
   console.log(`Dispatch ledger: persisting to ${dispatchLedgerFile} (replayed ${dispatchLedger.size()} record(s) on boot)`);
 }
