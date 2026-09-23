@@ -103,6 +103,19 @@ describe('AdapterPipeline', () => {
     expect(a.calls).toHaveLength(0);
   });
 
+  it('marks the record undeliverable when no adapter matches the kind', async () => {
+    const { http, calls } = stubHttp();
+    const p = new AdapterPipeline({ http, ledgerPatchBaseUrl: 'http://pe.test' });
+    p.register(stubAdapter('ollama', 'sent'));
+    p.onRecord(envelope('langgraph'), record());
+    await new Promise((r) => setImmediate(r));
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.body).toMatchObject({
+      status: 'undeliverable',
+      error: 'no adapter registered for dispatch kind "langgraph"',
+    });
+  });
+
   it('routes openclaw-acp envelopes to the acp adapter alias', async () => {
     const a = stubAdapter('acp', 'sent');
     const p = new AdapterPipeline();

@@ -58,7 +58,15 @@ export class AdapterPipeline {
     const kind = envelope.dispatch?.endpoint?.kind;
     if (!kind || kind === 'dry-run') return;
     const adapter = this.findAdapter(kind);
-    if (!adapter) return;
+    if (!adapter) {
+      // No adapter serves this kind. This used to return silently, leaving the
+      // record "recorded" forever -- indistinguishable from one still in
+      // flight. Say so on the record instead (INTEGRATION_ROADMAP §6 Q1: a
+      // `langgraph` envelope, for one, has no adapter; LangGraph is reached as
+      // the graph_* operations of kind localai).
+      void this.markUndeliverable(record, kind);
+      return;
+    }
 
     // Fire-and-forget.  Errors are caught and surfaced through onError
     // so they never crash the dispatcher.
@@ -114,6 +122,18 @@ export class AdapterPipeline {
   }
 
   // ── internals ────────────────────────────────────────────────────────
+
+  private async markUndeliverable(record: DispatchRecord, kind: string): Promise<void> {
+    if (!this.ledgerPatchBaseUrl) return;
+    try {
+      const patch: DispatchRecordPatch = {
+        status: 'undeliverable',
+        error: `no adapter registered for dispatch kind "${kind}"`,
+      };
+      const url = `${this.ledgerPatchBaseUrl.replace(/\/$/, '')}/api/dispatch/records/${encodeURIComponent(record.id)}`;
+      await this.http.patch(url, patch);
+    } catch { /* best-effort, like every ledger PATCH here */ }
+  }
 
   private findAdapter(kind: string): ProviderAdapter | undefined {
     if (kind === 'openclaw-acp') {
