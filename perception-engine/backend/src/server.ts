@@ -1089,8 +1089,12 @@ app.get('/api/triggers/status', (_req: Request, res: Response) => {
 // state, never calls a provider.  Body (optional): `{ freshIds: true }`
 // to mint new envelope+correlation IDs, otherwise the replay reuses the
 // originals so subscribers see the same causal chain.
-app.post('/api/triggers/replay/:dispatchId', (req: Request, res: Response) => {
-  const id = req.params['dispatchId'] ?? '';
+// POST /api/dispatch/records/:id/replay is the path settled 3-of-3
+// (RealityEngine_CI SURFACE_SPEC.md, "Dispatch replay"; INTEGRATION_ROADMAP
+// §6 Q6). /api/triggers/replay/:dispatchId was this PE's own and is kept as a
+// deprecated alias; no native runtime serves it.
+function replayHandler(req: Request, res: Response): void {
+  const id = req.params['id'] ?? req.params['dispatchId'] ?? '';
   const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
     ? (req.body as { freshIds?: unknown })
     : {};
@@ -1101,7 +1105,9 @@ app.post('/api/triggers/replay/:dispatchId', (req: Request, res: Response) => {
     return;
   }
   res.json({ success: true, record: replayed, replayOf: id, freshIds });
-});
+}
+app.post('/api/dispatch/records/:id/replay', replayHandler);
+app.post('/api/triggers/replay/:dispatchId', replayHandler);
 
 // ── Dispatch ledger HTTP surface (Phase 3) ───────────────────────────────
 // Wire-compatible with RealityEngine_CPP:
