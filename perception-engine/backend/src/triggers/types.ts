@@ -142,7 +142,12 @@ export type { DispatchRecord } from '../dispatch/types.js';
 
 // ── Status + summary ─────────────────────────────────────────────────────
 
+/**
+ * `/api/triggers/status`, settled 3-of-3 in RealityEngine_CI SURFACE_SPEC.md
+ * ("Dispatch surface shapes"). The TS PE conforms; it is not a vote.
+ */
 export interface TriggerStatus {
+  participation: 'active' | 'not-active' | 'unsupported';
   enabled: boolean;
   mode: DispatchMode;
   graphqlEndpoint: string;
@@ -150,7 +155,13 @@ export interface TriggerStatus {
   envelopesCreated: number;
   droppedNoGovernance: number;
   droppedNoDispatch: number;
+  /** Machine absent from a catalog that has never loaded (RealityEngine_LSP#63). */
+  droppedCatalogCold: number;
   dispatchErrors: number;
+  machineCatalogCold: boolean;
+  /** Epoch ms of the last successful catalog fetch; 0 = never. */
+  machineCatalogRefreshedAt: number;
+  machineCatalogSize: number;
   /**
    * Subset of `envelopesCreated` produced by
    * `POST /api/triggers/replay/:id`.  TS-side extension — not present in
