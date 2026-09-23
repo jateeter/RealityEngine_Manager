@@ -38,6 +38,7 @@ import {
   resolveHKBatch, checkBridgeAuth,
 } from './integrations/adapters/HealthKitBridge.js';
 import type { HKBridgePayload } from './integrations/adapters/HealthKitBridge.js';
+import { HealthKitScope } from './integrations/HealthKitScope.js';
 import {
   resolveCKBatch, checkCareKitAuth, buildCKStatusBody,
 } from './integrations/adapters/CareKitBridge.js';
@@ -1871,6 +1872,53 @@ app.post('/api/integrations/openai/dispatch', async (req: Request, res: Response
 // and RealityEngine_LSP (healthkit-status-json / ingest-healthkit).
 // The existing /bridge path is kept as a compat alias.
 
+// HealthKit scope and resync (localHealthkitBridge INGEST_CONTRACT.md).
+const healthKitScope = new HealthKitScope();
+
+function healthKitCredentials(req: Request, body: Record<string, unknown>) {
+  const auth = req.headers['authorization'] ?? '';
+  const bearer = typeof auth === 'string' && auth.toLowerCase().startsWith('bearer ') ? auth.slice(7).trim() : undefined;
+  const raw = body['bridgeToken'] ?? body['token'];
+  const bodyToken = typeof raw === 'string' && raw !== '' ? raw : undefined;
+  return { bearer, bodyToken };
+}
+
+function healthKitBridgeIdOf(body: Record<string, unknown>): string {
+  return typeof body['bridgeId'] === 'string' && body['bridgeId'] !== ''
+    ? body['bridgeId'] : process.env['HEALTHKIT_BRIDGE_ID'] ?? 'healthkit-ios-bridge';
+}
+
+app.post('/api/integrations/healthkit/scope', (req: Request, res: Response) => {
+  const body = (req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}) as Record<string, unknown>;
+  const bridgeId = healthKitBridgeIdOf(body);
+  const auth = checkBridgeAuth(integrationRegistry, bridgeId, healthKitCredentials(req, body));
+  if (!auth.ok) { res.status(auth.status).json({ success: false, error: auth.error }); return; }
+  const types = Array.isArray(body['types']) ? (body['types'] as unknown[]).filter((t): t is string => typeof t === 'string') : [];
+  const result = healthKitScope.change(bridgeId, String(body['action'] ?? ''), types,
+    typeof body['source'] === 'string' ? body['source'] : null, Date.now());
+  if (!result.ok) { res.status(400).json({ error: result.error }); return; }
+  // Removed means absent, not zero: the type's sources leave the PE.
+  for (const sid of result.removedSensors) {
+    for (const src of engine.getSources()) {
+      if (src.type === 'sensor' && src.sensorId === sid) engine.removeSource(src.id);
+    }
+  }
+  broadcast({ type: 'healthkit.scope.changed', bridgeId, action: body['action'], types, generation: result.body['generation'] });
+  res.json(result.body);
+});
+
+app.post('/api/integrations/healthkit/resync', (req: Request, res: Response) => {
+  const body = (req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}) as Record<string, unknown>;
+  const bridgeId = healthKitBridgeIdOf(body);
+  const auth = checkBridgeAuth(integrationRegistry, bridgeId, healthKitCredentials(req, body));
+  if (!auth.ok) { res.status(auth.status).json({ success: false, error: auth.error }); return; }
+  const types = Array.isArray(body['types']) ? (body['types'] as unknown[]).filter((t): t is string => typeof t === 'string') : [];
+  const out = healthKitScope.resync(bridgeId, types,
+    typeof body['requestedBy'] === 'string' && body['requestedBy'] !== '' ? body['requestedBy'] : undefined,
+    Date.now(), () => `hk-resync-${Date.now()}-${Math.floor(Math.random() * 1e9)}`);
+  res.status(out.status).json(out.body);
+});
+
 // GET /api/integrations/healthkit/status — bridge configuration.
 app.get('/api/integrations/healthkit/status', (_req: Request, res: Response) => {
   const integrations = Array.isArray(integrationRegistry.config.integrations)
@@ -1895,6 +1943,7 @@ app.get('/api/integrations/healthkit/status', (_req: Request, res: Response) => 
       batchSamples: ['bridgeId', 'samples[]'],
       auth: tokenConfigured ? 'bridgeToken|bearer' : 'none',
     },
+    scope: healthKitScope.json(bridgeId),
   });
 });
 
@@ -1928,7 +1977,22 @@ async function handleHealthKitIngest(req: Request, res: Response): Promise<void>
     res.status(authResult.status).json({ error: authResult.error });
     return;
   }
-  const { resolved, unmapped } = resolveHKBatch(body, integrationRegistry);
+  // Scope first: a type the bridge's scope refuses never reaches resolution.
+  const refused: Array<Record<string, unknown>> = [];
+  const inScope = body.samples.filter((sample) => {
+    const s = sample as unknown as Record<string, unknown>;
+    const type = String(s['type'] ?? '');
+    const reason = healthKitScope.refusal(body.bridgeId, type);
+    if (reason) {
+      refused.push({ unmapped: true, type, sourceName: s['sourceName'] ?? '', reason });
+      return false;
+    }
+    return true;
+  });
+  const batch = inScope.length > 0 ? resolveHKBatch({ ...body, samples: inScope }, integrationRegistry)
+    : { resolved: [], unmapped: [] };
+  const resolved = batch.resolved;
+  const unmapped: unknown[] = [...refused, ...batch.unmapped];
   const ingested: Array<Record<string, unknown>> = [];
   const failed: Array<{ sensorId: string; error: string }> = [];
   const resolvedOut: Array<Record<string, unknown>> = [];
@@ -1945,6 +2009,7 @@ async function handleHealthKitIngest(req: Request, res: Response): Promise<void>
       compactPush: false,
     });
     if (result.status >= 200 && result.status < 300) {
+      healthKitScope.noteSensor(body.bridgeId, sample.origin.type, sample.sensorId);
       ingested.push({ sensorId: sample.sensorId, origin: sample.origin });
       resolvedOut.push({
         resolved: true,
@@ -1961,6 +2026,9 @@ async function handleHealthKitIngest(req: Request, res: Response): Promise<void>
       failed.push({ sensorId: sample.sensorId, error: String((result.body as Record<string, unknown>)['error'] ?? result.status) });
     }
   }
+  const rawResyncId = (body as unknown as Record<string, unknown>)['resyncId'];
+  const resyncId = typeof rawResyncId === 'string' ? rawResyncId : '';
+  if (resyncId) healthKitScope.fulfil(body.bridgeId, resyncId, Date.now());
   if (ingested.length > 0) void doPush();
   const allResolved = unmapped.length === 0 && failed.length === 0;
   const status = allResolved ? 200
@@ -1970,6 +2038,7 @@ async function handleHealthKitIngest(req: Request, res: Response): Promise<void>
     success: allResolved,
     bridgeId: body.bridgeId,
     anchorToken: body.anchorToken,
+    ...(resyncId ? { resyncId } : {}),
     resolved: resolvedOut,
     unmapped,
     ingested,
