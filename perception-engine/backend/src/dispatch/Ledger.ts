@@ -96,7 +96,7 @@ export class Ledger {
     const next: DispatchRecord = { ...current };
     if (typeof patch.status === 'string') next.status = patch.status;
     if (typeof patch.error === 'string') next.error = patch.error;
-    if (patch.clearError === true) next.error = '';
+    if (patch.clearError === true) next.error = null;
     if (typeof patch.attempts === 'number' && Number.isFinite(patch.attempts)) {
       next.attempts = patch.attempts;
     } else if (patch.incrementAttempts === true) {

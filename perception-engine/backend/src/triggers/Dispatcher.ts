@@ -60,6 +60,14 @@ export interface DispatcherDeps {
    * Fire-and-forget at this layer — never blocks the PE cycle.
    */
   pipeline?: { onRecord: (envelope: TriggerEnvelope, record: DispatchRecord) => void };
+  /**
+   * Machine-catalog state. refreshedAt is the epoch ms of the last successful
+   * fetch, 0 = never. With it, a machine missing from a never-loaded catalog is
+   * a droppedCatalogCold, not a droppedNoDispatch (SURFACE_SPEC.md, Dispatch
+   * surface shapes). Absent, getMachine is taken as authoritative and nothing
+   * is counted cold -- production wiring passes it.
+   */
+  catalogState?: () => { refreshedAt: number; size: number };
 }
 
 export interface DispatcherConfig {
@@ -77,6 +85,7 @@ export class Dispatcher {
   private envelopesCreated = 0;
   private droppedNoGovernance = 0;
   private droppedNoDispatch = 0;
+  private droppedCatalogCold = 0;
   private dispatchErrors = 0;
   // TS-side extension: subset of envelopesCreated that came from replay.
   private replaysCreated = 0;
@@ -86,6 +95,11 @@ export class Dispatcher {
     private readonly deps: DispatcherDeps,
   ) {
     this.ledger = deps.ledger ?? new Ledger({ now: deps.now });
+  }
+
+  private catalog(): { refreshedAt: number; size: number } {
+    // Without a catalogState, report "loaded" so nothing is counted cold.
+    return this.deps.catalogState?.() ?? { refreshedAt: -1, size: 0 };
   }
 
   // ── Public surface ──────────────────────────────────────────────────────
@@ -127,6 +141,10 @@ export class Dispatcher {
           continue;
         }
         const machine = this.deps.getMachine(op.machineId);
+        if (!machine && this.catalog().refreshedAt === 0) {
+          this.droppedCatalogCold++;
+          continue;
+        }
         const md = machine?.metadata ?? {};
         const agent = typeof md.dispatchableAgent === 'string' ? md.dispatchableAgent : '';
         const trigger = typeof md.aiTrigger === 'string' ? md.aiTrigger : '';
@@ -181,7 +199,9 @@ export class Dispatcher {
 
   /** Returns the C++-compatible `/api/triggers/status` body. */
   status(): TriggerStatus {
+    const catalog = this.catalog();
     return {
+      participation: this.cfg.enabled ? 'active' : 'not-active',
       enabled: this.cfg.enabled,
       mode: this.cfg.mode,
       graphqlEndpoint: this.cfg.graphqlEndpoint,
@@ -189,7 +209,11 @@ export class Dispatcher {
       envelopesCreated: this.envelopesCreated,
       droppedNoGovernance: this.droppedNoGovernance,
       droppedNoDispatch: this.droppedNoDispatch,
+      droppedCatalogCold: this.droppedCatalogCold,
       dispatchErrors: this.dispatchErrors,
+      machineCatalogCold: catalog.refreshedAt === 0,
+      machineCatalogRefreshedAt: Math.max(0, catalog.refreshedAt),
+      machineCatalogSize: catalog.size,
       replaysCreated: this.replaysCreated,
     };
   }
@@ -233,7 +257,7 @@ export class Dispatcher {
       mode: 'replay',
       target: original.target,
       machineId: original.machineId,
-      sequenceId: original.sequenceId,
+      sequenceIds: [...original.sequenceIds],
       ragStatusCode: original.ragStatusCode,
       processStatus: original.processStatus,
       attempts: 0,
@@ -241,6 +265,8 @@ export class Dispatcher {
       updatedAt: now,
       providerReceipt: null,
       envelope,
+      error: null,
+      semantics: original.semantics,
       replayOf: original.id,
     };
 
@@ -304,14 +330,19 @@ export class Dispatcher {
       // The resolved sequence, not the raw op field: post-fold the engines emit
       // sequenceIds/governance.sequenceId and no longer emit op.sequenceId, so
       // reading it directly left every ledger record's sequenceId empty.
-      sequenceId: envelope.ces.sequenceId,
-      ragStatusCode: typeof governance.ragStatusCode === 'string' ? governance.ragStatusCode : '',
-      processStatus: typeof governance.processStatus === 'string' ? governance.processStatus : '',
+      // The contributing set, as every runtime records it (SURFACE_SPEC.md).
+      sequenceIds: Array.isArray(op.sequenceIds)
+        ? op.sequenceIds.filter((x): x is string => typeof x === 'string' && x !== '')
+        : envelope.ces.sequenceId ? [envelope.ces.sequenceId] : [],
+      ragStatusCode: typeof governance.ragStatusCode === 'string' && governance.ragStatusCode !== '' ? governance.ragStatusCode : null,
+      processStatus: typeof governance.processStatus === 'string' && governance.processStatus !== '' ? governance.processStatus : null,
       attempts: 0,
       createdAt: now,
       updatedAt: now,
       providerReceipt: null,
       envelope,
+      error: null,
+      replayOf: null,
       // Semantic link to the corpus ABox (SEMANTIC_AUDIT_CONTRACT.md): lets an
       // auditor join this dispatch to the determination that caused it without
       // name matching.  IRI fields are null when the machine is absent from

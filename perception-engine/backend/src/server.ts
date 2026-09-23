@@ -240,6 +240,10 @@ const triggerGraphQLEndpoint = process.env['TRIGGER_GRAPHQL_URL'] ?? `${localAIB
 // closes over this map so steps fired before the first refresh just drop
 // to `droppedNoDispatch` (instead of crashing).
 const machineCatalog = new Map<string, MachineRecord>();
+// Epoch ms of the last successful fetch; 0 = never. Only a successful fetch
+// writes it, so 0 is an unambiguous never-loaded marker (SURFACE_SPEC.md,
+// Dispatch surface shapes: droppedCatalogCold / machineCatalogCold).
+let machineCatalogRefreshedAt = 0;
 async function refreshMachineCatalog(): Promise<void> {
   try {
     const response = await reAxios.get<{ machines?: MachineRecord[] }>(`${REALITY_ENGINE_URL}/api/machines`);
@@ -248,6 +252,7 @@ async function refreshMachineCatalog(): Promise<void> {
     for (const m of machines) {
       if (m && typeof m.id === 'string') machineCatalog.set(m.id, m);
     }
+    machineCatalogRefreshedAt = Date.now();
   } catch (err: any) {
     // Soft-fail: dispatcher continues to operate with whatever it had.
     if (triggersEnabled) {
@@ -352,6 +357,7 @@ const triggerDispatcher = new Dispatcher(
   },
   {
     getMachine: (id) => machineCatalog.get(id),
+    catalogState: () => ({ refreshedAt: machineCatalogRefreshedAt, size: machineCatalog.size }),
     broadcast: (evt) => broadcast(evt),
     ledger: dispatchLedger,
     pipeline: adapterPipeline,

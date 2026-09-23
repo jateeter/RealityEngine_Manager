@@ -119,11 +119,12 @@ describe('Ledger.update — wire-compatible with C++ update_dispatch_record', ()
     expect(updated?.updatedAt).toBeGreaterThan(NOW);
   });
 
-  it('clearError empties the error field', () => {
+  it('clearError resets the error to null', () => {
+    // null, never "": the record contract (SURFACE_SPEC.md, Dispatch surface shapes).
     const l = new Ledger();
     l.append(record('a', { error: 'boom' }));
     const updated = l.update('a', { clearError: true });
-    expect(updated?.error).toBe('');
+    expect(updated?.error).toBeNull();
   });
 
   it('incrementAttempts bumps when no explicit attempts given', () => {

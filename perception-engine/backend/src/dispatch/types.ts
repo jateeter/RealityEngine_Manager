@@ -30,24 +30,27 @@ export interface DispatchRecord {
   mode: DispatchMode;
   target: string;
   machineId: string;
-  sequenceId: string;
-  ragStatusCode: string;
-  processStatus: string;
+  /** Every CES that folded into the merge entry (post-fold, CI#327). */
+  sequenceIds: string[];
+  /** null when the governance carries none -- never "" (SURFACE_SPEC.md). */
+  ragStatusCode: string | null;
+  processStatus: string | null;
   attempts: number;
   createdAt: number;
   updatedAt: number;
   providerReceipt: Record<string, unknown> | null;
   envelope: TriggerEnvelope;
-  error?: string;
-  /** Corpus ABox link for semantic auditing; omitted on legacy records. */
-  semantics?: DispatchRecordSemantics;
+  /** null when there is no error. */
+  error: string | null;
+  /** Corpus ABox link for semantic auditing. Fields null when unjoined. */
+  semantics: DispatchRecordSemantics;
   /**
    * When this record was created by `POST /api/triggers/replay/:id`, the
    * id of the original dispatch record being replayed.  Omitted on
    * primary records.  Lets consumers distinguish a replay from a fresh
    * fire without needing a side table.
    */
-  replayOf?: string;
+  replayOf: string | null;
 }
 
 /**

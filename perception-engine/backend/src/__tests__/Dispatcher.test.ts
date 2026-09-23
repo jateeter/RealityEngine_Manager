@@ -106,12 +106,25 @@ describe('Dispatcher — happy path', () => {
     expect(r.status).toBe('recorded');
     expect(r.target).toBe('agent_x');
     expect(r.machineId).toBe('m-1');
-    expect(r.sequenceId).toBe('seq-1');
+    expect(r.sequenceIds).toEqual(['seq-1']);
     expect(r.ragStatusCode).toBe('RED');
     expect(r.processStatus).toBe('error');
     expect(r.attempts).toBe(0);
     expect(r.providerReceipt).toBeNull();
+    expect(r.error).toBeNull();
+    expect(r.replayOf).toBeNull();
     expect(r.envelope.envelopeType).toBe('ces.terminal.event');
+  });
+
+  it('carries exactly the record keys settled 3-of-3', () => {
+    // RealityEngine_CI SURFACE_SPEC.md, "Dispatch surface shapes".
+    const { dispatcher } = harness({}, machinesByMid);
+    dispatcher.dispatchStep({ mergeBatch: [goodOp] });
+    expect(Object.keys(dispatcher.listRecords()[0]!).sort()).toEqual([
+      'attempts', 'correlationId', 'createdAt', 'envelope', 'envelopeId', 'error', 'id',
+      'machineId', 'mode', 'processStatus', 'providerReceipt', 'ragStatusCode', 'replayOf',
+      'semantics', 'sequenceIds', 'status', 'target', 'updatedAt',
+    ]);
   });
 });
 
@@ -160,6 +173,7 @@ describe('Dispatcher — status() shape', () => {
     const { dispatcher } = harness({}, machinesByMid);
     dispatcher.dispatchStep({ mergeBatch: [goodOp, opNoGovernance, opUnknownMachine] });
     expect(dispatcher.status()).toEqual({
+      participation: 'active',
       enabled: true,
       mode: 'dry-run',
       graphqlEndpoint: 'http://localhost:4000/graphql',
@@ -167,9 +181,43 @@ describe('Dispatcher — status() shape', () => {
       envelopesCreated: 1,
       droppedNoGovernance: 1,
       droppedNoDispatch: 1,
+      droppedCatalogCold: 0,
       dispatchErrors: 0,
+      machineCatalogCold: false,
+      machineCatalogRefreshedAt: 0,
+      machineCatalogSize: 0,
       replaysCreated: 0,
     });
+  });
+
+  it('counts a machine missing from a never-loaded catalog as droppedCatalogCold', () => {
+    // RealityEngine_LSP#63: before this, the drop read as "this machine declares
+    // no binding", the opposite of the truth.
+    const deps: DispatcherDeps = {
+      getMachine: () => undefined,
+      broadcast: () => {},
+      now: () => NOW,
+      catalogState: () => ({ refreshedAt: 0, size: 0 }),
+    };
+    const d = new Dispatcher({ enabled: true, mode: 'dry-run', graphqlEndpoint: 'g', realityEngineUrl: 'r' }, deps);
+    d.dispatchStep({ mergeBatch: [opUnknownMachine] });
+    expect(d.status().droppedCatalogCold).toBe(1);
+    expect(d.status().droppedNoDispatch).toBe(0);
+    expect(d.status().machineCatalogCold).toBe(true);
+  });
+
+  it('counts a machine missing from a loaded catalog as droppedNoDispatch', () => {
+    const deps: DispatcherDeps = {
+      getMachine: () => undefined,
+      broadcast: () => {},
+      now: () => NOW,
+      catalogState: () => ({ refreshedAt: NOW, size: 3 }),
+    };
+    const d = new Dispatcher({ enabled: true, mode: 'dry-run', graphqlEndpoint: 'g', realityEngineUrl: 'r' }, deps);
+    d.dispatchStep({ mergeBatch: [opUnknownMachine] });
+    expect(d.status().droppedNoDispatch).toBe(1);
+    expect(d.status().droppedCatalogCold).toBe(0);
+    expect(d.status().machineCatalogSize).toBe(3);
   });
 });
 
