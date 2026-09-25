@@ -19,7 +19,7 @@ info:
     Every metric line carries `runtime="scala"`.
 
     '
-  x-generated-from: /Users/johnt/workspace/GitHub/RealityEngine_CI/SURFACE_SPEC.md
+  x-generated-from: RealityEngine_CI/SURFACE_SPEC.md
 servers:
 - url: http://localhost:5001
   description: Local Scala Reality Engine (native, instance scala-1)
