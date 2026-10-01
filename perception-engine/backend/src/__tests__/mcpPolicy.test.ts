@@ -6,7 +6,7 @@
  * block; the `mutate` wildcard permits everything.
  */
 
-import { describe, expect, it } from '@jest/globals';
+import { describe, expect, it } from 'vitest';
 
 import {
   checkPolicy, loadPolicyFromEnv, policyErrorResult,

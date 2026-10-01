@@ -8,7 +8,7 @@
  * numeric vector before commit.
  */
 
-import { describe, it, expect } from '@jest/globals';
+import { describe, it, expect } from 'vitest';
 import {
   applyExtract, applyNormalize, coerceNumber, evalJsonPointer,
 } from '../integrations/extractors.js';

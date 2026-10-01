@@ -8,7 +8,7 @@
  * tests use).
  */
 
-import { describe, it, expect } from '@jest/globals';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { MappingRegistry } from '../MqttMapping.js';
 import { MqttBridge, fromEnvironment } from '../MqttBridge.js';
 import type { IngestPayload } from '../MqttBridge.js';

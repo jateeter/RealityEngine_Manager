@@ -11,7 +11,7 @@ import { SourceStore } from './SourceStore.js';
 import { mountMcp } from './mcp.js';
 import { MqttBridge, fromEnvironment as mqttFromEnvironment } from './MqttBridge.js';
 import type { IngestPayload } from './MqttBridge.js';
-import type { SourceConfig, SensorSourceConfig, TestSourceConfig, PushResult, MatchAlgorithm } from './types.js';
+import type { SourceConfig, NewSourceConfig, SensorSourceConfig, TestSourceConfig, PushResult, MatchAlgorithm } from './types.js';
 import {
   emptyRegistryState,
   integrationStatus,
@@ -2195,7 +2195,7 @@ app.get('/api/sources', (_req: Request, res: Response) => {
 // Add source
 app.post('/api/sources', async (req: Request, res: Response) => {
   try {
-    const config = req.body as Omit<SourceConfig, 'id'>;
+    const config = req.body as NewSourceConfig;
     if (!config.type || !config.name || !config.region) {
       res.status(400).json({ error: 'type, name, and region are required' });
       return;

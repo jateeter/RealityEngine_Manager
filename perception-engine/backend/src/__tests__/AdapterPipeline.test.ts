@@ -2,7 +2,7 @@
  * AdapterPipeline — routing + ledger PATCH contract.
  */
 
-import { describe, expect, it } from '@jest/globals';
+import { describe, expect, it } from 'vitest';
 import type { AxiosInstance, AxiosRequestConfig } from 'axios';
 
 import { AdapterPipeline } from '../integrations/AdapterPipeline.js';
@@ -55,9 +55,10 @@ function record(): DispatchRecord {
   return {
     id: 'd-1', envelopeId: 'env-1', correlationId: 'corr-1',
     status: 'recorded', mode: 'ollama', target: 'a',
-    machineId: 'm', sequenceId: '', ragStatusCode: '', processStatus: '',
+    machineId: 'm', sequenceIds: [], ragStatusCode: '', processStatus: '',
     attempts: 0, createdAt: 1, updatedAt: 1, providerReceipt: null,
     envelope: envelope('ollama'),
+    error: null, semantics: { machineIri: null, sequenceIri: null, actionCode: null }, replayOf: null,
   };
 }
 

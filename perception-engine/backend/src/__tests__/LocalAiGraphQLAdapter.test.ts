@@ -7,7 +7,7 @@
  * and from outside that is indistinguishable from working.
  */
 
-import { jest } from '@jest/globals';
+import { describe, it, expect, vi } from 'vitest';
 
 import { LocalAiGraphQLAdapter } from '../integrations/adapters/LocalAiGraphQLAdapter.js';
 import type { TriggerEnvelope } from '../triggers/types.js';
@@ -51,7 +51,7 @@ async function adapter(post: unknown) {
 
 describe('LocalAiGraphQLAdapter', () => {
   it('sends the mutation with governance read from the envelope', async () => {
-    const post = jest.fn(async () => ({
+    const post = vi.fn(async () => ({
       data: { data: { updateProcessState: { processState: { id: 'ps-1', status: 'error' } } } },
     }));
     const a = await adapter(post);
@@ -76,7 +76,7 @@ describe('LocalAiGraphQLAdapter', () => {
     // that never claimed one is how an unstated status becomes indistinguishable
     // from a benign one — the failure that left the corpus escalation guardrail
     // inert for 78 of 80 escalations.
-    const post = jest.fn();
+    const post = vi.fn();
     const a = await adapter(post);
     const receipt = await a.dispatch(envelope({ processStatus: 'error' }), RECORD);
 
@@ -88,7 +88,7 @@ describe('LocalAiGraphQLAdapter', () => {
   it('treats a 200 carrying GraphQL errors as a failure', async () => {
     // GraphQL answers 200 with an `errors` array. Reading only the HTTP status
     // would record every rejected mutation as delivered.
-    const post = jest.fn(async () => ({ data: { errors: [{ message: 'unknown process id' }] } }));
+    const post = vi.fn(async () => ({ data: { errors: [{ message: 'unknown process id' }] } }));
     const a = await adapter(post);
     const receipt = await a.dispatch(envelope({ ragStatusCode: 'AMBER' }), RECORD);
 
@@ -97,7 +97,7 @@ describe('LocalAiGraphQLAdapter', () => {
   });
 
   it('rejects a RAG code outside the schema instead of forwarding it', async () => {
-    const post = jest.fn();
+    const post = vi.fn();
     const a = await adapter(post);
     const receipt = await a.dispatch(envelope({ ragStatusCode: 'PURPLE' }), RECORD);
 

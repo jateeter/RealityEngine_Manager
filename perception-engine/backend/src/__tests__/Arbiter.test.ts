@@ -1,3 +1,4 @@
+import { describe, it, expect } from 'vitest';
 import { resolveCell, resolveAll, determinismOf, severityRank } from '../Arbiter.js';
 import type { Contribution, RegistryEntry } from '../Arbiter.js';
 
