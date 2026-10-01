@@ -13,6 +13,8 @@ This package is the TypeScript Perception Engine implementation.
 
 Keep `INTEGRATIONS_CONFIG` and ACP environment defaults aligned with the root application map. Run `npm run build` and relevant `npm test` coverage for backend behavior changes.
 
+Toolchain: Node 26, TypeScript 7 (native `tsc`, no JS compiler API). Tests run on vitest (`npm test`), and `npm run dev` runs on tsx; neither depends on the `typescript` package, which is why ts-jest and ts-node were removed. Vitest strips types without checking them, so `npm run typecheck` checks both `tsconfig.json` and `tsconfig.test.json` — run it alongside `npm test`.
+
 HealthKit ingest follows the canonical contract in `localHealthkitBridge/docs/INGEST_CONTRACT.md`: auth accepts body `bridgeToken` OR `Authorization: Bearer`. The contract checks both against `HEALTHKIT_BRIDGE_TOKEN`; this PE also accepts a per-bridge `apiKey` on the matching `kind:"healthkit"` entry in `INTEGRATIONS_CONFIG`, which takes precedence over the token (`integrations/adapters/HealthKitBridge.ts`). That override is Manager-only and not in the canonical contract; unknown bridgeIds are not a 404; samples carry pre-normalized `values[]` (scalar `value` is the legacy server-normalized path); responses expose `resolved[]`/`unmapped[]` with 200/207/400/401 parity across engines. The vector defaults to 7680 (`VECTOR_SIZE` or native-parity `VECTOR_DIMENSION` env) and grows on demand up to `MAX_VECTOR_SIZE` (default 1048576) when a source region requires it, matching the Scala PE — regions beyond the cap are rejected, not silently skipped.
 
 ## Standing rules — authoritative in `../../../RealityEngine_CI/docs/ENGINEERING_CONTRACT.md`

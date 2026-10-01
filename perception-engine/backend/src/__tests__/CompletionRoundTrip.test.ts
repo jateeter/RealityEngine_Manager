@@ -15,7 +15,7 @@
  * so the vector delta can be asserted byte-for-byte.
  */
 
-import { describe, it, expect } from '@jest/globals';
+import { describe, it, expect } from 'vitest';
 import type { AxiosInstance, AxiosRequestConfig } from 'axios';
 import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';

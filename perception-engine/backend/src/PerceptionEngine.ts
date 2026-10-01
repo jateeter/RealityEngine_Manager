@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import type {
   SourceConfig,
+  NewSourceConfig,
   TestSourceConfig,
   SimulatedSourceConfig,
   SensorSourceConfig,
@@ -98,7 +99,7 @@ export class PerceptionEngine {
 
   // ── Source CRUD ───────────────────────────────────────────────────────────
 
-  addSource(config: Omit<SourceConfig, 'id'>): SourceConfig {
+  addSource(config: NewSourceConfig): SourceConfig {
     const id = uuidv4();
     const source = this.deriveSensorActivity({ ...config, id } as SourceConfig);
     this.ensureCapacity(source.region.offset + source.region.length);

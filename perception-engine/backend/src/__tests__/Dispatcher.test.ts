@@ -6,7 +6,7 @@
  * broadcast event, and the 256-entry FIFO ring eviction.
  */
 
-import { describe, it, expect } from '@jest/globals';
+import { describe, it, expect } from 'vitest';
 
 import { Dispatcher } from '../triggers/Dispatcher.js';
 import type { DispatcherConfig, DispatcherDeps } from '../triggers/Dispatcher.js';

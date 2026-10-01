@@ -28,7 +28,7 @@ This repo contains the user-facing Manager application and the TypeScript Percep
 ./stop.sh
 cd visualizer/backend && npm run build
 cd visualizer/frontend && npm run build && npm run test:e2e -- --project=chromium --workers=1
-cd perception-engine/backend && npm run build && npm test
+cd perception-engine/backend && npm run build && npm run typecheck && npm test
 cd perception-engine/frontend && npm run build
 ```
 

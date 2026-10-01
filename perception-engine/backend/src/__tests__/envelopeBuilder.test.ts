@@ -6,7 +6,7 @@
  * engines must agree on for adapter interop.
  */
 
-import { describe, it, expect } from '@jest/globals';
+import { describe, it, expect } from 'vitest';
 
 import {
   assertedLabel,
