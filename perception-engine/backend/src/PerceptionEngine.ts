@@ -339,6 +339,7 @@ export class PerceptionEngine {
     // cell -> contributions for this instant. Populated by the gather pass
     // below; resolved and committed once, after every source has been read.
     const contributions = new Map<number, Contribution[]>();
+    const seedOrigins = new Set<string>();
 
     for (const id of this.activeSources) {
       const src = this.sources.get(id);
@@ -369,6 +370,7 @@ export class PerceptionEngine {
       // direct write meant the last source iterated won, and Set iteration is
       // insertion-ordered, so that resolution was stable and therefore invisible.
       const provider = providerOf(src);
+      if (src.type === 'test') seedOrigins.add(id);
       for (let i = 0; i < len; i++) {
         const cell = offset + i;
         const list = contributions.get(cell);
@@ -381,6 +383,21 @@ export class PerceptionEngine {
         if (list) list.push(contribution);
         else contributions.set(cell, [contribution]);
       }
+    }
+
+    // SEED BENEATH LIVE — before the arbiter sees a cell. Interned test sources
+    // are ISRESeed(n), the base every live input folds over (the direction of
+    // the OSRE->ISRE fold), so on a cell where any live source contributes, the
+    // seed does not contend at all: the live input wins, always (owner
+    // decision, 2026-10-02, RealityEngine_CPP#146). Without this a test source
+    // mapped to `synthetic` sat in the same `measured` class as HealthKit and
+    // could out-value a live reading under MAX. Seed-only cells resolve as
+    // before, and PRECEDENCE among live contributions is untouched. The C++,
+    // LSP and Scala PEs reach the same result by composing the seed tier first.
+    for (const [cell, list] of contributions) {
+      if (list.length < 2) continue;
+      const live = list.filter((c) => !seedOrigins.has(c.originId));
+      if (live.length > 0 && live.length < list.length) contributions.set(cell, live);
     }
 
     // RESOLVE then COMMIT — exactly one write per cell.
