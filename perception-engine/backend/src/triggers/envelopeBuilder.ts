@@ -42,15 +42,73 @@ export function assertedLabel(values: number[] | undefined): string {
   return labels.length === 0 ? 'none' : labels.join('+');
 }
 
-function firstAgentAction(metadata: MachineRecord['metadata']): string {
-  const actions = metadata?.agentActions;
-  if (!Array.isArray(actions) || actions.length === 0) return '';
-  return typeof actions[0] === 'string' ? actions[0] : '';
-}
-
 function copyStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((x): x is string => typeof x === 'string');
+}
+
+/** A machine's resolved dispatch binding. */
+export interface DispatchBinding {
+  agent: string;
+  trigger: string;
+  /** agentBinding.mode; '' for a machine bound only through the legacy fields. */
+  autonomyMode: string;
+  actions: string[];
+  /** The action at the first non-zero output cell, else the first action. */
+  action: string;
+  writeBack: Record<string, unknown> | null;
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === 'string' && value !== '' ? value : undefined;
+}
+
+/**
+ * Resolve the dispatch binding: first-class `metadata.agentBinding`, falling
+ * back field by field to the legacy `dispatchableAgent` / `aiTrigger` /
+ * `agentActions`. The same rule as C++ (`dispatch_binding`), LSP
+ * (`ces-dispatch-binding`) and Scala (`TriggerDispatcher.binding`).
+ *
+ * This PE used to read only the legacy fields, so a machine bound through
+ * agentBinding alone — `OpenClaw Completion E2E` among them — reached a
+ * terminal CES and was dropped as droppedNoDispatch. That made the Docker
+ * lane, whose PE this is, the only one where the OpenClaw dispatch seed
+ * produced no envelope (RealityEngine_Machines#126).
+ */
+export function dispatchBinding(
+  md: MachineRecord['metadata'] | undefined,
+  values: number[] | undefined,
+): DispatchBinding {
+  const meta = (md ?? {}) as Record<string, unknown>;
+  const ab = meta['agentBinding'];
+  const binding = ab && typeof ab === 'object' && !Array.isArray(ab) ? ab as Record<string, unknown> : null;
+  const legacyAgent = nonEmptyString(meta['dispatchableAgent']) ?? '';
+  const legacyTrigger = nonEmptyString(meta['aiTrigger']) ?? '';
+  const legacyActions = copyStringArray(meta['agentActions']);
+  let actions = legacyActions;
+  if (binding) {
+    const allowed = copyStringArray(binding['allowedActions']);
+    if (allowed.length > 0) actions = allowed;
+  }
+  const wb = binding?.['writeBack'];
+  return {
+    agent: binding ? nonEmptyString(binding['agent']) ?? legacyAgent : legacyAgent,
+    trigger: binding ? nonEmptyString(binding['trigger']) ?? legacyTrigger : legacyTrigger,
+    autonomyMode: binding && typeof binding['mode'] === 'string' ? binding['mode'] : '',
+    actions,
+    action: selectAgentAction(actions, values),
+    writeBack: wb && typeof wb === 'object' && !Array.isArray(wb) ? wb as Record<string, unknown> : null,
+  };
+}
+
+function selectAgentAction(actions: string[], values: number[] | undefined): string {
+  if (actions.length === 0) return '';
+  if (Array.isArray(values)) {
+    for (let i = 0; i < values.length && i < actions.length; i++) {
+      if (typeof values[i] === 'number' && values[i] !== 0) return actions[i]!;
+    }
+  }
+  return actions[0]!;
 }
 
 function semanticsFromValues(values: number[] | undefined): EnvelopeSemanticCell[] {
@@ -75,6 +133,7 @@ export function buildTriggerEnvelope(
 ): TriggerEnvelope {
   const md = machine.metadata ?? {};
   const values = Array.isArray(op.values) ? op.values : [];
+  const binding = dispatchBinding(md, values);
   // Resolve the contributing sequence from either merge shape.
   //
   // A folded entry names every sequence that contributed to the output. When
@@ -140,10 +199,12 @@ export function buildTriggerEnvelope(
     projection: null,
     governance: op.governance && typeof op.governance === 'object' ? op.governance : null,
     dispatch: {
-      agent: typeof md.dispatchableAgent === 'string' ? md.dispatchableAgent : '',
-      action: firstAgentAction(md),
-      agentActionsCatalog: copyStringArray(md.agentActions),
-      trigger: typeof md.aiTrigger === 'string' ? md.aiTrigger : '',
+      agent: binding.agent,
+      action: binding.action,
+      agentActionsCatalog: binding.actions,
+      trigger: binding.trigger,
+      autonomyMode: binding.autonomyMode,
+      writeBack: binding.writeBack,
       endpoint: {
         kind: ctx.mode,
         url: ctx.mode === 'graphql' ? ctx.graphqlEndpoint : '',

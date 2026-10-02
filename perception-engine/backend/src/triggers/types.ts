@@ -112,6 +112,10 @@ export interface EnvelopeDispatch {
   action: string;
   agentActionsCatalog: string[];
   trigger: string;
+  /** agentBinding.mode, as C++ and LSP emit it; '' for a legacy-bound machine. */
+  autonomyMode: string;
+  /** agentBinding.writeBack; null for a machine with no agentBinding. */
+  writeBack: Record<string, unknown> | null;
   endpoint: {
     kind: DispatchMode;
     url: string;

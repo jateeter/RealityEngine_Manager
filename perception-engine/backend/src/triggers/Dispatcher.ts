@@ -21,7 +21,7 @@
 import { randomUUID } from 'crypto';
 
 import { Ledger } from '../dispatch/Ledger.js';
-import { buildTriggerEnvelope, type BuilderContext } from './envelopeBuilder.js';
+import { buildTriggerEnvelope, dispatchBinding, type BuilderContext } from './envelopeBuilder.js';
 import { dispatchSemantics } from '../semanticAudit.js';
 import type {
   DispatchMode,
@@ -146,8 +146,7 @@ export class Dispatcher {
           continue;
         }
         const md = machine?.metadata ?? {};
-        const agent = typeof md.dispatchableAgent === 'string' ? md.dispatchableAgent : '';
-        const trigger = typeof md.aiTrigger === 'string' ? md.aiTrigger : '';
+        const { agent, trigger } = dispatchBinding(md, Array.isArray(op.values) ? op.values : []);
         if (!machine || agent === '' || trigger === '') {
           summary.droppedNoDispatch++;
           this.droppedNoDispatch++;

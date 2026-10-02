@@ -45,6 +45,11 @@ const DEFAULT_TARGET_AGENT = 'openclaw';
 const DEFAULT_COMPLETION_MAPPING = 'agent-completion-risk';
 const DEFAULT_PROMPT = 'Handle this RealityEngine trigger envelope through the configured OpenClaw ACP session and return a PE completion values array.';
 
+const ACP_CONTRACT = {
+  dispatch: 'Record an ACP/OpenClaw handoff receipt only; do not run or wait for the harness in the PE cycle.',
+  completion: 'External ACP/OpenClaw adapters commit finished results through /api/integrations/completions.',
+} as const;
+
 export class AcpAdapter implements ProviderAdapter {
   public readonly kind = 'acp';
   public readonly id?: string;
@@ -112,12 +117,16 @@ export class AcpAdapter implements ProviderAdapter {
       completionSourceMappingId: this.completionSourceMappingId(),
       dispatchEndpoint: '/api/integrations/acp/dispatch',
       completionEndpoint: '/api/integrations/completions',
+      // noWaitDispatch and contract are the 3-of-3 shape (C++ acp_status, LSP
+      // acp-status-json, Scala acpStatusJson) that test-openclaw-integration.sh
+      // asserts; this PE lacked both, so the Docker lane failed that check
+      // (RealityEngine_Machines#126). dispatchMode / completionMode / semantics
+      // are this PE's older spelling of the same facts, kept for its readers.
+      noWaitDispatch: true,
+      contract: ACP_CONTRACT,
       dispatchMode: this.dispatchMode(),
       completionMode: this.completionMode(),
-      semantics: {
-        dispatch: 'Record an ACP/OpenClaw handoff receipt only; do not run or wait for the harness in the PE cycle.',
-        completion: 'External ACP/OpenClaw adapters commit finished results through /api/integrations/completions.',
-      },
+      semantics: ACP_CONTRACT,
     };
   }
 

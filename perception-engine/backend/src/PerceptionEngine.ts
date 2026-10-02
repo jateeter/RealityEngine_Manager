@@ -98,11 +98,23 @@ export class PerceptionEngine {
 
   // ── Source CRUD ───────────────────────────────────────────────────────────
 
-  addSource(config: Omit<SourceConfig, 'id'>): SourceConfig {
-    const id = uuidv4();
+  /**
+   * Register a source. A caller-supplied `id` is kept, and a source already
+   * holding it is replaced; one is minted only when none is given. That is the
+   * C++ rule (PerceptionEngine::add_source), which C++, LSP and Scala share.
+   * This PE used to mint an id unconditionally, so a caller that registered a
+   * source by id and then deleted it by that id got a 404 and leaked the source
+   * — every OpenClaw dispatch seed and envelope-contract seed run against the
+   * Docker lane left one behind (RealityEngine_Machines#126).
+   */
+  addSource(config: Omit<SourceConfig, 'id'> & { id?: unknown }): SourceConfig {
+    const id = typeof config.id === 'string' && config.id !== '' ? config.id : uuidv4();
     const source = this.deriveSensorActivity({ ...config, id } as SourceConfig);
     this.ensureCapacity(source.region.offset + source.region.length);
     this.sources.set(id, source);
+    this.activeSources.delete(id);
+    this.testStep.delete(id);
+    this.walkState.delete(id);
     if (source.active) this.activeSources.add(id);
 
     if (source.type === 'test') {
