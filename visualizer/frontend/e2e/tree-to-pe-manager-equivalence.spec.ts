@@ -457,11 +457,33 @@ async function writeCaptureBodies(runs: EngineRun[], testInfo: TestInfo) {
   return manifest;
 }
 
+const REGISTRY_URL = process.env.RE_REGISTRY_URL ?? 'http://127.0.0.1:5999/re-registry.json';
+
+async function deployedEngineIds(request: APIRequestContext): Promise<Set<string>> {
+  try {
+    const resp = await request.get(REGISTRY_URL);
+    if (!resp.ok()) return new Set();
+    const body = await resp.json() as { instances?: Array<{ id?: string }> };
+    return new Set((body.instances ?? []).map(i => i.id ?? '').filter(Boolean));
+  } catch {
+    return new Set();
+  }
+}
+
 test('tree view to PE Manager verifies all sources on and compares captured API response bytes across all engines', async ({ page, request }, testInfo: TestInfo) => {
   test.setTimeout(300_000);
   const runs: EngineRun[] = [];
 
-  for (const engine of ENGINES) {
+  // Compare the engines this universe actually runs. Universes are started with
+  // one, two, three or more engines; the hard-coded three failed every other
+  // footprint. With fewer than two there is nothing to compare, so the test
+  // skips and says why (RealityEngine_Machines#126).
+  const deployed = await deployedEngineIds(request);
+  const engines = ENGINES.filter(engine => deployed.has(engine.id));
+  test.skip(engines.length < 2,
+    `cross-engine equivalence needs at least 2 engines; the instance registry lists ${[...deployed].join(', ') || 'none'}`);
+
+  for (const engine of engines) {
     const setupCaptures = [
       await switchEngine(request, engine),
       await resetPE(request, engine),
