@@ -534,6 +534,9 @@ function scheduleSensorBroadcast(): void {
 
 async function doPush(): Promise<PushResult> {
   const vector = engine.assembleVector();
+  // The push is the transition: record what this assembly resolved. A read of
+  // /api/state assembles too, and must not count (ARBITER_CONTRACT.md §4.4b).
+  engine.recordContention();
 
   try {
     // Direct call to the Reality Engine — bypasses the visualizer entirely.
@@ -2222,6 +2225,12 @@ function decorateSources(sources: SourceConfig[]): SourceConfig[] {
 // Source list. serializeSources() — not getSources() — so `active` is the
 // validated value (stored AND still able to supply), the same one GET
 // /api/state and the state-update broadcast report.
+// STT contention (ARBITER_CONTRACT.md §4.4b): contended cells of the last push
+// assembly and cumulative per-source counters.
+app.get('/api/sources/contention', (_req: Request, res: Response) => {
+  res.json(engine.getContention());
+});
+
 app.get('/api/sources', (_req: Request, res: Response) => {
   res.json({ sources: decorateSources(engine.serializeSources()) });
 });
