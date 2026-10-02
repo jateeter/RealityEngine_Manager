@@ -33,8 +33,46 @@ function providerOf(src: { type?: string; origin?: string }): string {
   return 'sensor';
 }
 
+/** A source as an STT contention record names it (ARBITER_CONTRACT.md §4.4b). */
+export interface SourceRef {
+  id: string;
+  name: string;
+  kind: string;
+  activatedAt: number;
+}
+
+/** One contended cell from the most recent push assembly. */
+export interface ContendedCell {
+  cell: number;
+  resolution: 'incumbent' | 'live-over-seed';
+  winner: SourceRef;
+  suppressed: SourceRef[];
+}
+
+/** GET /api/sources/contention. */
+export interface SourceContention {
+  transition: number;
+  cells: ContendedCell[];
+  counters: { id: string; name: string; contended: number; suppressed: number }[];
+}
+
+/** Canonical (name, id) order, by code unit — the order every runtime lists in. */
+function canonicalCompare(a: { name: string; id: string }, b: { name: string; id: string }): number {
+  if (a.name !== b.name) return a.name < b.name ? -1 : 1;
+  if (a.id !== b.id) return a.id < b.id ? -1 : 1;
+  return 0;
+}
+
 export class PerceptionEngine {
   private sources: Map<string, SourceConfig> = new Map();
+  // Activation instants (ARBITER_CONTRACT.md §4.4b): the globalStep at which
+  // each source last became active. Kept beside the source, not on it, because
+  // SourceConfig is what GET /api/sources serialises and persists.
+  private activatedAt: Map<string, number> = new Map();
+  // STT contention of the last push assembly, and per-source counters.
+  private lastContention: ContendedCell[] = [];
+  private contentionTransition = 0;
+  private contentionCounters: Map<string, { contended: number; suppressed: number }> = new Map();
   private testStep: Map<string, number> = new Map();
   private walkState: Map<string, number[]> = new Map();
 
@@ -92,6 +130,17 @@ export class PerceptionEngine {
     console.log(`[PerceptionEngine] vectorSize grew ${previous} → ${requiredEnd}`);
   }
 
+  /**
+   * Every write to `sources` goes through here so the activation instant is
+   * kept: a source that was active and stays active keeps its claim; any other
+   * write stamps the current transition (§4.4b).
+   */
+  private store(id: string, next: SourceConfig): void {
+    const continuing = (this.sources.get(id)?.active ?? false) && next.active;
+    if (!continuing) this.activatedAt.set(id, this.globalStep);
+    this.sources.set(id, next);
+  }
+
   setMatchAlgorithm(algo: MatchAlgorithm): void {
     this.matchAlgorithm = algo;
   }
@@ -111,7 +160,8 @@ export class PerceptionEngine {
     const id = typeof config.id === 'string' && config.id !== '' ? config.id : uuidv4();
     const source = this.deriveSensorActivity({ ...config, id } as SourceConfig);
     this.ensureCapacity(source.region.offset + source.region.length);
-    this.sources.set(id, source);
+    if (!this.sources.has(id)) this.contentionCounters.delete(id);
+    this.store(id, source);
     this.activeSources.delete(id);
     this.testStep.delete(id);
     this.walkState.delete(id);
@@ -194,7 +244,7 @@ export class PerceptionEngine {
   deactivateSource(id: string): boolean {
     const existing = this.sources.get(id);
     if (!existing) return false;
-    this.sources.set(id, { ...existing, active: false } as SourceConfig);
+    this.store(id, { ...existing, active: false } as SourceConfig);
     this.activeSources.delete(id);
     return true;
   }
@@ -202,7 +252,10 @@ export class PerceptionEngine {
   /** Restore a previously persisted source preserving its original ID. */
   restoreSource(source: SourceConfig): void {
     this.ensureCapacity(source.region.offset + source.region.length);
+    // Restored at boot: instant 0, as every runtime that rebuilds its sources
+    // on boot stamps them (§4.4b).
     this.sources.set(source.id, source);
+    this.activatedAt.set(source.id, 0);
     if (source.active) this.activeSources.add(source.id);
 
     if (source.type === 'test') {
@@ -231,6 +284,8 @@ export class PerceptionEngine {
     this.testStep.delete(id);
     this.walkState.delete(id);
     this.activeSources.delete(id);
+    this.activatedAt.delete(id);
+    this.contentionCounters.delete(id);
     return this.sources.delete(id);
   }
 
@@ -242,7 +297,7 @@ export class PerceptionEngine {
     // see deactivateSource.
     const updated = this.deriveSensorActivity({ ...existing, ...patch, id } as SourceConfig);
     this.ensureCapacity(updated.region.offset + updated.region.length);
-    this.sources.set(id, updated);
+    this.store(id, updated);
     if (updated.active) this.activeSources.add(id);
     else this.activeSources.delete(id);
     return updated;
@@ -334,7 +389,7 @@ export class PerceptionEngine {
           lastWriteAt: now,
           writeCount: (src.writeCount ?? 0) + 1,
         };
-        this.sources.set(src.id, updated);
+        this.store(src.id, updated);  // earning activity is an activation (§4.4b)
         this.activeSources.add(src.id);
         return true;
       }
@@ -362,8 +417,29 @@ export class PerceptionEngine {
     // Bulk copy via typed array: one native memcpy vs vectorSize individual JS writes.
     this.outBuf.set(this.persistentVector);
 
-    // cell -> contributions for this instant. Populated by the gather pass
-    // below; resolved and committed once, after every source has been read.
+    const { contributions, seedOrigins } = this.gatherSourceContributions(true);
+    this.resolveSourceContention(contributions, seedOrigins);
+
+    // RESOLVE then COMMIT — exactly one write per cell.
+    const { values: resolved, records } = resolveAll(contributions, this.globalStep, (cell) =>
+      arbitrationRegistry.entryFor(cell),
+    );
+    for (const [cell, value] of resolved) {
+      this.outBuf[cell] = value;
+    }
+    this.lastArbitration = records;
+
+    return Array.from(this.outBuf);
+  }
+
+  /**
+   * GATHER — cell -> contributions for this instant, from every active source.
+   * Nothing reaches outBuf until each contended cell is resolved (contract §2).
+   */
+  private gatherSourceContributions(warn: boolean): {
+    contributions: Map<number, Contribution[]>;
+    seedOrigins: Set<string>;
+  } {
     const contributions = new Map<number, Contribution[]>();
     const seedOrigins = new Set<string>();
 
@@ -380,7 +456,7 @@ export class PerceptionEngine {
       // region past the end would vanish with no signal at all.  Growth should
       // make this unreachable; if it is reached, name the machine that lost its
       // input rather than dropping it quietly.
-      if (offset < 0 || offset + len > this._vectorSize) {
+      if (warn && (offset < 0 || offset + len > this._vectorSize)) {
         // machineId is only present on machine-derived sources, not on
         // SimulatedSourceConfig — narrow rather than assume.
         const machineId = 'machineId' in src ? src.machineId : '';
@@ -391,10 +467,9 @@ export class PerceptionEngine {
         );
       }
 
-      // GATHER — a contribution, not a write. Nothing reaches outBuf until the
-      // arbiter has resolved every contended cell (contract §2). The previous
-      // direct write meant the last source iterated won, and Set iteration is
-      // insertion-ordered, so that resolution was stable and therefore invisible.
+      // A contribution, not a write. The previous direct write meant the last
+      // source iterated won, and Set iteration is insertion-ordered, so that
+      // resolution was stable and therefore invisible.
       const provider = providerOf(src);
       if (src.type === 'test') seedOrigins.add(id);
       for (let i = 0; i < len; i++) {
@@ -410,32 +485,103 @@ export class PerceptionEngine {
         else contributions.set(cell, [contribution]);
       }
     }
+    return { contributions, seedOrigins };
+  }
 
-    // SEED BENEATH LIVE — before the arbiter sees a cell. Interned test sources
-    // are ISRESeed(n), the base every live input folds over (the direction of
-    // the OSRE->ISRE fold), so on a cell where any live source contributes, the
-    // seed does not contend at all: the live input wins, always (owner
-    // decision, 2026-10-02, RealityEngine_CPP#146). Without this a test source
-    // mapped to `synthetic` sat in the same `measured` class as HealthKit and
-    // could out-value a live reading under MAX. Seed-only cells resolve as
-    // before, and PRECEDENCE among live contributions is untouched. The C++,
-    // LSP and Scala PEs reach the same result by composing the seed tier first.
-    for (const [cell, list] of contributions) {
+  /**
+   * Resolve every cell several sources write, leaving one contribution per cell
+   * for the arbiter, and return what was decided.
+   *
+   * SEED BENEATH LIVE. Interned test sources are ISRESeed(n), the base every
+   * live input folds over (the direction of the OSRE->ISRE fold), so on a cell
+   * where any live source contributes, the seed does not contend at all: the
+   * live input wins, always (owner decision, 2026-10-02, RealityEngine_CPP#146).
+   *
+   * THE INCUMBENT KEEPS THE CELL. Within the tier left standing, two sources on
+   * one cell in one transition violates the single transition time constraint
+   * (ARBITER_CONTRACT.md §4.4b, owner decision 2026-10-02): the source activated
+   * earliest wins; equal instants — every seed interned at boot — fall back to
+   * canonical (name, id), first winning. No value combinator applies between
+   * sources: the registry's per-cell rules govern machine-vs-source, not
+   * source-vs-source. The C++, LSP and Scala PEs reach the same result by
+   * composing each tier newest first so the incumbent writes last.
+   */
+  private resolveSourceContention(
+    contributions: Map<number, Contribution[]>,
+    seedOrigins: Set<string>,
+  ): ContendedCell[] {
+    const cells: ContendedCell[] = [];
+    const ref = (id: string): SourceRef => {
+      const src = this.sources.get(id);
+      return {
+        id,
+        name: src?.name ?? '',
+        kind: src?.type ?? '',
+        activatedAt: this.activatedAt.get(id) ?? 0,
+      };
+    };
+    const incumbentFirst = (a: SourceRef, b: SourceRef): number =>
+      a.activatedAt !== b.activatedAt
+        ? a.activatedAt - b.activatedAt
+        : canonicalCompare(a, b);
+    const sortedCells = [...contributions.keys()].sort((a, b) => a - b);
+    for (const cell of sortedCells) {
+      const list = contributions.get(cell)!;
       if (list.length < 2) continue;
       const live = list.filter((c) => !seedOrigins.has(c.originId));
-      if (live.length > 0 && live.length < list.length) contributions.set(cell, live);
+      const tier = live.length > 0 ? live : list;
+      const winner = tier.map((c) => ref(c.originId)).sort(incumbentFirst)[0]!;
+      contributions.set(cell, list.filter((c) => c.originId === winner.id));
+      if (cell < 0 || cell >= this._vectorSize) continue;
+      cells.push({
+        cell,
+        resolution: tier.length > 1 ? 'incumbent' : 'live-over-seed',
+        winner,
+        suppressed: list
+          .filter((c) => c.originId !== winner.id)
+          .map((c) => ref(c.originId))
+          .sort(canonicalCompare),
+      });
     }
+    return cells;
+  }
 
-    // RESOLVE then COMMIT — exactly one write per cell.
-    const { values: resolved, records } = resolveAll(contributions, this.globalStep, (cell) =>
-      arbitrationRegistry.entryFor(cell),
-    );
-    for (const [cell, value] of resolved) {
-      this.outBuf[cell] = value;
+  /** Cells written by more than one active source, resolved as assembleVector
+   * resolves them. A pure read: it neither records nor counts. */
+  sourceContention(): ContendedCell[] {
+    const { contributions, seedOrigins } = this.gatherSourceContributions(false);
+    return this.resolveSourceContention(contributions, seedOrigins);
+  }
+
+  /** Record the contention of the assembly a push sends, and count it. Push path only. */
+  recordContention(): void {
+    this.lastContention = this.sourceContention();
+    this.contentionTransition = this.globalStep;
+    const contended = new Set<string>();
+    const lost = new Set<string>();
+    for (const c of this.lastContention) {
+      contended.add(c.winner.id);
+      for (const l of c.suppressed) {
+        contended.add(l.id);
+        lost.add(l.id);
+      }
     }
-    this.lastArbitration = records;
+    for (const id of contended) {
+      const counter = this.contentionCounters.get(id) ?? { contended: 0, suppressed: 0 };
+      counter.contended++;
+      if (lost.has(id)) counter.suppressed++;
+      this.contentionCounters.set(id, counter);
+    }
+  }
 
-    return Array.from(this.outBuf);
+  /** GET /api/sources/contention. */
+  getContention(): SourceContention {
+    const counters: SourceContention['counters'] = [];
+    for (const src of this.getSources()) {
+      const c = this.contentionCounters.get(src.id);
+      if (c) counters.push({ id: src.id, name: src.name, contended: c.contended, suppressed: c.suppressed });
+    }
+    return { transition: this.contentionTransition, cells: this.lastContention, counters };
   }
 
   /** Arbitration records from the most recent assembleVector() — contributors,
@@ -483,7 +629,7 @@ export class PerceptionEngine {
             this.testStep.set(id, 0);
           } else {
             // Deactivate exhausted non-looping source and remove from active set.
-            this.sources.set(id, { ...src, active: false });
+            this.store(id, { ...src, active: false });
             this.activeSources.delete(id);
             this.testStep.set(id, 0);
           }
@@ -560,7 +706,12 @@ export class PerceptionEngine {
       // has to move with the flag or the two disagree about the same source.
       if (active) this.activeSources.add(id);
       else this.activeSources.delete(id);
+      // A reset is a boot for the run: instant 0 for every source (§4.4b).
+      this.activatedAt.set(id, 0);
     }
+    this.lastContention = [];
+    this.contentionTransition = 0;
+    this.contentionCounters.clear();
   }
 
   /**
