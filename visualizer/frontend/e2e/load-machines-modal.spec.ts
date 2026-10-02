@@ -21,6 +21,14 @@ test.describe('Load Machines modal', () => {
   test.beforeEach(async ({ page }) => {
     const tree = await page.request.get(`${VIZ_URL}/api/corpus/tree`);
     if (!tree.ok()) test.skip(true, 'corpus tree endpoint unavailable');
+    // A 200 with an empty catalog is a deployment defect, not a UI one: the
+    // backend cannot see the corpus. It used to surface as a 15s timeout on a
+    // missing row, four times, in the Docker lane only — where the container had
+    // no corpus mount (RealityEngine_Machines#126). Say what is actually wrong.
+    const body = await tree.json() as { totalMachines?: number; machinesDir?: string };
+    expect(body.totalMachines ?? 0,
+      `the Manager backend sees no corpus (machinesDir=${body.machinesDir ?? '?'}); ` +
+      'mount it and set MACHINES_DIR for the visualizer backend').toBeGreaterThan(0);
     await openModal(page);
   });
 
