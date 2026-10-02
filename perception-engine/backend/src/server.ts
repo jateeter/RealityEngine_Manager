@@ -2195,7 +2195,7 @@ app.get('/api/sources', (_req: Request, res: Response) => {
 // Add source
 app.post('/api/sources', async (req: Request, res: Response) => {
   try {
-    const config = req.body as Omit<SourceConfig, 'id'>;
+    const config = req.body as Omit<SourceConfig, 'id'> & { id?: unknown };
     if (!config.type || !config.name || !config.region) {
       res.status(400).json({ error: 'type, name, and region are required' });
       return;

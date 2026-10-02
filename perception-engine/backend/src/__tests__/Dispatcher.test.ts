@@ -168,6 +168,21 @@ describe('Dispatcher — drop classification', () => {
   });
 });
 
+describe('Dispatcher — agentBinding', () => {
+  // A machine bound only through agentBinding used to be dropped here, so the
+  // OpenClaw dispatch seed produced no envelope on this PE alone
+  // (RealityEngine_Machines#126).
+  it('dispatches a machine bound only through agentBinding', () => {
+    const bound: MachineRecord = { id: 'm-ab', name: 'Bound', metadata: {
+      agentBinding: { agent: 'openclaw_e2e_agent', trigger: 'openclaw-e2e-dispatch-seed', mode: 'advise' } } };
+    const { dispatcher, broadcasts } = harness({}, new Map([['m-ab', bound]]));
+    const s = dispatcher.dispatchStep({ mergeBatch: [{ ...goodOp, machineId: 'm-ab' }] });
+    expect(s.envelopesCreated).toBe(1);
+    expect(s.droppedNoDispatch).toBe(0);
+    expect(broadcasts[0]).toMatchObject({ type: 'trigger.envelope.created', target: 'openclaw_e2e_agent' });
+  });
+});
+
 describe('Dispatcher — status() shape', () => {
   it('matches the C++ /api/triggers/status response shape', () => {
     const { dispatcher } = harness({}, machinesByMid);

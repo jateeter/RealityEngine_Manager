@@ -107,6 +107,12 @@ describe('AcpAdapter', () => {
       dispatchMode: 'accepted-no-wait',
       completionMode: 'pe-source-mapping',
       completionSourceMappingId: 'acp-openclaw-completion',
+      // The 3-of-3 shape test-openclaw-integration.sh asserts (Machines#126).
+      noWaitDispatch: true,
+      contract: {
+        dispatch: expect.stringContaining('do not run or wait'),
+        completion: expect.stringContaining('/api/integrations/completions'),
+      },
     });
   });
 });
