@@ -1,3 +1,4 @@
+import { foldUnitInterval } from './osreFold.js';
 import { v4 as uuidv4 } from 'uuid';
 import type {
   SourceConfig,
@@ -108,6 +109,15 @@ export class PerceptionEngine {
   // not optional: a resolution nobody can see is indistinguishable from no
   // resolution at all.
   private lastArbitration: ArbitrationRecord[] = [];
+
+  // The OSRE cells of the last push: cell -> the writing machine's declared
+  // outputMergeTransformation (ARBITER_CONTRACT.md §4.4b).
+  private osreFold: Map<number, string> = new Map();
+
+  /** Set from each push's mergeBatch; see osreFold.ts. */
+  setOsreFold(cells: Map<number, string>): void {
+    this.osreFold = cells;
+  }
 
   globalStep = 0;
   matchAlgorithm: MatchAlgorithm = 'gte';
@@ -427,6 +437,14 @@ export class PerceptionEngine {
     for (const [cell, value] of resolved) {
       this.outBuf[cell] = value;
     }
+    // A source on an OSRE cell is folded with the OSRE value by the writing
+    // machine's operator rather than replacing it (§4.4b). `contributions`
+    // holds exactly the cells a source wrote this instant.
+    for (const [cell, transformation] of this.osreFold) {
+      if (cell < 0 || cell >= this._vectorSize || !contributions.has(cell)) continue;
+      this.outBuf[cell] = Math.max(0, Math.min(1,
+        foldUnitInterval(transformation, this.outBuf[cell], this.persistentVector[cell])));
+    }
     this.lastArbitration = records;
 
     return Array.from(this.outBuf);
@@ -680,6 +698,8 @@ export class PerceptionEngine {
    */
   reset(): void {
     this.globalStep = 0;
+    // No push since the reset, so no OSRE term to fold with.
+    this.osreFold = new Map();
     this.persistentVector.fill(0);
     this.gaussianSpare = null;
 
