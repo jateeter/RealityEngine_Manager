@@ -2,8 +2,8 @@
  * load-machines-modal.spec.ts — Playwright e2e for the Load Machines modal
  * (Manager#31). Opens the setup-tools menu, launches the modal, verifies the
  * corpus tree renders with counts, exercises tri-state selection, and loads
- * one small domain into the active engine (skip-if-present keeps this
- * idempotent against a full-corpus engine).
+ * one machine the engine already holds — skip-if-present makes that a no-op,
+ * so the shared universe the later specs run against is left as booted.
  */
 
 import { test, expect, type Page } from '@playwright/test';
@@ -59,22 +59,29 @@ test.describe('Load Machines modal', () => {
     expect(after).toBeLessThan(before);
   });
 
-  test('loading a small selection reports a summary', async ({ page }) => {
+  test('loading a machine the engine already holds reports a clean, no-op summary', async ({ page }) => {
     await expect(page.getByTestId('load-machines-row').first()).toBeVisible({ timeout: 15_000 });
 
-    // Pick a child node ('domains' is default-expanded); skip-if-present
-    // makes re-runs report skips instead of duplicating machines.
-    let childCheckbox = page
-      .locator('.lmm-node-body .lmm-node-row input[type="checkbox"]')
-      .first();
-    if (await childCheckbox.count() === 0) {
-      await page.locator('.lmm-expander:enabled').first().click();
-      childCheckbox = page
-        .locator('.lmm-node-body .lmm-node-row input[type="checkbox"]')
-        .first();
-    }
-    if (await childCheckbox.count() === 0) test.skip(true, 'no child nodes in corpus tree');
-    await childCheckbox.check();
+    // Load one machine the engine ALREADY holds, so skip-if-present makes the
+    // load a no-op and the shared universe is left exactly as booted.
+    //
+    // This used to load the first domain in the tree — agriculture, 78
+    // machines — into every engine, and nothing unloads. Every later spec then
+    // ran against a corpus the deployment never booted: openclaw-portal found
+    // 71 machine-corpus agents "missing" from OpenClaw because the machines
+    // they bind were added here, not by the deployment (RealityEngine_Machines
+    // #126). It only stayed hidden while the Docker lane's catalog was empty
+    // and this test failed before loading anything.
+    const tree = await (await page.request.get(`${VIZ_URL}/api/corpus/tree`)).json() as { tree?: TreeNode[] };
+    const held = firstLoadedMachine(tree.tree ?? []);
+    if (!held) test.skip(true, 'the active engine holds no machine from the corpus tree');
+    await page.locator('.lmm-filter').fill(held!);
+    const machine = page.locator('.lmm-machine').filter({
+      has: page.locator('.lmm-machine-name', { hasText: new RegExp(`^${escapeRegExp(held!)}$`) }),
+    }).first();
+    await expect(machine).toBeVisible({ timeout: 15_000 });
+    await machine.locator('input[type="checkbox"]').check();
+    await expect(page.getByTestId('load-machines-count')).toHaveText('1 selected');
 
     // Load into EVERY engine, not just the active one.
     //
@@ -110,5 +117,23 @@ test.describe('Load Machines modal', () => {
     // A request-level error also renders a summary — require a clean result.
     await expect(page.locator('.lmm-summary')).not.toHaveClass(/has-failures/);
     await expect(page.locator('.lmm-summary')).toContainText(/failed 0/);
+    // Nothing new reached any engine.
+    await expect(page.locator('.lmm-summary')).toContainText(/Loaded 0/);
   });
 });
+
+interface TreeNode { machines?: { name?: string; loaded?: boolean }[]; children?: TreeNode[] }
+
+function firstLoadedMachine(nodes: TreeNode[]): string | undefined {
+  for (const n of nodes) {
+    const m = (n.machines ?? []).find(x => x.loaded === true && typeof x.name === 'string' && x.name !== '');
+    if (m) return m.name;
+    const deeper = firstLoadedMachine(n.children ?? []);
+    if (deeper) return deeper;
+  }
+  return undefined;
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
