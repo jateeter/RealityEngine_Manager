@@ -213,6 +213,20 @@ export class PerceptionEngine {
     }
   }
 
+  /**
+   * Remove every interned source (a `test` source carrying a machineId) whose
+   * machine is not in `served`; returns what was removed. Sources a caller
+   * registered carry no machineId and are never touched.
+   */
+  removeInternedSourcesOutside(served: ReadonlySet<string>): SourceConfig[] {
+    const removed: SourceConfig[] = [];
+    for (const src of this.getSources()) {
+      if (src.type !== 'test' || !src.machineId || served.has(src.machineId)) continue;
+      if (this.removeSource(src.id)) removed.push(src);
+    }
+    return removed;
+  }
+
   removeSource(id: string): boolean {
     this.testStep.delete(id);
     this.walkState.delete(id);

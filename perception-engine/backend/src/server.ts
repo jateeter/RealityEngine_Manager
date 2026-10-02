@@ -690,6 +690,9 @@ interface MachineSummary {
 interface BootstrapResult {
   created: number;
   skipped: number;
+  // Persisted interned sources removed because the RE no longer serves their
+  // machine (see pruneRetiredMachineSources).
+  pruned: number;
   machinesSeen: number;
   errors: string[];
   // Breakdown of why each input was skipped — kept additive so existing
@@ -710,6 +713,32 @@ interface BootstrapResult {
   vectorSize: number;
 }
 
+/**
+ * Remove persisted interned test sources whose machine the RE no longer serves.
+ *
+ * This PE persists its sources across restarts (the perception_sources volume),
+ * and the bootstrap is skip-if-present, so an interned source outlived its
+ * machine: `RS Flip Flop (deprecated demo)`, retired from the corpus by
+ * RealityEngine_Machines#182, was still driving [4200:4202] in the next
+ * non-fresh deployment and failed the runtime-trace joinability contract — a
+ * PE source write naming no corpus machine (RealityEngine_Machines#126). The
+ * interned set is a view of the booted corpus, and a stale view is regenerated,
+ * not carried. The C++, LSP and Scala PEs hold sources in memory and rebuild
+ * them from the corpus on every boot, so they already behave this way.
+ *
+ * Only interned sources (type `test` with a machineId) are candidates; sources
+ * a caller registered are never touched. Nothing is pruned on an empty machine
+ * list, which an RE answering mid-boot can return.
+ */
+function pruneRetiredMachineSources(machines: ReadonlyArray<{ id: string }>): number {
+  if (machines.length === 0) return 0;
+  const removed = engine.removeInternedSourcesOutside(new Set(machines.map(m => m.id)));
+  for (const src of removed) {
+    console.log(`[bootstrap] pruned interned source '${src.name}' — its machine is no longer in the corpus`);
+  }
+  return removed.length;
+}
+
 async function bootstrapMachineTestSources(
   filter?: { machineIds?: ReadonlySet<string> },
 ): Promise<BootstrapResult> {
@@ -726,7 +755,7 @@ async function bootstrapMachineTestSources(
   } catch (err: any) {
     errors.push(`fetch /api/machines: ${err?.message ?? String(err)}`);
     return {
-      created, skipped: 0, machinesSeen, errors,
+      created, skipped: 0, pruned: 0, machinesSeen, errors,
       reasons, vectorSize: engine.vectorSize,
     };
   }
@@ -736,6 +765,11 @@ async function bootstrapMachineTestSources(
   // Empty Set means "no machines match" — we still walk so the count of
   // skipped reflects what was filtered out.
   const allowList = filter?.machineIds;
+
+  // An unfiltered bootstrap sees the whole corpus the RE booted, so it can
+  // retire what that corpus no longer holds. A filtered one (a domain load)
+  // sees a slice and must not.
+  const pruned = allowList ? 0 : pruneRetiredMachineSources(machines);
 
   // One source per machine, regardless of how many test sequences it
   // declares — its segments stage the sequences end-to-end so the first
@@ -814,12 +848,12 @@ async function bootstrapMachineTestSources(
     created++;
   }
 
-  if (created > 0) {
+  if (created > 0 || pruned > 0) {
     await saveAndBroadcast();
   }
 
   const skipped = reasons.alreadyExisted + reasons.outOfRange + reasons.noSequences + reasons.outsideFilter;
-  return { created, skipped, machinesSeen, errors, reasons, vectorSize: engine.vectorSize };
+  return { created, skipped, pruned, machinesSeen, errors, reasons, vectorSize: engine.vectorSize };
 }
 
 /**
@@ -833,7 +867,7 @@ async function bootstrapWithRetry(maxAttempts: number = 60, delayMs: number = 20
       await reAxios.get(`${REALITY_ENGINE_URL}/api/health`, { timeout: 1500 });
       const result = await bootstrapMachineTestSources();
       console.log(
-        `[bootstrap] machine test sources — seen=${result.machinesSeen} created=${result.created} skipped=${result.skipped} errors=${result.errors.length}`,
+        `[bootstrap] machine test sources — seen=${result.machinesSeen} created=${result.created} skipped=${result.skipped} pruned=${result.pruned} errors=${result.errors.length}`,
       );
       if (result.errors.length > 0) {
         for (const e of result.errors) console.warn(`[bootstrap] ${e}`);
