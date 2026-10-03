@@ -636,7 +636,15 @@ paths:
     get:
       tags:
       - Engine
-      summary: Get /api/engine/steps/{n}/pair
+      summary: The (ISRE, OSRE) pair for step n, waiting up to timeoutMs at its completion point
+      parameters:
+      - name: n
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 0
+        description: Step number; steps are numbered from 0 on every runtime
       responses:
         '200':
           description: Success
