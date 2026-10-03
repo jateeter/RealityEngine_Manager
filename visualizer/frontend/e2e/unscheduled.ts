@@ -21,6 +21,13 @@
  * Slot sources are dropped from every list, as is any entry that sits over a
  * slot's region, and a slot's cells in a perceptual vector are zeroed. What
  * remains is still compared byte for byte.
+ *
+ * **Live-source wall-clock time.** A source's `lastUpdated` is the wall-clock
+ * time its value arrived on that engine, so it differs by construction. It is
+ * left out of comparison — replaced with `live:time` — but whether it is set is
+ * kept: `null` (no value ever arrived) against a time is still a difference.
+ * The engines keep the timestamps; ordering across engines is to come from
+ * engine-specific Lamport ticks (engine UUID + step), not wall clock (#518).
  */
 
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
@@ -88,6 +95,41 @@ export function withoutSlots(value: unknown, slots: readonly Region[]): unknown 
   if (value && typeof value === 'object') {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, withoutSlots(v, slots)]));
+  }
+  return value;
+}
+
+const LIVE_TIME_KEYS = new Set(['lastUpdated']);
+
+/** `value` with every live-source wall-clock time replaced by `live:time`; nulls kept. */
+export function withoutLiveTimes(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutLiveTimes);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([k, v]) => [
+        k,
+        LIVE_TIME_KEYS.has(k) && v !== null && v !== undefined ? 'live:time' : withoutLiveTimes(v),
+      ]));
+  }
+  return value;
+}
+
+/**
+ * `value` without list entries named in `names`. For sources an integration
+ * removed on its own schedule (localAIStack's window claim): the removal is
+ * recorded durably by the integration, and an entry one engine has already lost
+ * and another has not is not an engine divergence (#518).
+ */
+export function withoutNamed(value: unknown, names: ReadonlySet<string>): unknown {
+  if (!names.size) return value;
+  if (Array.isArray(value)) {
+    return value
+      .filter(v => !(v && typeof v === 'object' && !Array.isArray(v) && names.has((v as any).name)))
+      .map(v => withoutNamed(v, names));
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, withoutNamed(v, names)]));
   }
   return value;
 }

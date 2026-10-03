@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { slotRegionsOf, withoutSlots } from './unscheduled';
+import { slotRegionsOf, withoutNamed, withoutSlots } from './unscheduled';
+import { removedOnSchedule, retrieveOnce } from './localai-stimulus';
 
 /**
  * PE API byte-equivalence tests.
@@ -381,8 +382,11 @@ test.describe('PE API byte-equivalence', () => {
     const ENGINES = await resolveRoster(request);
     const schemas: Record<string, Schema> = {};
 
+    const parsedBy: Record<string, unknown> = {};
     for (const { id, runtime } of ENGINES) {
       await switchEngine(request, id);
+      // The same retrieval stimulus on every engine (localai-stimulus.ts).
+      await retrieveOnce(request, id);
 
       // Bootstrap so sources[] is non-empty, giving a meaningful schema for elements.
       await request.post('/api/pe/sources/bootstrap-from-machines', {
@@ -395,8 +399,17 @@ test.describe('PE API byte-equivalence', () => {
 
       // Slots appear on their own schedule (e2e/unscheduled.ts): one engine's
       // first source or active region may be a slot another does not have yet.
-      const parsed: unknown = await res.json();
-      const body = withoutSlots(parsed, slotRegionsOf(parsed));
+      parsedBy[runtime] = await res.json();
+    }
+
+    // Sources localAIStack removed on its own schedule, where some engines still
+    // hold them, are set aside with the slots before the schemas are taken.
+    const names = (v: any) => new Set<string>(
+      (Array.isArray(v?.sources) ? v.sources : []).map((e: any) => e?.name).filter((n: unknown) => typeof n === 'string'));
+    const removed = await removedOnSchedule(request, ENGINES.map(({ runtime }) => names(parsedBy[runtime])));
+    for (const { runtime } of ENGINES) {
+      const parsed = parsedBy[runtime];
+      const body = withoutNamed(withoutSlots(parsed, slotRegionsOf(parsed)), removed);
       const raw = extractSchema(body) as { [k: string]: Schema };
       // Boundary augmentation is set aside before comparison, and the sources[]
       // element is the probe point that carries it here.

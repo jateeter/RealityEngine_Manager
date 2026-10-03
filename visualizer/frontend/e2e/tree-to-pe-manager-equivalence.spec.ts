@@ -2,7 +2,8 @@ import { test, expect, Page, APIRequestContext, APIResponse, TestInfo } from '@p
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { slotRegionsOf, withoutSlots, type Region } from './unscheduled';
+import { slotRegionsOf, withoutLiveTimes, withoutNamed, withoutSlots, type Region } from './unscheduled';
+import { removedOnSchedule, retrieveOnce } from './localai-stimulus';
 
 type Runtime = 'lsp' | 'scala' | 'cpp';
 
@@ -352,18 +353,39 @@ function withoutEngineIdentity(value: unknown): unknown {
 }
 
 /** The comparable form of a captured body: parsed, id-free, key-sorted. */
-function comparableBody(capture: CapturedResponse, slots: readonly Region[] = []): string {
+function comparableBody(
+  capture: CapturedResponse,
+  slots: readonly Region[] = [],
+  removed: ReadonlySet<string> = new Set(),
+): string {
   const raw = Buffer.from(capture.bodyBase64, 'base64').toString('utf-8');
   try {
     // Slots appear on their own schedule, not the engines' (e2e/unscheduled.ts).
-    return JSON.stringify(withoutEngineIdentity(withoutSlots(JSON.parse(raw), slots)));
+    // Live-source wall-clock times and sources localAIStack removed on its own
+    // schedule go too (e2e/unscheduled.ts, e2e/localai-stimulus.ts).
+    return JSON.stringify(withoutEngineIdentity(
+      withoutNamed(withoutLiveTimes(withoutSlots(JSON.parse(raw), slots)), removed)));
   } catch {
     // Not JSON — compare it verbatim, which is the stricter test.
     return raw;
   }
 }
 
-function compareRuns(runs: EngineRun[]) {
+/** Source names each run's latest GET /api/pe/sources held. */
+function sourceNamesByRun(runs: EngineRun[]): Set<string>[] {
+  return runs.map(run => {
+    const hit = [...run.captures].reverse().find(c => c.method === 'GET' && c.path === '/api/pe/sources' && c.ok);
+    try {
+      const body = hit ? JSON.parse(Buffer.from(hit.bodyBase64, 'base64').toString('utf-8')) : null;
+      const list: any[] = Array.isArray(body) ? body : body?.sources ?? [];
+      return new Set(list.map(e => e?.name).filter((n): n is string => typeof n === 'string'));
+    } catch {
+      return new Set<string>();
+    }
+  });
+}
+
+function compareRuns(runs: EngineRun[], removed: ReadonlySet<string> = new Set()) {
   const byRuntime = Object.fromEntries(
     runs.map(run => [run.engine.runtime, latestComparableBySignature(run)])
   ) as Record<Runtime, Map<string, CapturedResponse>>;
@@ -390,7 +412,8 @@ function compareRuns(runs: EngineRun[]) {
     const scala = byRuntime.scala.get(signature)!;
     const cpp = byRuntime.cpp.get(signature)!;
     const sameStatus = lsp.status === scala.status && lsp.status === cpp.status;
-    const [l, s, c] = [comparableBody(lsp, slots), comparableBody(scala, slots), comparableBody(cpp, slots)];
+    const [l, s, c] = [
+      comparableBody(lsp, slots, removed), comparableBody(scala, slots, removed), comparableBody(cpp, slots, removed)];
     const sameBytes = l === s && l === c;
     if (!sameStatus || !sameBytes) {
       // The first differing path, so a failure names what diverged rather than
@@ -500,20 +523,28 @@ test('tree view to PE Manager verifies all sources on and compares captured API 
   test.skip(engines.length < 2,
     `cross-engine equivalence needs at least 2 engines; the instance registry lists ${[...deployed].join(', ') || 'none'}`);
 
+  const retrievals: Record<string, boolean> = {};
   for (const engine of engines) {
     const setupCaptures = [
       await switchEngine(request, engine),
       await resetPE(request, engine),
     ];
+    // One retrieval per engine under test, addressed to it alone (localai-stimulus.ts).
+    retrievals[engine.id] = await retrieveOnce(request, engine.id);
     const run = await captureEngineFlow(page, engine);
     run.captures.unshift(...setupCaptures);
     runs.push(run);
   }
 
-  const comparison = compareRuns(runs);
+  const removed = await removedOnSchedule(request, sourceNamesByRun(runs));
+  const comparison = compareRuns(runs, removed);
   const captureManifest = await writeCaptureBodies(runs, testInfo);
   const report = {
     generatedAt: new Date().toISOString(),
+    // One retrieval per engine under test; false where no localAIStack runs.
+    retrievals,
+    // Sources localAIStack removed on its own schedule, set aside (localai-stimulus.ts).
+    removedOnSchedule: [...removed].sort(),
     engines: runs.map(run => ({
       id: run.engine.id,
       runtime: run.engine.runtime,
