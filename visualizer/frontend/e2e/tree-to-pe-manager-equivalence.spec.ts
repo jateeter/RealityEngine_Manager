@@ -2,7 +2,7 @@ import { test, expect, Page, APIRequestContext, APIResponse, TestInfo } from '@p
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { slotRegionsOf, withoutLiveTimes, withoutNamed, withoutSlots, type Region } from './unscheduled';
+import { isSlotName, slotRegionsOf, withoutLiveTimes, withoutNamed, withoutSlots, type Region } from './unscheduled';
 import { removedOnSchedule, resetRE, retrieveOnce } from './localai-stimulus';
 
 type Runtime = 'lsp' | 'scala' | 'cpp';
@@ -253,13 +253,26 @@ async function captureEngineFlow(page: Page, engine: EngineTarget): Promise<Engi
 
     const sourceCountText = await page.locator('text=/^Sources \\(/').first().innerText().catch(() => 'Sources (?)');
     const activeCountText = await page.locator('text=/\\d+\\/\\d+ active/').first().innerText().catch(() => '?/? active');
-    const disableSourceCount = await page.getByTitle('Disable source').count();
-    const enableSourceCount = await page.getByTitle('Enable source').count();
+    // Slot sources appear, activate and lapse on their own schedule, so the
+    // screen and a later engine read can disagree on them without either being
+    // wrong; both counts leave them out (e2e/unscheduled.ts, RealityEngine_CI#518).
+    // A card names its source and sensor id beside its toggle.
+    const notSlot = async (title: string) => {
+      let n = 0;
+      for (const toggle of await page.getByTitle(title).all()) {
+        const card = await toggle.locator('xpath=../..').innerText().catch(() => '');
+        if (!/(^|\/)slot(\/|$)|_slot_/m.test(card)) n += 1;
+      }
+      return n;
+    };
+    const disableSourceCount = await notSlot('Disable source');
+    const enableSourceCount = await notSlot('Enable source');
     // What the engine says, so the screen can be compared against the contract
     // rather than against a constant. `active` is the engine's answer; a sensor
     // with no ingress is inactive and must stay that way.
     const peState = await page.request.get('/api/pe/state').then(r => r.json()).catch(() => null);
-    const peSources: Array<{ active?: boolean }> = peState?.sources ?? [];
+    const peSources: Array<{ active?: boolean; name?: string }> =
+      (peState?.sources ?? []).filter((s: { name?: string }) => !isSlotName(s.name));
     const engineInactiveCount = peSources.filter(s => s.active === false).length;
     const engineActiveCount = peSources.filter(s => s.active === true).length;
 
@@ -371,6 +384,30 @@ function comparableBody(
   }
 }
 
+/**
+ * Values that report what an idempotent call *did* given prior state, not what
+ * the surface holds — the same allowance RealityEngine_CI declares in
+ * e2e/lib/parity-surface.ts (#321). `bootstrap-from-machines` answers how many
+ * sources it created or skipped; after localAIStack's window claim removed a
+ * replay on one engine first (#518), that engine creates one the others skip.
+ * The source set itself is compared on GET /api/pe/sources.
+ */
+const HISTORY_DEPENDENT: Record<string, readonly string[]> = {
+  'POST /api/pe/sources/bootstrap-from-machines': ['created', 'skipped'],
+};
+
+function withoutHistoryDependent(signature: string, body: string): string {
+  const keys = HISTORY_DEPENDENT[signature];
+  if (!keys) return body;
+  try {
+    const parsed = JSON.parse(body);
+    for (const k of keys) delete parsed[k];
+    return JSON.stringify(parsed);
+  } catch {
+    return body;
+  }
+}
+
 /** Source names each run's latest GET /api/pe/sources held. */
 function sourceNamesByRun(runs: EngineRun[]): Set<string>[] {
   return runs.map(run => {
@@ -412,8 +449,9 @@ function compareRuns(runs: EngineRun[], removed: ReadonlySet<string> = new Set()
     const scala = byRuntime.scala.get(signature)!;
     const cpp = byRuntime.cpp.get(signature)!;
     const sameStatus = lsp.status === scala.status && lsp.status === cpp.status;
-    const [l, s, c] = [
-      comparableBody(lsp, slots, removed), comparableBody(scala, slots, removed), comparableBody(cpp, slots, removed)];
+    const [l, s, c] = [lsp, scala, cpp]
+      .map(capture => comparableBody(capture, slots, removed))
+      .map(body => withoutHistoryDependent(signature, body));
     const sameBytes = l === s && l === c;
     if (!sameStatus || !sameBytes) {
       // The first differing path, so a failure names what diverged rather than
