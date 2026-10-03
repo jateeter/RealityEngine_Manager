@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { slotRegionsOf, withoutSlots } from './unscheduled';
 
 /**
  * PE API byte-equivalence tests.
@@ -392,7 +393,10 @@ test.describe('PE API byte-equivalence', () => {
       const res = await request.get('/api/pe/state');
       expect(res.ok(), `[${runtime}] GET /api/pe/state returned ${res.status()}`).toBeTruthy();
 
-      const body: unknown = await res.json();
+      // Slots appear on their own schedule (e2e/unscheduled.ts): one engine's
+      // first source or active region may be a slot another does not have yet.
+      const parsed: unknown = await res.json();
+      const body = withoutSlots(parsed, slotRegionsOf(parsed));
       const raw = extractSchema(body) as { [k: string]: Schema };
       // Boundary augmentation is set aside before comparison, and the sources[]
       // element is the probe point that carries it here.
