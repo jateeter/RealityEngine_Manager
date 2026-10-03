@@ -102,7 +102,7 @@ const EXAMPLE_HK_REGISTRY_JSON = {
 
 // Bundled CareKit bridge example registry — served by
 // GET /api/integrations/carekit/example.  Wire-compatible with CPP and LSP:
-// offset 4310, length 4 matching all three reference implementations.
+// offset 4310, length 4, as all three engine runtimes declare it.
 const EXAMPLE_CK_REGISTRY_JSON = {
   version: '1.0',
   integrations: [

@@ -345,7 +345,8 @@ export class PerceptionEngine {
    * only re-validated by reset() goes stale the moment the window closes, and
    * /api/sources happily advertises a source that assembly is already zeroing.
    * Validating here closes the gap for every read, whether or not a reset ever
-   * happens. LSP does this in source-json and is the reference.
+   * happens. All three engine runtimes apply the same rule (LSP in
+   * source-json); SURFACE_SPEC.md is what each conforms to.
    *
    * Both conjuncts carry weight. The stored flag still gates, so a source an
    * operator paused via PATCH /api/sources/:id reports inactive, a sensor that
