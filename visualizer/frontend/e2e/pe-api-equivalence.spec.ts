@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { slotRegionsOf, withoutNamed, withoutSlots } from './unscheduled';
-import { removedOnSchedule, retrieveOnce } from './localai-stimulus';
+import { slotRegionsOf, withoutMintedIds, withoutNamed, withoutSlots } from './unscheduled';
+import { removedOnSchedule, resetRE, retrieveOnce } from './localai-stimulus';
 
 /**
  * PE API byte-equivalence tests.
@@ -385,7 +385,10 @@ test.describe('PE API byte-equivalence', () => {
     const parsedBy: Record<string, unknown> = {};
     for (const { id, runtime } of ENGINES) {
       await switchEngine(request, id);
-      // The same retrieval stimulus on every engine (localai-stimulus.ts).
+      // A defined start on every engine: both halves, RE first (#211), then the
+      // same retrieval stimulus (localai-stimulus.ts).
+      await resetRE(request, id);
+      await request.post('/api/pe/reset', { data: {}, headers: { 'Content-Type': 'application/json' } });
       await retrieveOnce(request, id);
 
       // Bootstrap so sources[] is non-empty, giving a meaningful schema for elements.
@@ -399,7 +402,10 @@ test.describe('PE API byte-equivalence', () => {
 
       // Slots appear on their own schedule (e2e/unscheduled.ts): one engine's
       // first source or active region may be a slot another does not have yet.
-      parsedBy[runtime] = await res.json();
+      // Minted ids appear as object keys too (`lastPush.machineResults` is keyed
+      // by machine id), so they are normalised in the text before parsing and a
+      // schema never carries an engine's own UUIDs (unscheduled.ts).
+      parsedBy[runtime] = JSON.parse(withoutMintedIds(await res.text()));
     }
 
     // Sources localAIStack removed on its own schedule, where some engines still

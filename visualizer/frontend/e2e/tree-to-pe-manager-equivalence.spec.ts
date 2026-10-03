@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { slotRegionsOf, withoutLiveTimes, withoutNamed, withoutSlots, type Region } from './unscheduled';
-import { removedOnSchedule, retrieveOnce } from './localai-stimulus';
+import { removedOnSchedule, resetRE, retrieveOnce } from './localai-stimulus';
 
 type Runtime = 'lsp' | 'scala' | 'cpp';
 
@@ -527,7 +527,8 @@ test('tree view to PE Manager verifies all sources on and compares captured API 
   for (const engine of engines) {
     const setupCaptures = [
       await switchEngine(request, engine),
-      await resetPE(request, engine),
+      // Both halves, RE first (localai-stimulus.ts resetRE).
+      await resetRE(request, engine.id).then(() => resetPE(request, engine)),
     ];
     // One retrieval per engine under test, addressed to it alone (localai-stimulus.ts).
     retrievals[engine.id] = await retrieveOnce(request, engine.id);

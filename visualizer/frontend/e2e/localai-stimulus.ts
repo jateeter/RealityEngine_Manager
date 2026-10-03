@@ -49,3 +49,23 @@ export async function removedOnSchedule(
     .map((r: any) => r.observed.name as string);
   return new Set(recorded.filter(name => !presentOn.every(set => set.has(name))));
 }
+
+/**
+ * Reset an engine's Reality Engine at the `re_url` the instance registry lists.
+ * A defined starting point is two calls (RealityEngine_CI scripts/lib/
+ * reset_contract.py, #211): `POST /api/pe/reset` is layer-local and leaves the
+ * RE's CES activation and step counter as earlier traffic left them, so a spec
+ * that reset only the PE compared each RE's accumulated history (#518).
+ * Manager does not proxy the RE reset; callers reset the PE after this.
+ */
+export async function resetRE(request: APIRequestContext, engineId: string): Promise<void> {
+  const res = await request.get(REGISTRY_URL);
+  expect(res.ok(), `instance registry unreadable at ${REGISTRY_URL}`).toBeTruthy();
+  const inst = ((await res.json())?.instances ?? []).find((i: any) => i?.id === engineId);
+  expect(inst?.re_url, `instance registry lists no re_url for ${engineId}`).toBeTruthy();
+  const reset = await request.post(`${inst.re_url}/api/engine/reset`, {
+    data: {},
+    headers: { 'Content-Type': 'application/json' },
+  });
+  expect(reset.ok(), `RE reset on ${engineId} failed: ${reset.status()}`).toBeTruthy();
+}
