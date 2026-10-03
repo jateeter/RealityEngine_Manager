@@ -1,4 +1,6 @@
 import { test, expect } from '@playwright/test';
+import { slotRegionsOf, withoutMintedIds, withoutNamed, withoutSlots } from './unscheduled';
+import { removedOnSchedule, resetRE, retrieveOnce } from './localai-stimulus';
 
 /**
  * PE API byte-equivalence tests.
@@ -380,8 +382,14 @@ test.describe('PE API byte-equivalence', () => {
     const ENGINES = await resolveRoster(request);
     const schemas: Record<string, Schema> = {};
 
+    const parsedBy: Record<string, unknown> = {};
     for (const { id, runtime } of ENGINES) {
       await switchEngine(request, id);
+      // A defined start on every engine: both halves, RE first (#211), then the
+      // same retrieval stimulus (localai-stimulus.ts).
+      await resetRE(request, id);
+      await request.post('/api/pe/reset', { data: {}, headers: { 'Content-Type': 'application/json' } });
+      await retrieveOnce(request, id);
 
       // Bootstrap so sources[] is non-empty, giving a meaningful schema for elements.
       await request.post('/api/pe/sources/bootstrap-from-machines', {
@@ -392,7 +400,22 @@ test.describe('PE API byte-equivalence', () => {
       const res = await request.get('/api/pe/state');
       expect(res.ok(), `[${runtime}] GET /api/pe/state returned ${res.status()}`).toBeTruthy();
 
-      const body: unknown = await res.json();
+      // Slots appear on their own schedule (e2e/unscheduled.ts): one engine's
+      // first source or active region may be a slot another does not have yet.
+      // Minted ids appear as object keys too (`lastPush.machineResults` is keyed
+      // by machine id), so they are normalised in the text before parsing and a
+      // schema never carries an engine's own UUIDs (unscheduled.ts).
+      parsedBy[runtime] = JSON.parse(withoutMintedIds(await res.text()));
+    }
+
+    // Sources localAIStack removed on its own schedule, where some engines still
+    // hold them, are set aside with the slots before the schemas are taken.
+    const names = (v: any) => new Set<string>(
+      (Array.isArray(v?.sources) ? v.sources : []).map((e: any) => e?.name).filter((n: unknown) => typeof n === 'string'));
+    const removed = await removedOnSchedule(request, ENGINES.map(({ runtime }) => names(parsedBy[runtime])));
+    for (const { runtime } of ENGINES) {
+      const parsed = parsedBy[runtime];
+      const body = withoutNamed(withoutSlots(parsed, slotRegionsOf(parsed)), removed);
       const raw = extractSchema(body) as { [k: string]: Schema };
       // Boundary augmentation is set aside before comparison, and the sources[]
       // element is the probe point that carries it here.

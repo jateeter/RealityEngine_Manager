@@ -2,6 +2,8 @@ import { test, expect, Page, APIRequestContext, APIResponse, TestInfo } from '@p
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { isSlotName, slotRegionsOf, withoutLiveTimes, withoutNamed, withoutSlots, type Region } from './unscheduled';
+import { removedOnSchedule, resetRE, retrieveOnce } from './localai-stimulus';
 
 type Runtime = 'lsp' | 'scala' | 'cpp';
 
@@ -251,13 +253,26 @@ async function captureEngineFlow(page: Page, engine: EngineTarget): Promise<Engi
 
     const sourceCountText = await page.locator('text=/^Sources \\(/').first().innerText().catch(() => 'Sources (?)');
     const activeCountText = await page.locator('text=/\\d+\\/\\d+ active/').first().innerText().catch(() => '?/? active');
-    const disableSourceCount = await page.getByTitle('Disable source').count();
-    const enableSourceCount = await page.getByTitle('Enable source').count();
+    // Slot sources appear, activate and lapse on their own schedule, so the
+    // screen and a later engine read can disagree on them without either being
+    // wrong; both counts leave them out (e2e/unscheduled.ts, RealityEngine_CI#518).
+    // A card names its source and sensor id beside its toggle.
+    const notSlot = async (title: string) => {
+      let n = 0;
+      for (const toggle of await page.getByTitle(title).all()) {
+        const card = await toggle.locator('xpath=../..').innerText().catch(() => '');
+        if (!/(^|\/)slot(\/|$)|_slot_/m.test(card)) n += 1;
+      }
+      return n;
+    };
+    const disableSourceCount = await notSlot('Disable source');
+    const enableSourceCount = await notSlot('Enable source');
     // What the engine says, so the screen can be compared against the contract
     // rather than against a constant. `active` is the engine's answer; a sensor
     // with no ingress is inactive and must stay that way.
     const peState = await page.request.get('/api/pe/state').then(r => r.json()).catch(() => null);
-    const peSources: Array<{ active?: boolean }> = peState?.sources ?? [];
+    const peSources: Array<{ active?: boolean; name?: string }> =
+      (peState?.sources ?? []).filter((s: { name?: string }) => !isSlotName(s.name));
     const engineInactiveCount = peSources.filter(s => s.active === false).length;
     const engineActiveCount = peSources.filter(s => s.active === true).length;
 
@@ -314,25 +329,28 @@ function latestComparableBySignature(run: EngineRun): Map<string, CapturedRespon
  * Timestamps are normalised for the same reason — a run happens at a different
  * millisecond on each runtime, and that is not a divergence.
  */
+// Every runtime mints `<kind>-<uuid>` (RealityEngine_CI#518), so a minted id is
+// recognisable by shape: corpus ids are never UUIDs. The per-runtime formats this
+// list used to enumerate (`source-1U4PQIK-…` on LSP, `machine-1789…-…` on CPP, a
+// bare UUID on Scala) are gone, and a value in one of them now fails rather than
+// being excused.
 const ENGINE_MINTED = [
-  /^source-[A-Za-z0-9]+-[A-Za-z0-9]+$/,        // cpp, lsp
-  /^machine-[A-Za-z0-9]+-[A-Za-z0-9]+$/,
-  /^machine-output-[A-Za-z0-9-]+$/,
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,  // scala UUIDs
-  // A minted id wearing a prefix. PE test sources are `test-<machineId>`, so a
-  // source built for a machine the corpus named is `test-machine-aicapacity…`
-  // and identical across runtimes, while one built for a machine loaded at
-  // runtime is `test-machine-1U4QOYP-NZPBT8IK7GZI` on LSP and
-  // `test-machine-1789742690949-b81cdae0` on CPP — minted, and not comparable.
-  //
-  // The first measurement of this surface saw only the corpus-named form and
-  // recorded "non-sensor ids identical across runtimes: True", which was true
-  // of what was there and not of what the suite creates later.
-  /^test-machine-[A-Za-z0-9]+-[A-Za-z0-9]+$/,
+  /^(?:[a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)*-)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
 ];
 
 function withoutEngineIdentity(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(withoutEngineIdentity);
+  if (Array.isArray(value)) {
+    const items = value.map(withoutEngineIdentity);
+    // A runtime orders entries by its own minted ids; once those are replaced,
+    // that order is an artifact, so entries that carried one are put in a
+    // canonical order. Arrays without minted identity keep theirs: order is
+    // evidence where a field declares it (SURFACE_SPEC.md).
+    const minted = JSON.stringify(items).includes('<engine-id>');
+    const objects = items.length > 1 && items.every(v => v !== null && typeof v === 'object' && !Array.isArray(v));
+    return minted && objects
+      ? [...items].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
+      : items;
+  }
   if (value && typeof value === 'object') {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>)
@@ -348,17 +366,63 @@ function withoutEngineIdentity(value: unknown): unknown {
 }
 
 /** The comparable form of a captured body: parsed, id-free, key-sorted. */
-function comparableBody(capture: CapturedResponse): string {
+function comparableBody(
+  capture: CapturedResponse,
+  slots: readonly Region[] = [],
+  removed: ReadonlySet<string> = new Set(),
+): string {
   const raw = Buffer.from(capture.bodyBase64, 'base64').toString('utf-8');
   try {
-    return JSON.stringify(withoutEngineIdentity(JSON.parse(raw)));
+    // Slots appear on their own schedule, not the engines' (e2e/unscheduled.ts).
+    // Live-source wall-clock times and sources localAIStack removed on its own
+    // schedule go too (e2e/unscheduled.ts, e2e/localai-stimulus.ts).
+    return JSON.stringify(withoutEngineIdentity(
+      withoutNamed(withoutLiveTimes(withoutSlots(JSON.parse(raw), slots)), removed)));
   } catch {
     // Not JSON — compare it verbatim, which is the stricter test.
     return raw;
   }
 }
 
-function compareRuns(runs: EngineRun[]) {
+/**
+ * Values that report what an idempotent call *did* given prior state, not what
+ * the surface holds — the same allowance RealityEngine_CI declares in
+ * e2e/lib/parity-surface.ts (#321). `bootstrap-from-machines` answers how many
+ * sources it created or skipped; after localAIStack's window claim removed a
+ * replay on one engine first (#518), that engine creates one the others skip.
+ * The source set itself is compared on GET /api/pe/sources.
+ */
+const HISTORY_DEPENDENT: Record<string, readonly string[]> = {
+  'POST /api/pe/sources/bootstrap-from-machines': ['created', 'skipped'],
+};
+
+function withoutHistoryDependent(signature: string, body: string): string {
+  const keys = HISTORY_DEPENDENT[signature];
+  if (!keys) return body;
+  try {
+    const parsed = JSON.parse(body);
+    for (const k of keys) delete parsed[k];
+    return JSON.stringify(parsed);
+  } catch {
+    return body;
+  }
+}
+
+/** Source names each run's latest GET /api/pe/sources held. */
+function sourceNamesByRun(runs: EngineRun[]): Set<string>[] {
+  return runs.map(run => {
+    const hit = [...run.captures].reverse().find(c => c.method === 'GET' && c.path === '/api/pe/sources' && c.ok);
+    try {
+      const body = hit ? JSON.parse(Buffer.from(hit.bodyBase64, 'base64').toString('utf-8')) : null;
+      const list: any[] = Array.isArray(body) ? body : body?.sources ?? [];
+      return new Set(list.map(e => e?.name).filter((n): n is string => typeof n === 'string'));
+    } catch {
+      return new Set<string>();
+    }
+  });
+}
+
+function compareRuns(runs: EngineRun[], removed: ReadonlySet<string> = new Set()) {
   const byRuntime = Object.fromEntries(
     runs.map(run => [run.engine.runtime, latestComparableBySignature(run)])
   ) as Record<Runtime, Map<string, CapturedResponse>>;
@@ -367,13 +431,27 @@ function compareRuns(runs: EngineRun[]) {
     .filter(sig => byRuntime.scala.has(sig) && byRuntime.cpp.has(sig))
     .sort();
 
+  // Every slot region any engine reported, set aside on all three.
+  const slots: Region[] = [];
+  for (const run of runs) {
+    for (const c of run.captures) {
+      try {
+        slotRegionsOf(JSON.parse(Buffer.from(c.bodyBase64, 'base64').toString('utf-8')), slots);
+      } catch {
+        /* not JSON */
+      }
+    }
+  }
+
   const mismatches = [];
   for (const signature of signatures) {
     const lsp = byRuntime.lsp.get(signature)!;
     const scala = byRuntime.scala.get(signature)!;
     const cpp = byRuntime.cpp.get(signature)!;
     const sameStatus = lsp.status === scala.status && lsp.status === cpp.status;
-    const [l, s, c] = [comparableBody(lsp), comparableBody(scala), comparableBody(cpp)];
+    const [l, s, c] = [lsp, scala, cpp]
+      .map(capture => comparableBody(capture, slots, removed))
+      .map(body => withoutHistoryDependent(signature, body));
     const sameBytes = l === s && l === c;
     if (!sameStatus || !sameBytes) {
       // The first differing path, so a failure names what diverged rather than
@@ -483,20 +561,29 @@ test('tree view to PE Manager verifies all sources on and compares captured API 
   test.skip(engines.length < 2,
     `cross-engine equivalence needs at least 2 engines; the instance registry lists ${[...deployed].join(', ') || 'none'}`);
 
+  const retrievals: Record<string, boolean> = {};
   for (const engine of engines) {
     const setupCaptures = [
       await switchEngine(request, engine),
-      await resetPE(request, engine),
+      // Both halves, RE first (localai-stimulus.ts resetRE).
+      await resetRE(request, engine.id).then(() => resetPE(request, engine)),
     ];
+    // One retrieval per engine under test, addressed to it alone (localai-stimulus.ts).
+    retrievals[engine.id] = await retrieveOnce(request, engine.id);
     const run = await captureEngineFlow(page, engine);
     run.captures.unshift(...setupCaptures);
     runs.push(run);
   }
 
-  const comparison = compareRuns(runs);
+  const removed = await removedOnSchedule(request, sourceNamesByRun(runs));
+  const comparison = compareRuns(runs, removed);
   const captureManifest = await writeCaptureBodies(runs, testInfo);
   const report = {
     generatedAt: new Date().toISOString(),
+    // One retrieval per engine under test; false where no localAIStack runs.
+    retrievals,
+    // Sources localAIStack removed on its own schedule, set aside (localai-stimulus.ts).
+    removedOnSchedule: [...removed].sort(),
     engines: runs.map(run => ({
       id: run.engine.id,
       runtime: run.engine.runtime,
