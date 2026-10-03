@@ -17,7 +17,8 @@ import type { SensorSourceConfig, SimulatedSourceConfig, SourceConfig, TestSourc
  * non-looping test source reported inactive; validation stops a stale flag
  * reading as live. Validation can only take activity away, never grant it.
  *
- * LSP is the reference (source-json); C++ and Scala carry the same rule.
+ * C++, LSP (source-json) and Scala carry the same rule; SURFACE_SPEC.md is
+ * what each conforms to, with no runtime as the reference.
  */
 
 const NO_AUTO = { running: false, intervalMs: 1000 };

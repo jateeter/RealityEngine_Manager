@@ -2,9 +2,7 @@ openapi: 3.1.0
 info:
   title: RealityEngine Scala — Reality Engine API
   version: 1.1.0-scala
-  description: 'OpenAPI contract for the Scala (Akka-HTTP) Reality Engine runtime —
-
-    the active reference implementation.
+  description: 'OpenAPI contract for the Scala (Akka-HTTP) Reality Engine runtime.
 
 
     Default native port: **5001** (PE on 5001 − 1 = 5000).
