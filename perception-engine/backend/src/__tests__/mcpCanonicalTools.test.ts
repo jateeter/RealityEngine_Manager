@@ -1,4 +1,4 @@
-import { describe, expect, it } from '@jest/globals';
+import { describe, expect, it } from 'vitest';
 import type { AxiosInstance } from 'axios';
 
 import { buildMcpServer } from '../mcp.js';
@@ -121,15 +121,16 @@ describe('Manager MCP canonical tools', () => {
       outputVector: { values: [1, 0, 0, 0], encoding: 'vector', semantics: [], assertedLabel: 'cell_0' },
       projection: null, governance: null,
       dispatch: {
-        agent: 'paging-decision', action: '', agentActionsCatalog: [], trigger: 't',
+        agent: 'paging-decision', action: '', agentActionsCatalog: [], trigger: 't', autonomyMode: '', writeBack: null,
         endpoint: { kind: 'openai', url: '', mutation: '', schemaRef: '' },
       },
     };
     const record: DispatchRecord = {
       id: 'd-1', envelopeId: 'env-1', correlationId: 'corr-1',
       status: 'recorded', mode: 'openai', target: 'paging-decision',
-      machineId: 'm-1', sequenceId: 's-1', ragStatusCode: '', processStatus: '',
+      machineId: 'm-1', sequenceIds: ['s-1'], ragStatusCode: '', processStatus: '',
       attempts: 0, createdAt: 1, updatedAt: 1, providerReceipt: null, envelope,
+  error: null, semantics: { machineIri: null, sequenceIri: null, actionCode: null }, replayOf: null,
     };
     const ledger = new Ledger();
     ledger.append(record);

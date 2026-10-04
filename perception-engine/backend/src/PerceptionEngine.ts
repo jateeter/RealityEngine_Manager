@@ -2,6 +2,7 @@ import { foldUnitInterval } from './osreFold.js';
 import { v4 as uuidv4 } from 'uuid';
 import type {
   SourceConfig,
+  NewSourceConfig,
   TestSourceConfig,
   SimulatedSourceConfig,
   SensorSourceConfig,
@@ -187,7 +188,7 @@ export class PerceptionEngine {
    * — every OpenClaw dispatch seed and envelope-contract seed run against the
    * Docker lane left one behind (RealityEngine_Machines#126).
    */
-  addSource(config: Omit<SourceConfig, 'id'> & { id?: unknown }): SourceConfig {
+  addSource(config: NewSourceConfig & { id?: unknown }): SourceConfig {
     const id = typeof config.id === 'string' && config.id !== '' ? config.id : uuidv4();
     const source = this.deriveSensorActivity({ ...config, id } as SourceConfig);
     this.ensureCapacity(source.region.offset + source.region.length);

@@ -6,7 +6,7 @@
  * and RealityEngine_LSP (ingest-carekit-one / render-sensor-template).
  */
 
-import { describe, expect, it } from '@jest/globals';
+import { describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';

@@ -1,10 +1,11 @@
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { PerceptionEngine, providerOf } from '../PerceptionEngine';
-import { arbitrationRegistry } from '../ArbitrationRegistry';
-import { determinismOf } from '../Arbiter';
-import type { TestSourceConfig } from '../types';
+import { PerceptionEngine, providerOf } from '../PerceptionEngine.js';
+import { arbitrationRegistry } from '../ArbitrationRegistry.js';
+import { determinismOf } from '../Arbiter.js';
+import type { TestSourceConfig } from '../types.js';
 
 /**
  * The fold on a declared cell (ARBITER_CONTRACT.md §4.4b, amended 2026-10-04,

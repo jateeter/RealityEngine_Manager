@@ -6,7 +6,7 @@
  * the Phase 1 acceptance criteria in docs/INTEGRATION_ROADMAP.md.
  */
 
-import { describe, it, expect } from '@jest/globals';
+import { describe, it, expect } from 'vitest';
 
 import { emptyRegistryState, loadRegistry } from '../integrations/Registry.js';
 import {

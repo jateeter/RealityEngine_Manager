@@ -1,5 +1,6 @@
-import { PerceptionEngine } from '../PerceptionEngine';
-import type { TestSourceConfig } from '../types';
+import { describe, it, expect } from 'vitest';
+import { PerceptionEngine } from '../PerceptionEngine.js';
+import type { TestSourceConfig } from '../types.js';
 
 /**
  * This PE persists its sources across restarts, so an interned source outlived

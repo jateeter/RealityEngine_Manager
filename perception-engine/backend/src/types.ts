@@ -79,6 +79,13 @@ export interface SensorSourceConfig {
 
 export type SourceConfig = TestSourceConfig | SimulatedSourceConfig | SensorSourceConfig;
 
+/**
+ * A SourceConfig before registration assigns its id. Omit distributes over the
+ * union here, so each variant keeps its own fields (a bare Omit<SourceConfig,
+ * 'id'> keeps only the keys common to all three, and rejects sensorId).
+ */
+export type NewSourceConfig = SourceConfig extends infer S ? (S extends SourceConfig ? Omit<S, 'id'> : never) : never;
+
 export interface AutoConfig {
   running: boolean;
   intervalMs: number;

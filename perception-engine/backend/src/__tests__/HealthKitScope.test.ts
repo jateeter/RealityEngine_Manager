@@ -1,3 +1,4 @@
+import { describe, it, expect } from 'vitest';
 import { HealthKitScope } from '../integrations/HealthKitScope.js';
 
 // localHealthkitBridge INGEST_CONTRACT.md, "Scope and resync".

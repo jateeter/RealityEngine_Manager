@@ -2,7 +2,7 @@
  * AcpAdapter — no-wait OpenClaw xACP handoff contract.
  */
 
-import { describe, expect, it } from '@jest/globals';
+import { describe, expect, it } from 'vitest';
 
 import { AcpAdapter, acpConfigFromRegistry } from '../integrations/adapters/AcpAdapter.js';
 import type { DispatchRecord } from '../dispatch/types.js';
@@ -30,7 +30,7 @@ const envelope: TriggerEnvelope = {
   outputVector: { values: [1, 0, 0, 0], encoding: 'vector', semantics: [], assertedLabel: 'cell_0' },
   projection: null, governance: null,
   dispatch: {
-    agent: 'paging-decision', action: '', agentActionsCatalog: [], trigger: 't',
+    agent: 'paging-decision', action: '', agentActionsCatalog: [], trigger: 't', autonomyMode: '', writeBack: null,
     endpoint: { kind: 'acp', url: '', mutation: '', schemaRef: '' },
   },
 };
@@ -38,8 +38,9 @@ const envelope: TriggerEnvelope = {
 const dispatchRecord: DispatchRecord = {
   id: 'd-1', envelopeId: 'env-1', correlationId: 'corr-1',
   status: 'recorded', mode: 'acp', target: 'paging-decision',
-  machineId: 'm-1', sequenceId: 's-1', ragStatusCode: '', processStatus: '',
+  machineId: 'm-1', sequenceIds: ['s-1'], ragStatusCode: '', processStatus: '',
   attempts: 0, createdAt: 1, updatedAt: 1, providerReceipt: null, envelope,
+  error: null, semantics: { machineIri: null, sequenceIri: null, actionCode: null }, replayOf: null,
 };
 
 describe('AcpAdapter', () => {

@@ -1,5 +1,6 @@
-import { PerceptionEngine } from '../PerceptionEngine';
-import type { SensorSourceConfig } from '../types';
+import { describe, it, expect } from 'vitest';
+import { PerceptionEngine } from '../PerceptionEngine.js';
+import type { SensorSourceConfig } from '../types.js';
 
 /**
  * A caller may not assert a sensor into activity it has not earned

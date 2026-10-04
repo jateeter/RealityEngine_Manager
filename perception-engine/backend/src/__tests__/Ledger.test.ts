@@ -6,13 +6,13 @@
  * criterion in docs/INTEGRATION_ROADMAP.md §Phase 3.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, realpathSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
 import { DEFAULT_CAPACITY, Ledger } from '../dispatch/Ledger.js';
-import type { DispatchRecord } from '../dispatch/types.js';
+import type { DispatchRecord, DispatchRecordPatch } from '../dispatch/types.js';
 import type { TriggerEnvelope } from '../triggers/types.js';
 
 const NOW = 1_700_000_000_000;
@@ -34,7 +34,7 @@ function envelope(envelopeId: string): TriggerEnvelope {
     outputVector: { values: [1, 0], encoding: 'vector', semantics: [], assertedLabel: 'cell_0' },
     projection: null, governance: null,
     dispatch: {
-      agent: 'agent_x', action: '', agentActionsCatalog: [], trigger: 't',
+      agent: 'agent_x', action: '', agentActionsCatalog: [], trigger: 't', autonomyMode: '', writeBack: null,
       endpoint: { kind: 'dry-run', url: '', mutation: '', schemaRef: '' },
     },
   };
@@ -49,7 +49,7 @@ function record(id: string, overrides: Partial<DispatchRecord> = {}): DispatchRe
     mode: 'dry-run',
     target: 'agent_x',
     machineId: 'm-1',
-    sequenceId: 's-1',
+    sequenceIds: ['s-1'],
     ragStatusCode: 'RED',
     processStatus: 'error',
     attempts: 0,
@@ -57,6 +57,9 @@ function record(id: string, overrides: Partial<DispatchRecord> = {}): DispatchRe
     updatedAt: NOW,
     providerReceipt: null,
     envelope: envelope(`env-${id}`),
+    error: null,
+    semantics: { machineIri: null, sequenceIri: null, actionCode: null },
+    replayOf: null,
     ...overrides,
   };
 }
@@ -87,7 +90,7 @@ describe('Ledger — append/list/get', () => {
     expect(l.size()).toBe(DEFAULT_CAPACITY);
     const ids = l.list().map((r) => r.id);
     expect(ids[0]).toBe('4');
-    expect(ids.at(-1)).toBe('259');
+    expect(ids[ids.length - 1]).toBe('259');
   });
 
   it('honours an explicit capacity override', () => {
@@ -160,13 +163,13 @@ describe('Ledger.update — wire-compatible with C++ update_dispatch_record', ()
     const l = new Ledger();
     l.append(record('a'));
     const beforeEnv = l.get('a')!.envelope;
+    // envelope and machineId are not DispatchRecordPatch keys; the cast lets the
+    // test send them anyway, as an untyped PATCH body would.
     const updated = l.update('a', {
-      // @ts-expect-error — intentionally forbidden
       envelope: { schemaVersion: 'attack' },
-      // @ts-expect-error
       machineId: 'attacker',
       status: 'sent',
-    });
+    } as unknown as DispatchRecordPatch);
     expect(updated?.status).toBe('sent');
     expect(updated?.envelope).toEqual(beforeEnv);
     expect(updated?.machineId).toBe('m-1');

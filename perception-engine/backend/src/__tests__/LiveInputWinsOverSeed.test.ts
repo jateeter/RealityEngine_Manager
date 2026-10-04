@@ -1,5 +1,6 @@
-import { PerceptionEngine } from '../PerceptionEngine';
-import type { SensorSourceConfig, TestSourceConfig } from '../types';
+import { describe, it, expect } from 'vitest';
+import { PerceptionEngine } from '../PerceptionEngine.js';
+import type { SensorSourceConfig, TestSourceConfig } from '../types.js';
 
 /**
  * Live inputs always win over the seed on a shared lane (owner decision,

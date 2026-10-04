@@ -1,3 +1,4 @@
+import { describe, it, expect } from 'vitest';
 import { PerceptionEngine } from '../PerceptionEngine.js';
 import type { SensorSourceConfig, SimulatedSourceConfig, SourceConfig, TestSourceConfig } from '../types.js';
 
