@@ -48,6 +48,14 @@ export function determinismOf(provider: string): Determinism {
   return DETERMINISM_BY_PROVIDER[provider] ?? 'generated';
 }
 
+/** A provider's rank under a declared cell: its providerRanks value, else its
+ * determinism class — the arbiter's own ranking, used by the PE's
+ * Source-vs-OSRE fold too (ARBITER_CONTRACT.md §4.4b, RealityEngine_CI#525). */
+export function providerRank(provider: string, entry?: RegistryEntry): number {
+  const declared = entry?.providerRanks?.[provider];
+  return typeof declared === 'number' ? declared : CLASS_RANK[determinismOf(provider)];
+}
+
 export function severityRank(rag?: string | null, lifeSafety = false): number {
   if (lifeSafety) return LIFE_SAFETY_RANK;
   return rag ? (RAG_RANK[rag] ?? 0) : 0;
