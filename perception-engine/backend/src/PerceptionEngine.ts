@@ -11,27 +11,40 @@ import type {
   MatchAlgorithm,
   TestProgress,
 } from './types.js';
-import { resolveAll, type Contribution, type ArbitrationRecord } from './Arbiter.js';
+import { providerRank, resolveAll, type Contribution, type ArbitrationRecord } from './Arbiter.js';
 import { arbitrationRegistry } from './ArbitrationRegistry.js';
 
+// Surface names an integration writes as its origin, mapped to the provider
+// they are.
+const ORIGIN_ALIASES: Record<string, string> = { openclaw: 'acp', ollama: 'localai', localaistack: 'localai' };
+
 /**
- * Map a PE source to its contract provider (contract §3). `origin` carries the
- * integration surface where the source has one — ACP, MCP, MQTT, HealthKit — and
- * the source `type` is the fallback. Anything unrecognised falls through to
- * `generated` in determinismOf(), which is the safe default: an unregistered
- * surface must not be able to outrank a reading.
+ * The contract provider of a source (ARBITER_CONTRACT.md §4.4b, CI#525): the
+ * first `.` segment of its origin through the surface aliases; an empty origin
+ * or `signal` falls back to the type — test and simulated -> synthetic,
+ * anything else -> sensor. A provider no registry names ranks as generated
+ * (determinismOf), so an unknown surface can never outrank a reading. The first
+ * segment, never a substring: the substring match this replaced let
+ * `localai.x-mcp-y` classify as mcp, and differed from the other three runtimes.
  */
-function providerOf(src: { type?: string; origin?: string }): string {
-  const origin = (src.origin ?? '').toLowerCase();
-  if (origin.includes('acp') || origin.includes('openclaw')) return 'acp';
-  if (origin.includes('mcp')) return 'mcp';
-  if (origin.includes('mqtt')) return 'mqtt';
-  if (origin.includes('healthkit')) return 'healthkit';
-  if (origin.includes('localai') || origin.includes('ollama')) return 'localai';
-  if (src.type === 'sensor') return 'sensor';
-  if (src.type === 'simulated') return 'synthetic';
-  if (src.type === 'test') return 'synthetic';
-  return 'sensor';
+export function providerOf(src: { type?: string; origin?: string }): string {
+  const head = (src.origin ?? '').toLowerCase().split('.')[0];
+  if (!head || head === 'signal') return src.type === 'test' || src.type === 'simulated' ? 'synthetic' : 'sensor';
+  return ORIGIN_ALIASES[head] ?? head;
+}
+
+/** One Source-vs-OSRE fold of a push assembly (§4.4b, CI#525). */
+export interface OsreFoldRecord {
+  cell: number;
+  resolution: 'declared-rule' | 'osre-fold';
+  rule?: string;
+  operator?: string;
+  declaredRule?: string;
+  review?: 'provider-unranked';
+  osre: { machine: string; provider: 'machine'; value: number };
+  source: { id: string; name: string; kind: string; provider: string; value: number };
+  resolved: number;
+  kept: 'osre' | 'source' | 'both' | 'combined';
 }
 
 /** A source as an STT contention record names it (ARBITER_CONTRACT.md §4.4b). */
@@ -54,6 +67,7 @@ export interface ContendedCell {
 export interface SourceContention {
   transition: number;
   cells: ContendedCell[];
+  folds: OsreFoldRecord[];
   counters: { id: string; name: string; contended: number; suppressed: number }[];
 }
 
@@ -110,13 +124,20 @@ export class PerceptionEngine {
   // resolution at all.
   private lastArbitration: ArbitrationRecord[] = [];
 
-  // The OSRE cells of the last push: cell -> the writing machine's declared
-  // outputMergeTransformation (ARBITER_CONTRACT.md §4.4b).
-  private osreFold: Map<number, string> = new Map();
+  // The OSRE cells of the last push: cell -> the writing machine's name and
+  // declared outputMergeTransformation (ARBITER_CONTRACT.md §4.4b).
+  private osreFold: Map<number, { name: string; transformation: string }> = new Map();
+  // Source-vs-OSRE folds of the most recent assembleVector(), and of the last
+  // push (recorded) — §4.4b, CI#525.
+  private assembledFolds: OsreFoldRecord[] = [];
+  private lastFolds: OsreFoldRecord[] = [];
 
-  /** Set from each push's mergeBatch; see osreFold.ts. */
-  setOsreFold(cells: Map<number, string>): void {
-    this.osreFold = cells;
+  /** Set from each push's mergeBatch; see osreFold.ts. A bare operator per
+   * cell is accepted too (no machine name). */
+  setOsreFold(cells: Map<number, string | { name: string; transformation: string }>): void {
+    this.osreFold = new Map(
+      [...cells].map(([cell, v]) => [cell, typeof v === 'string' ? { name: '', transformation: v } : v]),
+    );
   }
 
   globalStep = 0;
@@ -438,14 +459,49 @@ export class PerceptionEngine {
     for (const [cell, value] of resolved) {
       this.outBuf[cell] = value;
     }
-    // A source on an OSRE cell is folded with the OSRE value by the writing
-    // machine's operator rather than replacing it (§4.4b). `contributions`
-    // holds exactly the cells a source wrote this instant.
-    for (const [cell, transformation] of this.osreFold) {
+    // A source on an OSRE cell is folded with the OSRE value rather than
+    // replacing it: by the cell's declared arbitration rule where the registry
+    // declares one -- PRECEDENCE takes the higher-ranked provider's value whole,
+    // so a deterministic machine beats a generated source at any value
+    // (criterion 5a) -- and otherwise by the writing machine's operator
+    // (ARBITER_CONTRACT.md §4.4b, amended 2026-10-04, RealityEngine_CI#525).
+    // `contributions` holds exactly the cells a source wrote this instant, one
+    // source each once contention is resolved.
+    const folds: OsreFoldRecord[] = [];
+    for (const [cell, fold] of [...this.osreFold].sort((a, b) => a[0] - b[0])) {
       if (cell < 0 || cell >= this._vectorSize || !contributions.has(cell)) continue;
-      this.outBuf[cell] = Math.max(0, Math.min(1,
-        foldUnitInterval(transformation, this.outBuf[cell], this.persistentVector[cell])));
+      const contribution = contributions.get(cell)![0];
+      const s = this.outBuf[cell];
+      const o = this.persistentVector[cell];
+      const entry = arbitrationRegistry.entryFor(cell);
+      // The declared rule applies only to a provider the cell names. An unnamed
+      // provider keeps T_M and is flagged for review: it is either ranked
+      // explicitly or placed in the unnamed-provider trustability ranking,
+      // never overridden by default (owner decision 2026-10-04, CI#525).
+      const named = typeof entry?.providerRanks?.[contribution.provider] === 'number';
+      const osreRank = entry ? providerRank('machine', entry) : 0;
+      const sourceRank = entry ? providerRank(contribution.provider, entry) : 0;
+      const byRule = entry?.rule === 'PRECEDENCE' && named && osreRank !== sourceRank;
+      const osreWins = byRule && osreRank > sourceRank;
+      const resolved = byRule ? (osreWins ? o : s) : foldUnitInterval(fold.transformation, s, o);
+      this.outBuf[cell] = Math.max(0, Math.min(1, resolved));
+      const src = this.sources.get(contribution.originId);
+      folds.push({
+        cell,
+        ...(byRule
+          ? { resolution: 'declared-rule' as const, rule: entry!.rule }
+          : { resolution: 'osre-fold' as const, operator: fold.transformation,
+              ...(entry ? { declaredRule: entry.rule } : {}),
+              ...(entry && !named ? { review: 'provider-unranked' as const } : {}) }),
+        osre: { machine: fold.name, provider: 'machine', value: o },
+        source: { id: contribution.originId, name: src?.name ?? '', kind: src?.type ?? '',
+                  provider: contribution.provider, value: s },
+        resolved,
+        kept: byRule ? (osreWins ? 'osre' : 'source')
+          : resolved === o && resolved === s ? 'both' : resolved === o ? 'osre' : resolved === s ? 'source' : 'combined',
+      });
     }
+    this.assembledFolds = folds;
     this.lastArbitration = records;
 
     return Array.from(this.outBuf);
@@ -576,8 +632,16 @@ export class PerceptionEngine {
   recordContention(): void {
     this.lastContention = this.sourceContention();
     this.contentionTransition = this.globalStep;
+    // The folds of the assembly this push sends (assembleVector runs first).
+    this.lastFolds = this.assembledFolds;
     const contended = new Set<string>();
     const lost = new Set<string>();
+    // A fold counts toward its source's `contended`, and toward `suppressed`
+    // when the OSRE side was kept (§4.4b, CI#525).
+    for (const f of this.lastFolds) {
+      contended.add(f.source.id);
+      if (f.kept === 'osre') lost.add(f.source.id);
+    }
     for (const c of this.lastContention) {
       contended.add(c.winner.id);
       for (const l of c.suppressed) {
@@ -600,7 +664,7 @@ export class PerceptionEngine {
       const c = this.contentionCounters.get(src.id);
       if (c) counters.push({ id: src.id, name: src.name, contended: c.contended, suppressed: c.suppressed });
     }
-    return { transition: this.contentionTransition, cells: this.lastContention, counters };
+    return { transition: this.contentionTransition, cells: this.lastContention, folds: this.lastFolds, counters };
   }
 
   /** Arbitration records from the most recent assembleVector() — contributors,
@@ -731,6 +795,8 @@ export class PerceptionEngine {
       this.activatedAt.set(id, 0);
     }
     this.lastContention = [];
+    this.lastFolds = [];
+    this.assembledFolds = [];
     this.contentionTransition = 0;
     this.contentionCounters.clear();
   }

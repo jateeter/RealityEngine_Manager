@@ -37,6 +37,15 @@ interface MachineLike { name?: unknown; outputMergeTransformation?: unknown }
  * machine NAME decides — ids are minted per runtime, so id order would differ.
  */
 export function osreFoldCells(step: unknown, getMachine: (id: string) => MachineLike | undefined): Map<number, string> {
+  return new Map([...osreFoldCellsWithMachine(step, getMachine)].map(([cell, v]) => [cell, v.transformation]));
+}
+
+/** As osreFoldCells, keeping the writing machine's name: the name goes into
+ * the fold's record (RealityEngine_CI#525). */
+export function osreFoldCellsWithMachine(
+  step: unknown,
+  getMachine: (id: string) => MachineLike | undefined,
+): Map<number, { name: string; transformation: string }> {
   const batch = (step as { mergeBatch?: unknown } | null)?.mergeBatch;
   const byCell = new Map<number, { name: string; transformation: string }>();
   if (!Array.isArray(batch)) return new Map();
@@ -53,5 +62,5 @@ export function osreFoldCells(step: unknown, getMachine: (id: string) => Machine
       if (!prior || name < prior.name) byCell.set(cell, { name, transformation });
     }
   }
-  return new Map([...byCell].map(([cell, v]) => [cell, v.transformation]));
+  return byCell;
 }

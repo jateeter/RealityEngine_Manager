@@ -1,4 +1,4 @@
-import { osreFoldCells } from './osreFold.js';
+import { osreFoldCellsWithMachine } from './osreFold.js';
 import express from 'express';
 import type { Request, Response } from 'express';
 import cors from 'cors';
@@ -608,7 +608,7 @@ async function doPush(): Promise<PushResult> {
       engine.updateFromPerceptualSpace(returnedPs);
     }
     // The OSRE cells this push produced (ARBITER_CONTRACT.md §4.4b).
-    engine.setOsreFold(osreFoldCells(step, (id) => machineCatalog.get(id)));
+    engine.setOsreFold(osreFoldCellsWithMachine(step, (id) => machineCatalog.get(id)));
 
     // Phase 2 — fire-and-record trigger dispatch.  Synchronous against the
     // returned step but the dispatcher does not call any provider, so this

@@ -96,7 +96,7 @@ describe('STT: the incumbent source keeps a contended cell', () => {
 
     engine.reset();
     expect(cell(engine.sourceContention(), 40).suppressed[0]!.activatedAt).toBe(0);
-    expect(engine.getContention()).toEqual({ transition: 0, cells: [], counters: [] });
+    expect(engine.getContention()).toEqual({ transition: 0, cells: [], folds: [], counters: [] });
 
     engine.recordContention();
     expect(engine.removeSource('seed-b')).toBe(true);
