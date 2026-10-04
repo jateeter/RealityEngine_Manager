@@ -40,6 +40,7 @@ export interface OsreFoldRecord {
   rule?: string;
   operator?: string;
   declaredRule?: string;
+  review?: 'provider-unranked';
   osre: { machine: string; provider: 'machine'; value: number };
   source: { id: string; name: string; kind: string; provider: string; value: number };
   resolved: number;
@@ -473,9 +474,14 @@ export class PerceptionEngine {
       const s = this.outBuf[cell];
       const o = this.persistentVector[cell];
       const entry = arbitrationRegistry.entryFor(cell);
+      // The declared rule applies only to a provider the cell names. An unnamed
+      // provider keeps T_M and is flagged for review: it is either ranked
+      // explicitly or placed in the unnamed-provider trustability ranking,
+      // never overridden by default (owner decision 2026-10-04, CI#525).
+      const named = typeof entry?.providerRanks?.[contribution.provider] === 'number';
       const osreRank = entry ? providerRank('machine', entry) : 0;
       const sourceRank = entry ? providerRank(contribution.provider, entry) : 0;
-      const byRule = entry?.rule === 'PRECEDENCE' && osreRank !== sourceRank;
+      const byRule = entry?.rule === 'PRECEDENCE' && named && osreRank !== sourceRank;
       const osreWins = byRule && osreRank > sourceRank;
       const resolved = byRule ? (osreWins ? o : s) : foldUnitInterval(fold.transformation, s, o);
       this.outBuf[cell] = Math.max(0, Math.min(1, resolved));
@@ -485,7 +491,8 @@ export class PerceptionEngine {
         ...(byRule
           ? { resolution: 'declared-rule' as const, rule: entry!.rule }
           : { resolution: 'osre-fold' as const, operator: fold.transformation,
-              ...(entry ? { declaredRule: entry.rule } : {}) }),
+              ...(entry ? { declaredRule: entry.rule } : {}),
+              ...(entry && !named ? { review: 'provider-unranked' as const } : {}) }),
         osre: { machine: fold.name, provider: 'machine', value: o },
         source: { id: contribution.originId, name: src?.name ?? '', kind: src?.type ?? '',
                   provider: contribution.provider, value: s },

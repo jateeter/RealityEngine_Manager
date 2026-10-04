@@ -38,6 +38,7 @@ describe('the Source-vs-OSRE fold', () => {
     fs.writeFileSync(declared, JSON.stringify({ entries: [
       { cell: 50, rule: 'PRECEDENCE', providerRanks: { acp: 1, machine: 3 } },
       { cell: 52, rule: 'PRECEDENCE', providerRanks: { acp: 3, machine: 3 } },
+      { cell: 53, rule: 'PRECEDENCE', providerRanks: { acp: 1, machine: 3 } },
     ] }));
     fs.writeFileSync(empty, JSON.stringify({ entries: [] }));
     process.env.ARBITRATION_REGISTRY = declared;
@@ -59,19 +60,27 @@ describe('the Source-vs-OSRE fold', () => {
       origin: 'acp.openclaw.target.assessment',
       machineId: 'm', machineName: 'm', sequenceName: 's', inputs: [[1, 1, 1]], loop: true,
     } as unknown as Omit<TestSourceConfig, 'id'>);
+    // A seed the cell does not name, on declared cell 53: it keeps T_M.
+    engine.addSource({
+      name: 'unnamed seed', type: 'test', region: { offset: 53, length: 1 }, active: true,
+      machineId: 'm', machineName: 'm', sequenceName: 's', inputs: [[1]], loop: true,
+    } as unknown as Omit<TestSourceConfig, 'id'>);
     engine.setOsreFold(new Map([
       [50, { name: 'Peer', transformation: 'or' }],
       [51, { name: 'Peer', transformation: 'or' }],
       [52, { name: 'Peer', transformation: 'or' }],
+      [53, { name: 'Peer', transformation: 'or' }],
     ]));
     const v = engine.assembleVector();
     expect(near(v[50]!, 0)).toBe(true); // PRECEDENCE: the machine's 0 beats the agent's 1 (5a)
     expect(near(v[51]!, 1)).toBe(true); // undeclared: T_M = max(1, 0.2)
     expect(near(v[52]!, 1)).toBe(true); // equal ranks fall back to T_M
+    expect(near(v[53]!, 1)).toBe(true); // an unnamed provider keeps T_M on a declared cell
 
     engine.recordContention();
     const { folds, counters } = engine.getContention();
-    expect(folds.map((f) => f.cell)).toEqual([50, 51, 52]);
+    expect(folds.map((f) => f.cell)).toEqual([50, 51, 52, 53]);
+    expect(folds[3]).toMatchObject({ review: 'provider-unranked', source: { provider: 'synthetic' } });
     expect(folds[0]).toMatchObject({ resolution: 'declared-rule', rule: 'PRECEDENCE', kept: 'osre',
       osre: { machine: 'Peer', provider: 'machine' }, source: { provider: 'acp' } });
     expect(folds[1]).toMatchObject({ resolution: 'osre-fold', operator: 'or', kept: 'source' });
