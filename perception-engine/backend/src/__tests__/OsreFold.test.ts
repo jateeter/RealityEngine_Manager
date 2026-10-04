@@ -1,6 +1,7 @@
-import { PerceptionEngine } from '../PerceptionEngine';
-import { foldUnitInterval, osreFoldCells } from '../osreFold';
-import type { TestSourceConfig } from '../types';
+import { describe, it, expect } from 'vitest';
+import { PerceptionEngine } from '../PerceptionEngine.js';
+import { foldUnitInterval, osreFoldCells } from '../osreFold.js';
+import type { TestSourceConfig } from '../types.js';
 
 /**
  * A source on an OSRE cell is folded with the OSRE value by the writing

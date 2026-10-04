@@ -34,7 +34,7 @@ function envelope(envelopeId: string): TriggerEnvelope {
     outputVector: { values: [1, 0], encoding: 'vector', semantics: [], assertedLabel: 'cell_0' },
     projection: null, governance: null,
     dispatch: {
-      agent: 'agent_x', action: '', agentActionsCatalog: [], trigger: 't',
+      agent: 'agent_x', action: '', agentActionsCatalog: [], trigger: 't', autonomyMode: '', writeBack: null,
       endpoint: { kind: 'dry-run', url: '', mutation: '', schemaRef: '' },
     },
   };

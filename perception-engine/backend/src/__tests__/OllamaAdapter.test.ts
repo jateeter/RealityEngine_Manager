@@ -57,7 +57,7 @@ const envelope: TriggerEnvelope = {
   outputVector: { values: [1, 0, 0, 0], encoding: 'vector', semantics: [], assertedLabel: 'cell_0' },
   projection: null, governance: null,
   dispatch: {
-    agent: 'paging-decision', action: '', agentActionsCatalog: [], trigger: 't',
+    agent: 'paging-decision', action: '', agentActionsCatalog: [], trigger: 't', autonomyMode: '', writeBack: null,
     endpoint: { kind: 'ollama', url: '', mutation: '', schemaRef: '' },
   },
 };

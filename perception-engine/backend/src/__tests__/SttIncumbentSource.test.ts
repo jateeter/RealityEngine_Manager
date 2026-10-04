@@ -1,5 +1,6 @@
-import { PerceptionEngine, type ContendedCell } from '../PerceptionEngine';
-import type { SensorSourceConfig, TestSourceConfig } from '../types';
+import { describe, it, expect } from 'vitest';
+import { PerceptionEngine, type ContendedCell } from '../PerceptionEngine.js';
+import type { SensorSourceConfig, TestSourceConfig } from '../types.js';
 
 /**
  * Two sources on one cell: the incumbent writer keeps it (ARBITER_CONTRACT.md
