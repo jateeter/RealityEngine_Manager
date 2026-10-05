@@ -36,7 +36,6 @@ tags:
 - name: Runtime Introspection
 - name: Sampler
 - name: Sequences
-- name: Step completion
 - name: Streaming
 - name: Vectors
 paths:
@@ -655,6 +654,44 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
       operationId: get_api_engine_steps_n_pair
+  /api/engine/clock:
+    get:
+      tags:
+      - Engine
+      summary: The instance clock {instance, lamport, step} for the newest committed step
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Object'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      operationId: get_api_engine_clock
+  /api/arbitration:
+    get:
+      tags:
+      - Engine
+      summary: 'Arbitration records: the legacy latest-step object, or retained steps keyed by step (?step=N)'
+      parameters:
+      - name: step
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+        description: Read one retained step. 404 not resolved, 410 no longer retained, 409 while arbitrationRetention is off.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Object'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      operationId: get_api_arbitration
   /api/engine/process:
     post:
       tags:
@@ -703,51 +740,6 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
       operationId: post_api_engine_reset
-  '{"stepNumber": n, "isre": <entry>, "osre": <entry>}':
-    '200':
-      tags:
-      - Step completion
-      summary: '200 {"stepNumber": n, "isre": <entry>, "osre": <entry>}'
-      responses:
-        '200':
-          description: Success
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Object'
-        '500':
-          $ref: '#/components/responses/InternalError'
-      operationId: 200_stepNumber_n_isre_entry_osre_entry
-  '{"error": "step n not resolved within W ms"}':
-    '408':
-      tags:
-      - Step completion
-      summary: '408 {"error": "step n not resolved within W ms"}'
-      responses:
-        '200':
-          description: Success
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Object'
-        '500':
-          $ref: '#/components/responses/InternalError'
-      operationId: 408_error_step_n_not_resolved_within_W_ms
-  '{"error": "step n is no longer retained"}':
-    '410':
-      tags:
-      - Step completion
-      summary: '410 {"error": "step n is no longer retained"}'
-      responses:
-        '200':
-          description: Success
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Object'
-        '500':
-          $ref: '#/components/responses/InternalError'
-      operationId: 410_error_step_n_is_no_longer_retained
   /api/machines:
     get:
       tags:
