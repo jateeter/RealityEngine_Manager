@@ -199,6 +199,24 @@ app.use(express.json({
     (req as Request & { rawBody?: string }).rawBody = buf.toString('utf8');
   },
 }));
+// Express 5 leaves req.body undefined when no parser ran (no body, or a
+// non-JSON content type); Express 4 left it {}. Handlers here destructure it
+// (`const { intervalMs } = req.body`), so a bodiless POST would throw and answer
+// 500 where it answered its validation error before. Restoring {} keeps every
+// route's observable answer as it was: this PE is one of four implementations
+// of the same surface, and they must refuse alike.
+app.use((req, _res, next) => {
+  if (req.body === undefined) req.body = {};
+  next();
+});
+
+// Express 5 types a route parameter as string | string[], since a wildcard
+// capture is an array. No route here declares a wildcard, so every parameter is
+// a single string; this says so once instead of casting at each handler.
+function pathParam(req: Request, name: string): string {
+  const value = req.params[name];
+  return Array.isArray(value) ? value.join('/') : (value ?? '');
+}
 
 // ── Integration registry ──────────────────────────────────────────────────
 // Provider-neutral catalog loaded at startup.  Mirrors the C++ contract
@@ -1135,7 +1153,7 @@ app.get('/api/triggers/status', (_req: Request, res: Response) => {
 // §6 Q6). /api/triggers/replay/:dispatchId was this PE's own and is kept as a
 // deprecated alias; no native runtime serves it.
 function replayHandler(req: Request, res: Response): void {
-  const id = req.params['id'] ?? req.params['dispatchId'] ?? '';
+  const id = pathParam(req, 'id') || pathParam(req, 'dispatchId');
   const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
     ? (req.body as { freshIds?: unknown })
     : {};
@@ -1169,7 +1187,7 @@ app.get('/api/dispatch/ledger', (_req: Request, res: Response) => {
 });
 
 app.get('/api/dispatch/records/:id', (req: Request, res: Response) => {
-  const record = dispatchLedger.get(req.params['id'] ?? '');
+  const record = dispatchLedger.get(pathParam(req, 'id'));
   if (!record) {
     res.status(404).json({ error: 'Dispatch record not found' });
     return;
@@ -1183,7 +1201,7 @@ app.patch('/api/dispatch/records/:id', (req: Request, res: Response) => {
     res.status(400).json({ error: 'dispatch update body must be a JSON object' });
     return;
   }
-  const updated = dispatchLedger.update(req.params['id'] ?? '', body as DispatchRecordPatch);
+  const updated = dispatchLedger.update(pathParam(req, 'id'), body as DispatchRecordPatch);
   if (!updated) {
     res.status(404).json({ error: 'Dispatch record not found' });
     return;
@@ -2265,7 +2283,7 @@ app.post('/api/sources', async (req: Request, res: Response) => {
 
 // Update source
 app.patch('/api/sources/:id', async (req: Request, res: Response) => {
-  const { id } = req.params;
+  const id = pathParam(req, 'id');
   if (req.body.region) {
     const { offset, length } = req.body.region;
     if (typeof offset === 'number' && (offset < 0 || offset >= MAX_VECTOR_SIZE)) {
@@ -2303,7 +2321,7 @@ app.patch('/api/sources/:id', async (req: Request, res: Response) => {
 
 // Delete source
 app.delete('/api/sources/:id', async (req: Request, res: Response) => {
-  const { id } = req.params;
+  const id = pathParam(req, 'id');
   const removed = engine.removeSource(id);
   if (!removed) {
     res.status(404).json({ error: 'Source not found' });
@@ -2315,7 +2333,7 @@ app.delete('/api/sources/:id', async (req: Request, res: Response) => {
 
 // Sensor push endpoint
 app.post('/api/sensors/:id', (req: Request, res: Response) => {
-  const { id } = req.params;
+  const id = pathParam(req, 'id');
   const { values } = req.body;
   if (!Array.isArray(values)) {
     res.status(400).json({ error: 'values must be an array' });
@@ -2547,9 +2565,9 @@ app.get('/api/audit/semantics', (req: Request, res: Response) => {
 });
 
 app.get('/api/machines/semantics/:name', (req: Request, res: Response) => {
-  const identity = semanticIdentityFor(req.params['name'] ?? '');
+  const identity = semanticIdentityFor(pathParam(req, 'name'));
   if (!identity) {
-    res.status(404).json({ error: `No semantics manifest entry for machine: ${req.params['name']}` });
+    res.status(404).json({ error: `No semantics manifest entry for machine: ${pathParam(req, 'name')}` });
     return;
   }
   res.json(identity);
