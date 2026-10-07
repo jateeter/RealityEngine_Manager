@@ -155,6 +155,7 @@ import {
   SequenceTooltip,
   EMPTY_LIVE,
 } from './MachineSequenceTooltip';
+import { FloatingTooltip } from './FloatingTooltip';
 import type {
   TooltipState,
   TooltipMachineData,
@@ -1486,14 +1487,14 @@ export const MachineGraphView: React.FC = () => {
         if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current);
         if (isPortalNode(d.id)) {
           tooltipTimerRef.current = setTimeout(() => {
-            const rect = containerRef.current!.getBoundingClientRect();
             const meta = d.metadata as PortalNodeMetadata;
             setPortalTooltip({
               domainId:     meta.domainId,
               domainLabel:  meta.domainLabel,
               domainColor:  meta.domainColor,
-              x: event.clientX - rect.left + 14,
-              y: event.clientY - rect.top - 10,
+              // The pointer, in viewport coordinates: FloatingTooltip places it (#248).
+              x: event.clientX,
+              y: event.clientY,
               dispatchers:  meta.dispatchers,
               buses:        meta.buses,
               semanticLanes: meta.semanticLanes,
@@ -1503,8 +1504,8 @@ export const MachineGraphView: React.FC = () => {
           return;
         }
         tooltipTimerRef.current = setTimeout(() => {
-          const rect = containerRef.current!.getBoundingClientRect();
-          showTooltipRef.current(d.id, d.name, event.clientX - rect.left + 14, event.clientY - rect.top - 10);
+          // The pointer, in viewport coordinates: SequenceTooltip places itself (#248).
+          showTooltipRef.current(d.id, d.name, event.clientX, event.clientY);
         }, 180);
       })
       .on('mouseleave.tooltip', () => {
@@ -2014,19 +2015,20 @@ export const MachineGraphView: React.FC = () => {
         )}
 
         {!is3D && portalTooltip && (
-          <div
+          <FloatingTooltip
+            anchor={{ x: portalTooltip.x, y: portalTooltip.y }}
             className="portal-tooltip"
             style={{
-              position:   'absolute',
-              left:        portalTooltip.x,
-              top:         portalTooltip.y,
-              zIndex:      50,
+              zIndex:      120,   // on <body> now, level with the sequence tooltip
               background:  'rgba(4,10,20,0.96)',
               border:      `1px solid ${portalTooltip.domainColor}`,
               borderRadius: 8,
               padding:     '10px 14px',
-              minWidth:    260,
-              maxWidth:    380,
+              minWidth:    'min(260px, calc(100vw - 16px))',
+              maxWidth:    'min(380px, calc(100vw - 16px))',
+              maxHeight:   'calc(100vh - 16px)',
+              overflow:    'hidden',
+              boxSizing:   'border-box',
               boxShadow:   '0 4px 24px rgba(0,0,0,0.6)',
               pointerEvents: 'none',
               fontFamily:  'ui-monospace,monospace',
@@ -2093,7 +2095,7 @@ export const MachineGraphView: React.FC = () => {
             <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid #1a3352', color: '#3d5a72', fontSize: 10 }}>
               Completions return to {portalTooltip.acpPsRegion}
             </div>
-          </div>
+          </FloatingTooltip>
         )}
       </div>
     </div>

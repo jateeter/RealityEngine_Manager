@@ -22,10 +22,12 @@
  *   pointer travel from a sphere onto the tooltip panel without it vanishing
  *   underneath. The asymmetry is deliberate: leaving is the one that needs the
  *   longer grace.
- * - **Maps viewport coordinates to the container.** `onMachineHover` forwards
- *   raw `clientX/clientY` from the WebGL canvas; the tooltip is positioned
- *   relative to the graph container, so the container rect is subtracted. The
- *   `+14 / -10` offsets keep the panel clear of the cursor.
+ * - **Passes the pointer through in viewport coordinates.** `onMachineHover`
+ *   forwards raw `clientX/clientY` from the WebGL canvas, and the tooltip is a
+ *   viewport-placed `FloatingTooltip` (#248), so they go through unchanged.
+ *   Keeping the panel clear of the cursor and on screen is the placement's job,
+ *   the same for 2D and 3D. This used to subtract the container rect and add
+ *   `+14 / -10`, which put the anchor in a different frame from the clamp.
  * - **Never dismisses a pinned tooltip.** A pinned panel is the operator's
  *   explicit request to keep it open; hover-out must not override that.
  */
@@ -38,16 +40,12 @@ const OPEN_MS = 160;
 /** Close delay, ms — long enough to move the cursor onto the tooltip itself. */
 const CLOSE_MS = 220;
 
-/** Cursor offsets so the panel does not sit under the pointer. */
-const OFFSET_X = 14;
-const OFFSET_Y = -10;
-
-/** Fallback position when no container rect is available (pre-layout). */
+/** Fallback anchor inside the container when the pointer is unknown. */
 const FALLBACK_X = 20;
 const FALLBACK_Y = 70;
 
 export interface Graph3DMachineHoverOptions {
-  /** The element the tooltip is positioned within. */
+  /** The graph container; anchors the fallback when the pointer is unknown. */
   containerRef: RefObject<HTMLElement | null>;
   /** Shared debounce handle. Also cleared on unmount. */
   timerRef: RefObject<ReturnType<typeof setTimeout> | null>;
@@ -91,12 +89,18 @@ export function useGraph3DMachineHover(
     // rather than opening a panel with no content behind it.
     if (name === undefined) return;
 
-    const rect = containerRef.current?.getBoundingClientRect();
-    const x = rect && clientX !== undefined ? clientX - rect.left + OFFSET_X : FALLBACK_X;
-    const y = rect && clientY !== undefined ? clientY - rect.top + OFFSET_Y : FALLBACK_Y;
+    let x = clientX;
+    let y = clientY;
+    if (x === undefined || y === undefined) {
+      const rect = containerRef.current?.getBoundingClientRect();
+      x = (rect?.left ?? 0) + FALLBACK_X;
+      y = (rect?.top ?? 0) + FALLBACK_Y;
+    }
 
+    const anchorX = x;
+    const anchorY = y;
     timerRef.current = setTimeout(() => {
-      showTooltipRef.current(machineId, name, x, y);
+      showTooltipRef.current(machineId, name, anchorX, anchorY);
     }, OPEN_MS);
   }, [containerRef, timerRef, showTooltipRef, machineName, dismiss]);
 }
