@@ -44,6 +44,66 @@ interface TooltipMachineData {
   name: string;
   description: string;
   sequences: TooltipSeq[];
+  /**
+   * Why there is nothing to draw, when the export failed (#250). Set, the panel
+   * says so instead of rendering an empty CES graph, which is indistinguishable
+   * from a machine with no sequences. Never cached.
+   */
+  error?: string;
+}
+
+// ── Export → CES graph data (#250) ────────────────────────────────────────────
+// One mapping from `GET /api/machines/:id/export` to the CES graph, used by every
+// view that opens the sequence tooltip. It was copied into four views; a fix to
+// how arcs are read had to land four times, and the copies differed in how they
+// failed (an empty graph in three, an endless "Loading…" in the fourth).
+
+/** The CES graph data in one export response. Arcs are each event's `nextEventIds`. */
+function exportToTooltipData(json: any, id: string, fallbackName: string): TooltipMachineData {
+  const m = json?.machine ?? json ?? {};
+  return {
+    id,
+    name:        m.name        ?? fallbackName,
+    description: m.description ?? '',
+    sequences: (Array.isArray(m.sequences) ? m.sequences : []).map((seq: any): TooltipSeq => {
+      const events: any[] = Array.isArray(seq.events) ? seq.events : [];
+      const nodes: TooltipSeqNode[] = events.map((v: any) => ({
+        id:        v.id,
+        label:     v.metadata?.name ?? String(v.id).slice(-6),
+        isInitial: v.isInitial ?? false,
+        hasOutput: (v.outputEvents?.length ?? 0) > 0,
+        elements:  Array.isArray(v.elements) ? (v.elements as TooltipVectorElement[]) : [],
+      }));
+      const edges: Array<{ source: string; target: string }> = [];
+      for (const v of events) {
+        for (const nid of (v.nextEventIds ?? [])) edges.push({ source: v.id, target: nid });
+      }
+      return { sequenceId: seq.id, name: seq.name, nodes, edges };
+    }),
+  };
+}
+
+/**
+ * Fetch and map one machine's CES graph from the active engine. Resolves with
+ * `error` set rather than rejecting, so every caller shows the failure the same
+ * way. An id another engine minted is the common case: the localAI machines get
+ * a different id on each engine, and the active one answers "Machine not found".
+ */
+async function fetchTooltipMachineData(id: string, fallbackName: string): Promise<TooltipMachineData> {
+  const failed = (error: string): TooltipMachineData =>
+    ({ id, name: fallbackName, description: '', sequences: [], error });
+  try {
+    const res = await fetch(`/api/machines/${encodeURIComponent(id)}/export`);
+    let json: any = null;
+    try { json = await res.json(); } catch { /* fall through to the status */ }
+    if (!res.ok || (json && typeof json.error === 'string' && !json.machine && !json.sequences)) {
+      const why = (json && typeof json.error === 'string') ? json.error : `HTTP ${res.status}`;
+      return failed(`The active engine could not export this machine: ${why}`);
+    }
+    return exportToTooltipData(json, id, fallbackName);
+  } catch (e: any) {
+    return failed(`Could not reach the engine: ${e?.message ?? String(e)}`);
+  }
 }
 
 interface TooltipState {
@@ -94,6 +154,12 @@ interface TooltipLiveResult {
   activatedIds:  Set<string>;
   matchedIds:    Set<string>;
   hasOutput:     boolean;
+  /**
+   * False when a step arrived but carried no per-sequence activity for this
+   * machine (#250). Empty sets then mean "the engine did not say", not "nothing
+   * is active", and the panel says which. Undefined before any step.
+   */
+  activityReported?: boolean;
 }
 
 const EMPTY_LIVE: TooltipLiveResult = {
@@ -101,6 +167,38 @@ const EMPTY_LIVE: TooltipLiveResult = {
   matchedIds:   new Set(),
   hasOutput:    false,
 };
+
+/**
+ * One step's activity for one machine's CES graph (#250): the union of every
+ * sequence's `activatedEvents` and `matchedEvents` under
+ * `machineResults[id].transitionResult.sequenceResults`. Tolerates a step with no
+ * `machineResults` — C++ streams the step as its caller shaped it, and a caller
+ * may decline them — instead of throwing during render.
+ */
+function stepToTooltipLive(step: any, machineId: string): TooltipLiveResult {
+  if (!step) return EMPTY_LIVE;
+  const r = step.machineResults?.[machineId];
+  const seqResults = r?.transitionResult?.sequenceResults;
+  const activated = new Set<string>();
+  const matched   = new Set<string>();
+  if (seqResults && typeof seqResults === 'object') {
+    for (const sr of Object.values(seqResults) as any[]) {
+      for (const id of (sr?.activatedEvents ?? [])) activated.add(id);
+      for (const id of (sr?.matchedEvents ?? [])) matched.add(id);
+    }
+  }
+  return {
+    stepNumber:   step.stepNumber,
+    inputEvent:   r?.inputEvent,
+    outputVector: r?.outputVector,
+    inputRegion:  r?.inputRegion,
+    outputRegion: r?.outputRegion,
+    activatedIds: activated,
+    matchedIds:   matched,
+    hasOutput:    !!r?.outputVector,
+    activityReported: !!seqResults,
+  };
+}
 
 interface TTNode extends d3.SimulationNodeDatum {
   id:        string;
@@ -699,7 +797,9 @@ const SequenceTooltip: React.FC<{
         </div>
       </div>
 
-      {data ? (
+      {data?.error ? (
+        <div className="mgv-tooltip-loading" role="alert">{data.error}</div>
+      ) : data ? (
         <>
           {data.description && (
             <div className="mgv-tooltip-desc">{data.description}</div>
@@ -715,7 +815,13 @@ const SequenceTooltip: React.FC<{
                 {seqCounts.transitions} transition{seqCounts.transitions === 1 ? '' : 's'}
               </span>
             </span>
-            {live.stepNumber != null && (
+            {live.stepNumber != null && live.activityReported === false && (
+              <span style={{ marginLeft: 8, color: '#f59e0b', fontWeight: 400 }}
+                    title="The step stream carried no per-sequence activity for this machine">
+                · step {live.stepNumber} · no activity reported by the engine
+              </span>
+            )}
+            {live.stepNumber != null && live.activityReported !== false && (
               <span style={{ marginLeft: 8, color: '#94a3b8', fontWeight: 400 }}>
                 · step {live.stepNumber}
                 {live.activatedIds.size > 0 && (
@@ -745,7 +851,10 @@ const SequenceTooltip: React.FC<{
 };
 
 // ── Public surface ────────────────────────────────────────────────────────────
-export { SequenceTooltip, TooltipSeqGraph, NodeEventTip, EMPTY_LIVE };
+export {
+  SequenceTooltip, TooltipSeqGraph, NodeEventTip, EMPTY_LIVE,
+  exportToTooltipData, fetchTooltipMachineData, stepToTooltipLive,
+};
 export type {
   TooltipState,
   TooltipMachineData,

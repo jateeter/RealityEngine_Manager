@@ -13,12 +13,12 @@ import {
 import {
   SequenceTooltip,
   EMPTY_LIVE,
+  fetchTooltipMachineData,
 } from '../components/MachineSequenceTooltip';
+import { useOnEngineSwitch } from '../hooks/useOnEngineSwitch';
 import type {
   TooltipState,
   TooltipMachineData,
-  TooltipSeqNode,
-  TooltipVectorElement,
 } from '../components/MachineSequenceTooltip';
 import './RealityEnginePanelView.css';
 
@@ -177,6 +177,8 @@ const RealityEnginePanelView: React.FC = () => {
   // ── Sequence tooltip (machine hover) ────────────────────────────────────
   const [seqTooltip, setSeqTooltip] = useState<TooltipState | null>(null);
   const seqCacheRef = useRef<Map<string, TooltipMachineData>>(new Map());
+  // Machine ids are per engine for minted machines: drop them on a switch (#250).
+  useOnEngineSwitch(() => { seqCacheRef.current.clear(); setSeqTooltip(null); });
   const seqTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Load machines ────────────────────────────────────────────────────────
@@ -317,34 +319,12 @@ const RealityEnginePanelView: React.FC = () => {
       return;
     }
 
-    fetch(`/api/machines/${id}/export`)
-      .then(r => r.json())
-      .then((json: any) => {
-        const m = json.machine ?? json;
-        const data: TooltipMachineData = {
-          id,
-          name:        m.name        ?? name,
-          description: m.description ?? '',
-          sequences: (m.sequences ?? []).map((seq: any) => {
-            const events = (seq.events ?? []);
-            const nodes: TooltipSeqNode[] = events.map((v: any) => ({
-              id:        v.id,
-              label:     v.metadata?.name ?? v.id.slice(-6),
-              isInitial: v.isInitial ?? false,
-              hasOutput: (v.outputEvents?.length ?? 0) > 0,
-              elements:  Array.isArray(v.elements) ? (v.elements as TooltipVectorElement[]) : [],
-            }));
-            const edges: Array<{ source: string; target: string }> = [];
-            for (const v of events) {
-              for (const nid of (v.nextEventIds ?? [])) edges.push({ source: v.id, target: nid });
-            }
-            return { sequenceId: seq.id, name: seq.name, nodes, edges };
-          }),
-        };
-        seqCacheRef.current.set(id, data);
-        setSeqTooltip(prev => prev?.machineId === id ? { ...prev, data } : prev);
-      })
-      .catch(() => {});
+    // Shared with every view that opens the CES graph (#250). A failed export
+    // resolves with `error`, which the panel shows; only successes are cached.
+    fetchTooltipMachineData(id, name).then(data => {
+      if (!data.error) seqCacheRef.current.set(id, data);
+      setSeqTooltip(prev => prev?.machineId === id ? { ...prev, data } : prev);
+    });
   }, []);
 
   // ── Helpers ──────────────────────────────────────────────────────────────

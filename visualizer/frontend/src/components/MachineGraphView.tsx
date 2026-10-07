@@ -154,13 +154,14 @@ const COMPACT_R = 16;  // circle radius (px) in compact mode
 import {
   SequenceTooltip,
   EMPTY_LIVE,
+  fetchTooltipMachineData,
+  stepToTooltipLive,
 } from './MachineSequenceTooltip';
 import { FloatingTooltip } from './FloatingTooltip';
+import { useOnEngineSwitch, isStaleStep } from '../hooks/useOnEngineSwitch';
 import type {
   TooltipState,
   TooltipMachineData,
-  TooltipSeqNode,
-  TooltipVectorElement,
   TooltipLiveResult,
 } from './MachineSequenceTooltip';
 
@@ -233,6 +234,13 @@ export const MachineGraphView: React.FC = () => {
 
   const [graphData,   setGraphData]   = useState<MachineGraphData | null>(null);
   const [currentStep, setCurrentStep] = useState<SimulationStep | null>(null);
+
+  // Nothing collected from the previous engine survives a switch (#250).
+  const activeEngineRef = useOnEngineSwitch(() => {
+    tooltipCacheRef.current.clear();
+    setTooltip(null);
+    setCurrentStep(null);
+  });
 
   // PE sources — feed-forward provenance arcs (Manager#27).
   const [peSources, setPeSources] = useState<Array<{
@@ -393,6 +401,7 @@ export const MachineGraphView: React.FC = () => {
     const handleMessage = (event: MessageEvent) => {
       const data = JSON.parse(event.data);
       if (data.type === 'perceptual-simulation-stepped') {
+        if (isStaleStep(data, activeEngineRef.current)) return;
         setCurrentStep(data.step);
       } else if (data.type === 'perceptual-simulation-reset') {
         setCurrentStep(null);
@@ -424,34 +433,12 @@ export const MachineGraphView: React.FC = () => {
       return;
     }
 
-    fetch(`/api/machines/${id}/export`)
-      .then(r => r.json())
-      .then((json: any) => {
-        const m = json.machine ?? json;
-        const data: TooltipMachineData = {
-          id,
-          name:        m.name        ?? name,
-          description: m.description ?? '',
-          sequences: (m.sequences ?? []).map((seq: any) => {
-            const events = (seq.events ?? []);
-            const nodes: TooltipSeqNode[] = events.map((v: any) => ({
-              id:        v.id,
-              label:     v.metadata?.name ?? v.id.slice(-6),
-              isInitial: v.isInitial ?? false,
-              hasOutput: (v.outputEvents?.length ?? 0) > 0,
-              elements:  Array.isArray(v.elements) ? (v.elements as TooltipVectorElement[]) : [],
-            }));
-            const edges: Array<{ source: string; target: string }> = [];
-            for (const v of events) {
-              for (const nid of (v.nextEventIds ?? [])) edges.push({ source: v.id, target: nid });
-            }
-            return { sequenceId: seq.id, name: seq.name, nodes, edges };
-          }),
-        };
-        tooltipCacheRef.current.set(id, data);
-        setTooltip(prev => prev?.machineId === id ? { ...prev, data } : prev);
-      })
-      .catch(() => {});
+    // Shared with every view that opens the CES graph (#250). A failed export
+    // resolves with `error`, which the panel shows; only successes are cached.
+    fetchTooltipMachineData(id, name).then(data => {
+      if (!data.error) tooltipCacheRef.current.set(id, data);
+      setTooltip(prev => prev?.machineId === id ? { ...prev, data } : prev);
+    });
   }, []);
 
   useEffect(() => { showTooltipRef.current = showTooltip; }, [showTooltip]);
@@ -1659,7 +1646,7 @@ export const MachineGraphView: React.FC = () => {
     if (link) {
       const firedIds = new Set(
         currentStep
-          ? Object.entries(currentStep.machineResults)
+          ? Object.entries(currentStep.machineResults ?? {})
               .filter(([, r]) => r.outputVector !== null && r.outputVector !== undefined)
               .map(([id]) => id)
           : [],
@@ -1682,27 +1669,27 @@ export const MachineGraphView: React.FC = () => {
       : node.filter((d: any) => !isPortalNode(d.id) && d.role !== 'interconnect').select<SVGRectElement>('rect:last-of-type');
     nodeShape
       .attr('fill', (d: MachineNode) => {
-        const state = getMachineColorState(currentStep?.machineResults[d.id]);
+        const state = getMachineColorState(currentStep?.machineResults?.[d.id]);
         if (state === 'fired')  return colorsRef.current.cardFiredFill;
         if (state === 'active') return themeTokens.bg.cardActive;
         return themeTokens.bg.cardIdle;
       })
       .attr('stroke', (d: MachineNode) => {
-        const state = getMachineColorState(currentStep?.machineResults[d.id]);
+        const state = getMachineColorState(currentStep?.machineResults?.[d.id]);
         if (state === 'fired')  return colorsRef.current.cardFiredStroke;
         if (state === 'active') return themeTokens.accent.input;
         if ((d as any).role === 'agent-dispatcher') return colorsRef.current.openclawStroke;
         return DOMAINS[(d.domain ?? 'general')].color;
       })
       .attr('stroke-width', (d: MachineNode) => {
-        const state = getMachineColorState(currentStep?.machineResults[d.id]);
+        const state = getMachineColorState(currentStep?.machineResults?.[d.id]);
         if (state !== 'idle') return 3;
         return compactModeRef.current ? 2 : 2.5;
       });
 
     if (stepText) {
       stepText.text((d: MachineNode) => {
-        const result = currentStep?.machineResults[d.id];
+        const result = currentStep?.machineResults?.[d.id];
         if (result?.outputVector) {
           return `Output: [${result.outputVector.join(', ')}]`;
         }
@@ -1738,30 +1725,10 @@ export const MachineGraphView: React.FC = () => {
   // can highlight every node that participated in this step.  MUST sit
   // above any early returns below — Rules of Hooks require hook count
   // and order to stay stable across renders.
-  const tooltipLive: TooltipLiveResult = useMemo(() => {
-    if (!tooltip || !currentStep) return EMPTY_LIVE;
-    const r = currentStep.machineResults[tooltip.machineId];
-    if (!r) return EMPTY_LIVE;
-    const activated = new Set<string>();
-    const matched   = new Set<string>();
-    const seqResults = r.transitionResult?.sequenceResults;
-    if (seqResults) {
-      for (const sr of Object.values(seqResults)) {
-        for (const id of (sr.activatedEvents ?? [])) activated.add(id);
-        for (const id of (sr.matchedEvents ?? [])) matched.add(id);
-      }
-    }
-    return {
-      stepNumber:   currentStep.stepNumber,
-      inputEvent:  r.inputEvent,
-      outputVector: r.outputVector,
-      inputRegion:  r.inputRegion,
-      outputRegion: r.outputRegion,
-      activatedIds: activated,
-      matchedIds:   matched,
-      hasOutput:    !!r.outputVector,
-    };
-  }, [tooltip, currentStep]);
+  const tooltipLive: TooltipLiveResult = useMemo(
+    () => (tooltip ? stepToTooltipLive(currentStep, tooltip.machineId) : EMPTY_LIVE),
+    [tooltip, currentStep],
+  );
 
   // ── Render ─────────────────────────────────────────────────────────────────
   if (error) {

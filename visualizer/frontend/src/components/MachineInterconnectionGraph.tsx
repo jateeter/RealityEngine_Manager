@@ -32,13 +32,14 @@ import { Graph3DToggle } from './Graph3DToggle';
 import {
   SequenceTooltip,
   EMPTY_LIVE,
+  fetchTooltipMachineData,
+  stepToTooltipLive,
 } from './MachineSequenceTooltip';
 import { FloatingTooltip } from './FloatingTooltip';
+import { useOnEngineSwitch, isStaleStep } from '../hooks/useOnEngineSwitch';
 import type {
   TooltipState,
   TooltipMachineData,
-  TooltipSeqNode,
-  TooltipVectorElement,
   TooltipLiveResult,
 } from './MachineSequenceTooltip';
 
@@ -311,6 +312,13 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
   const [portalTooltip, setPortalTooltip] = useState<PortalTooltipState | null>(null);
   const tooltipCacheRef = useRef<Map<string, TooltipMachineData>>(new Map());
+
+  // Nothing collected from the previous engine survives a switch (#250).
+  const activeEngineRef = useOnEngineSwitch(() => {
+    tooltipCacheRef.current.clear();
+    setTooltip(null);
+    setCurrentStep(null);
+  });
   const tooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showTooltipRef = useRef<(id: string, name: string, x: number, y: number) => void>(() => {});
 
@@ -373,11 +381,14 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
     const handleMessage = (event: MessageEvent) => {
       const data = JSON.parse(event.data);
       if (data.type === 'perceptual-simulation-stepped') {
+        if (isStaleStep(data, activeEngineRef.current)) return;
         const step: SimulationStep = data.step;
         setCurrentStep(step);
         setPerceptualSpace(step.perceptualSpace);
         const newStatuses: Record<string, any> = {};
-        Object.entries(step.machineResults).forEach(([machineId, result]) => {
+        // A step can arrive without machineResults: C++ streams the step as the
+        // driving caller shaped it, and a caller may decline them (#250).
+        Object.entries(step.machineResults ?? {}).forEach(([machineId, result]) => {
           newStatuses[machineId] = {
             status: result.outputVector ? 'active' : 'processing',
             lastInput: result.inputEvent,
@@ -408,34 +419,12 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
       return;
     }
 
-    fetch(`/api/machines/${id}/export`)
-      .then(r => r.json())
-      .then((json: any) => {
-        const m = json.machine ?? json;
-        const data: TooltipMachineData = {
-          id,
-          name:        m.name        ?? name,
-          description: m.description ?? '',
-          sequences: (m.sequences ?? []).map((seq: any) => {
-            const events = (seq.events ?? []);
-            const nodes: TooltipSeqNode[] = events.map((v: any) => ({
-              id:        v.id,
-              label:     v.metadata?.name ?? v.id.slice(-6),
-              isInitial: v.isInitial ?? false,
-              hasOutput: (v.outputEvents?.length ?? 0) > 0,
-              elements:  Array.isArray(v.elements) ? (v.elements as TooltipVectorElement[]) : [],
-            }));
-            const edges: Array<{ source: string; target: string }> = [];
-            for (const v of events) {
-              for (const nid of (v.nextEventIds ?? [])) edges.push({ source: v.id, target: nid });
-            }
-            return { sequenceId: seq.id, name: seq.name, nodes, edges };
-          }),
-        };
-        tooltipCacheRef.current.set(id, data);
-        setTooltip(prev => prev?.machineId === id ? { ...prev, data } : prev);
-      })
-      .catch(() => {});
+    // Shared with every view that opens the CES graph (#250). A failed export
+    // resolves with `error`, which the panel shows; only successes are cached.
+    fetchTooltipMachineData(id, name).then(data => {
+      if (!data.error) tooltipCacheRef.current.set(id, data);
+      setTooltip(prev => prev?.machineId === id ? { ...prev, data } : prev);
+    });
   }, []);
 
   useEffect(() => { showTooltipRef.current = showTooltip; }, [showTooltip]);
@@ -458,30 +447,10 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
   });
 
   // ── Live per-step state feeding the tooltip's sequence animation ───────────
-  const tooltipLive: TooltipLiveResult = useMemo(() => {
-    if (!tooltip || !currentStep) return EMPTY_LIVE;
-    const r = currentStep.machineResults[tooltip.machineId];
-    if (!r) return EMPTY_LIVE;
-    const activated = new Set<string>();
-    const matched = new Set<string>();
-    const seqResults = r.transitionResult?.sequenceResults;
-    if (seqResults) {
-      for (const sr of Object.values(seqResults)) {
-        for (const id of (sr.activatedEvents ?? [])) activated.add(id);
-        for (const id of (sr.matchedEvents ?? [])) matched.add(id);
-      }
-    }
-    return {
-      stepNumber:   currentStep.stepNumber,
-      inputEvent:  r.inputEvent,
-      outputVector: r.outputVector,
-      inputRegion:  r.inputRegion,
-      outputRegion: r.outputRegion,
-      activatedIds: activated,
-      matchedIds:   matched,
-      hasOutput:    !!r.outputVector,
-    };
-  }, [tooltip, currentStep]);
+  const tooltipLive: TooltipLiveResult = useMemo(
+    () => (tooltip ? stepToTooltipLive(currentStep, tooltip.machineId) : EMPTY_LIVE),
+    [tooltip, currentStep],
+  );
 
   // ── Build the ego-centric graph ────────────────────────────────────────────
   useEffect(() => {
