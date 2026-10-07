@@ -11,7 +11,9 @@ import {
 import {
   SequenceTooltip,
   EMPTY_LIVE,
+  fetchTooltipMachineData,
 } from '../components/MachineSequenceTooltip';
+import { useOnEngineSwitch } from '../hooks/useOnEngineSwitch';
 import type {
   TooltipState,
   TooltipMachineData,
@@ -146,6 +148,8 @@ const MachineSelectionView: React.FC = () => {
   // ── Tooltip state ─────────────────────────────────────────────────────────
   const [tooltip,       setTooltip]       = useState<TooltipState | null>(null);
   const tooltipCacheRef = useRef<Map<string, TooltipMachineData>>(new Map());
+  // Machine ids are per engine for minted machines: drop them on a switch (#250).
+  useOnEngineSwitch(() => { tooltipCacheRef.current.clear(); setTooltip(null); });
   const tooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [domainTooltip, setDomainTooltip] = useState<{
@@ -386,34 +390,11 @@ const MachineSelectionView: React.FC = () => {
       setTooltip(prev => prev?.machineId === machineId ? { ...prev, data: cached } : prev);
       return;
     }
-    try {
-      const res = await fetch(`/api/machines/${machineId}/export`);
-      if (!res.ok) return;
-      const json = await res.json();
-      const m = json.machine ?? json;
-      const data: TooltipMachineData = {
-        id:          machineId,
-        name:        m.name        ?? name,
-        description: m.description ?? '',
-        sequences: (m.sequences ?? []).map((seq: any) => {
-          const events = (seq.events ?? []);
-          const nodes = events.map((v: any) => ({
-            id:        v.id,
-            label:     v.metadata?.name ?? v.id.slice(-6),
-            isInitial: v.isInitial ?? false,
-            hasOutput: (v.outputEvents?.length ?? 0) > 0,
-            elements:  Array.isArray(v.elements) ? v.elements : [],
-          }));
-          const edges: Array<{ source: string; target: string }> = [];
-          for (const v of events)
-            for (const nid of (v.nextEventIds ?? []))
-              edges.push({ source: v.id, target: nid });
-          return { sequenceId: seq.id, name: seq.name, nodes, edges };
-        }),
-      };
-      tooltipCacheRef.current.set(machineId, data);
-      setTooltip(prev => prev?.machineId === machineId ? { ...prev, data } : prev);
-    } catch {}
+    // Shared with every view that opens the CES graph (#250). A failed export
+    // resolves with `error`, which the panel shows; only successes are cached.
+    const data = await fetchTooltipMachineData(machineId, name);
+    if (!data.error) tooltipCacheRef.current.set(machineId, data);
+    setTooltip(prev => prev?.machineId === machineId ? { ...prev, data } : prev);
   }, []);
 
   const handleNodeMouseEnter = useCallback((e: React.MouseEvent, machineId: string, name: string) => {

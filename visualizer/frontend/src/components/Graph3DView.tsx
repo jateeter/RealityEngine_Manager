@@ -126,7 +126,7 @@ function getDomainActivity(
   const out: DomainActivity[] = [];
   for (const node of nodes) {
     if (node.domain !== domainId) continue;
-    const mr = step.machineResults[node.id];
+    const mr = step.machineResults?.[node.id];
     if (!mr) continue;
     const fired = mr.outputVector !== null && mr.outputVector !== undefined;
     const seqResults = mr.transitionResult?.sequenceResults ?? {};
@@ -683,7 +683,7 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
         const n = node as MachineNode3D;
         if (isPortalNode(n.id)) return ocColor;
         const step = currentStepRef.current;
-        const state = getMachineColorState(step?.machineResults[n.id]);
+        const state = getMachineColorState(step?.machineResults?.[n.id]);
         if (state === 'fired') return themeTokens.card.firedStroke;
         if (state === 'active') return themeTokens.accent.input;
         if (n.role === 'agent-dispatcher') return ocColor;

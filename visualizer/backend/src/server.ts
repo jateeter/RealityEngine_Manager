@@ -14,6 +14,7 @@ import { fileURLToPath } from 'url';
 import { auditMiddleware, loadAuditConfig, logAuditEvent } from './auditLogger.js';
 import { scanCorpus, resolveSelection, loadMachines } from './corpus.js';
 import { RateLimitRegistry, RATE_WINDOW_MS } from './rateLimit.js';
+import { parseStepFrame } from './reStepStream.js';
 
 const PORT = parseInt(process.env.VIZ_PORT || '3001', 10);
 const auditConfig = loadAuditConfig('visualizer-backend');
@@ -314,6 +315,24 @@ function broadcast(data: any): void {
 // ── RE SSE step stream — fan out to browser WS clients ───────────────────────
 let reconnectTimer: NodeJS.Timeout | null = null;
 
+// Exactly one RE step stream at a time: the active engine's (#250). An engine
+// switch used to open a second subscription without closing the first, and the
+// engines' 15 s keepalives meant the old one never stalled out — so after a
+// switch the browser received every previously selected engine's steps,
+// interleaved, and the CES graphs painted one engine's activity over another's.
+// `reStreamGen` identifies the current connection; callbacks of a superseded one
+// neither broadcast nor reconnect.
+let reStream: { req: http.ClientRequest; stallCheck: NodeJS.Timeout | null } | null = null;
+let reStreamGen = 0;
+
+function closeREStream(): void {
+  if (!reStream) return;
+  const { req, stallCheck } = reStream;
+  reStream = null;
+  if (stallCheck) clearInterval(stallCheck);
+  req.destroy();
+}
+
 function scheduleReconnect(reason: string, delayMs: number): void {
   if (reconnectTimer) return;
   console.warn(`[SSE] ${reason}, reconnecting in ${Math.round(delayMs / 1000)} s`);
@@ -321,6 +340,10 @@ function scheduleReconnect(reason: string, delayMs: number): void {
 }
 
 function connectToREStream(): void {
+  closeREStream();
+  const gen = ++reStreamGen;
+  const isCurrent = () => gen === reStreamGen;
+  const engineId = activeEngineId ?? engineInstances[0]?.id ?? null;
   const reUrl = new URL(`${activeReUrl()}/api/engine/stream`);
   const transport = reUrl.protocol === 'https:' ? https : http;
   const caPath = process.env.NODE_EXTRA_CA_CERTS;
@@ -335,16 +358,18 @@ function connectToREStream(): void {
       ...(reUrl.protocol === 'https:' && caPath && existsSync(caPath) ? { ca: readFileSync(caPath) } : {}),
     },
     (res) => {
+      if (!isCurrent()) { res.resume(); return; }
       if (res.statusCode !== 200) {
         res.resume();
         scheduleReconnect(`RE stream returned ${res.statusCode}`, 3000);
         return;
       }
-      console.log('[SSE] Connected to RE step stream');
+      console.log(`[SSE] Connected to RE step stream (${engineId ?? 'default'})`);
       let lastByteAt = Date.now();
       const stallCheck = setInterval(() => {
         if (Date.now() - lastByteAt > 45_000) { clearInterval(stallCheck); req.destroy(new Error('stalled')); }
       }, 15_000);
+      if (reStream) reStream.stallCheck = stallCheck;
 
       let buf = '';
       res.setEncoding('utf8');
@@ -354,27 +379,38 @@ function connectToREStream(): void {
         const lines = buf.split('\n');
         buf = lines.pop() ?? '';
         for (const line of lines) {
+          if (!isCurrent()) return;
           if (!line.startsWith('data:')) continue;
           const payload = line.slice(5).trimStart();
           if (!payload) continue;
-          try {
-            const step = JSON.parse(payload);
-            broadcast({
-              type: 'perceptual-simulation-stepped',
-              step,
-              data: { activeMachineIds: Object.keys(step.machineResults ?? {}) },
-              timestamp: Date.now(),
-            });
-          } catch { /* ignore malformed events */ }
+          // The envelope LSP sends and the bare step C++ and Scala send (#250).
+          const step = parseStepFrame(payload);
+          if (!step) continue;
+          broadcast({
+            type: 'perceptual-simulation-stepped',
+            step,
+            engineId,
+            data: { activeMachineIds: Object.keys(step.machineResults ?? {}) },
+            timestamp: Date.now(),
+          });
         }
       });
-      res.on('end', () => { clearInterval(stallCheck); scheduleReconnect('RE stream closed', 2000); });
-      res.on('error', (e: Error) => { clearInterval(stallCheck); scheduleReconnect(`RE stream error: ${e.message}`, 2000); });
+      res.on('end', () => {
+        clearInterval(stallCheck);
+        if (isCurrent()) scheduleReconnect('RE stream closed', 2000);
+      });
+      res.on('error', (e: Error) => {
+        clearInterval(stallCheck);
+        if (isCurrent()) scheduleReconnect(`RE stream error: ${e.message}`, 2000);
+      });
     }
   );
 
+  reStream = { req, stallCheck: null };
   req.setTimeout(0);
-  req.on('error', (e: Error) => { scheduleReconnect(`RE connection failed: ${e.message}`, 3000); });
+  req.on('error', (e: Error) => {
+    if (isCurrent()) scheduleReconnect(`RE connection failed: ${e.message}`, 3000);
+  });
   req.end();
 }
 
