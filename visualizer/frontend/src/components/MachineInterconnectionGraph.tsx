@@ -33,6 +33,7 @@ import {
   SequenceTooltip,
   EMPTY_LIVE,
 } from './MachineSequenceTooltip';
+import { FloatingTooltip } from './FloatingTooltip';
 import type {
   TooltipState,
   TooltipMachineData,
@@ -1085,9 +1086,9 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
       .style('cursor', 'pointer')
       .on('mouseenter', (event: MouseEvent, d: MachineNode) => {
         if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current);
-        const rect = containerRef.current!.getBoundingClientRect();
-        const x = event.clientX - rect.left + 14;
-        const y = event.clientY - rect.top - 10;
+        // The pointer, in viewport coordinates: SequenceTooltip places itself (#248).
+        const x = event.clientX;
+        const y = event.clientY;
         tooltipTimerRef.current = setTimeout(() => {
           showTooltipRef.current(d.id, d.name, x, y);
         }, 160);
@@ -1111,12 +1112,8 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
       .attr('fill', 'transparent')
       .style('cursor', 'pointer')
       .on('mouseenter', (event: MouseEvent, d: MachineNode) => {
-        const rect = containerRef.current!.getBoundingClientRect();
-        setPortalTooltip({
-          node: d,
-          x: event.clientX - rect.left + 14,
-          y: event.clientY - rect.top - 10,
-        });
+        // The pointer, in viewport coordinates: FloatingTooltip places it (#248).
+        setPortalTooltip({ node: d, x: event.clientX, y: event.clientY });
       })
       .on('mouseleave', () => setPortalTooltip(null));
 
@@ -1305,9 +1302,9 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
       {portalTooltip && (() => {
         const meta = portalTooltip.node.metadata as PortalNodeMetadata;
         return (
-          <div
+          <FloatingTooltip
+            anchor={{ x: portalTooltip.x, y: portalTooltip.y }}
             className="portal-tooltip"
-            style={{ left: portalTooltip.x, top: portalTooltip.y }}
             onMouseEnter={() => setPortalTooltip(portalTooltip)}
             onMouseLeave={() => setPortalTooltip(null)}
           >
@@ -1347,7 +1344,7 @@ export const MachineInterconnectionGraph: React.FC<MachineInterconnectionGraphPr
                 <div className="portal-tooltip-empty">No bus node in current ego graph</div>
               )}
             </div>
-          </div>
+          </FloatingTooltip>
         );
       })()}
 

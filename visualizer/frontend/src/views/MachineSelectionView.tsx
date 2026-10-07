@@ -420,9 +420,8 @@ const MachineSelectionView: React.FC = () => {
     if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current);
     const { clientX, clientY } = e;
     tooltipTimerRef.current = setTimeout(() => {
-      const rect = rootRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      fetchAndShowTooltip(machineId, name, clientX - rect.left + 14, clientY - rect.top - 10);
+      // The pointer, in viewport coordinates: SequenceTooltip places itself (#248).
+      fetchAndShowTooltip(machineId, name, clientX, clientY);
     }, 180);
   }, [fetchAndShowTooltip]);
 

@@ -117,11 +117,15 @@
   user-select: none;
 }
 
+/* Rendered by FloatingTooltip: portalled to <body>, position: fixed, placed in
+   the viewport (#248). Bounded by the viewport so it always fits whole. */
 .portal-tooltip {
-  position: absolute;
-  z-index: 20;
+  z-index: 120;
+  box-sizing: border-box;
   width: 320px;
-  max-width: min(320px, calc(100vw - 32px));
+  max-width: min(320px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
   padding: 12px 14px;
   background: rgba(15, 23, 42, 0.97);
   border: 1px solid rgba(255, 107, 53, 0.58);

@@ -9,8 +9,9 @@
  * strips (drawVectorStrip), and the pin-able panel chrome (SequenceTooltip).
  */
 
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as d3 from 'd3';
+import { FloatingTooltip } from './FloatingTooltip';
 import './MachineGraphView.css';
 
 // ---------------------------------------------------------------------------
@@ -48,6 +49,7 @@ interface TooltipMachineData {
 interface TooltipState {
   machineId: string;
   name: string;
+  /** The pointer that opened the panel, in viewport coordinates (#248). */
   x: number;
   y: number;
   pinned: boolean;
@@ -663,12 +665,8 @@ const SequenceTooltip: React.FC<{
   onMouseLeave: () => void;
   onPin: () => void;
   onClose: () => void;
-  /** Extra inline styles merged after left/top. Pass `{ position: 'fixed' }` when
-   *  rendering via a React portal so coordinates are viewport-relative. */
-  extraStyle?: React.CSSProperties;
-}> = ({ tooltip, live, onMouseEnter, onMouseLeave, onPin, onClose, extraStyle }) => {
+}> = ({ tooltip, live, onMouseEnter, onMouseLeave, onPin, onClose }) => {
   const { x, y, pinned, name, data } = tooltip;
-  const panelRef = useRef<HTMLDivElement>(null);
 
   // Totals across every sequence the machine declares. Shown in the header so
   // that "0 transitions" is readable as a fact about the machine rather than as
@@ -681,25 +679,11 @@ const SequenceTooltip: React.FC<{
     };
   }, [data]);
 
-  // Clamp the panel within the viewport after every render.
-  // Runs after React commits the style={{ left: x, top: y }} so rect is accurate.
-  useLayoutEffect(() => {
-    const el = panelRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const overR = rect.right  - (vw - 8);
-    const overB = rect.bottom - (vh - 8);
-    if (overR > 0) el.style.left = `${Math.max(4, x - overR)}px`;
-    if (overB > 0) el.style.top  = `${Math.max(4, y - overB)}px`;
-  });
-
+  // Placement, portalling and re-placement on resize are FloatingTooltip's.
   return (
-    <div
-      ref={panelRef}
+    <FloatingTooltip
+      anchor={{ x, y }}
       className={`mgv-tooltip${pinned ? ' mgv-tooltip-pinned' : ''}`}
-      style={{ left: x, top: y, ...extraStyle }}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
@@ -756,7 +740,7 @@ const SequenceTooltip: React.FC<{
       ) : (
         <div className="mgv-tooltip-loading">Loading sequences…</div>
       )}
-    </div>
+    </FloatingTooltip>
   );
 };
 

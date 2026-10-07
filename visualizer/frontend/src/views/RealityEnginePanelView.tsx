@@ -1,5 +1,4 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import ReactDOM from 'react-dom';
 import { useVisualizerStore } from '../store';
 import { Machine, HealthStatus, EngineActive, PEState } from '../types';
 import { EngineSwitcher } from '../components/EngineSwitcher';
@@ -632,8 +631,9 @@ const RealityEnginePanelView: React.FC = () => {
                     onClick={() => { setFocusedId(n.id); toggle(n.id); }}
                     onMouseEnter={(e) => {
                       if (seqTimerRef.current) clearTimeout(seqTimerRef.current);
-                      const x = e.clientX + 14;
-                      const y = e.clientY - 10;
+                      // The pointer, in viewport coordinates: SequenceTooltip places itself (#248).
+                      const x = e.clientX;
+                      const y = e.clientY;
                       seqTimerRef.current = setTimeout(() => {
                         showSeqTooltip(m.id, m.name, x, y);
                       }, 160);
@@ -745,8 +745,8 @@ const RealityEnginePanelView: React.FC = () => {
 
       </footer>
 
-      {/* ── Sequence tooltip portal ───────────────────────────────────── */}
-      {seqTooltip && ReactDOM.createPortal(
+      {/* ── Sequence tooltip (portals itself to <body>) ───────────────── */}
+      {seqTooltip && (
         <SequenceTooltip
           tooltip={seqTooltip}
           live={EMPTY_LIVE}
@@ -762,9 +762,7 @@ const RealityEnginePanelView: React.FC = () => {
           }}
           onPin={() => setSeqTooltip(prev => prev ? { ...prev, pinned: !prev.pinned } : null)}
           onClose={() => setSeqTooltip(null)}
-          extraStyle={{ position: 'fixed' }}
-        />,
-        document.body,
+        />
       )}
 
       {/* ── Help overlay ───────────────────────────────────────────────── */}

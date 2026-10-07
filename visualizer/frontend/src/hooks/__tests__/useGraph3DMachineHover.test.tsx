@@ -30,7 +30,7 @@ import { useGraph3DMachineHover } from '../useGraph3DMachineHover';
 const OPEN_MS = 160;
 const CLOSE_MS = 220;
 
-/** Container origin, so viewport → container mapping is observable. */
+/** Container origin; it anchors the fallback when the pointer is unknown. */
 const RECT = { left: 100, top: 40 } as DOMRect;
 
 function setup(names: Record<string, string> = { 'machine-a': 'Fall Detection' }) {
@@ -58,16 +58,25 @@ describe('useGraph3DMachineHover (#90)', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  it('opens the tooltip after the debounce, in container coordinates', () => {
+  it('opens the tooltip after the debounce, anchored at the pointer in viewport coordinates', () => {
     const { hook, show } = setup();
 
     hook.result.current('machine-a', 300, 200);
     expect(show).not.toHaveBeenCalled();   // still inside the open delay
 
     vi.advanceTimersByTime(OPEN_MS);
-    // 300 - 100 + 14, 200 - 40 - 10 — viewport coords from the WebGL canvas,
-    // mapped into the container the tooltip is positioned within.
-    expect(show).toHaveBeenCalledWith('machine-a', 'Fall Detection', 214, 150);
+    // The pointer, unchanged: the tooltip is a viewport-placed FloatingTooltip
+    // (#248), so no container mapping and no cursor offsets here.
+    expect(show).toHaveBeenCalledWith('machine-a', 'Fall Detection', 300, 200);
+  });
+
+  it('anchors inside the container, in viewport coordinates, when the pointer is unknown', () => {
+    const { hook, show } = setup();
+
+    hook.result.current('machine-a');
+    vi.advanceTimersByTime(OPEN_MS);
+    // RECT.left + 20, RECT.top + 70
+    expect(show).toHaveBeenCalledWith('machine-a', 'Fall Detection', 120, 110);
   });
 
   it('does not strobe when the cursor crosses several spheres', () => {
