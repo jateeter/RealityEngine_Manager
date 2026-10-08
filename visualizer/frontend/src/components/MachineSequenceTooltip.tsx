@@ -9,7 +9,7 @@
  * strips (drawVectorStrip), and the pin-able panel chrome (SequenceTooltip).
  */
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import { FloatingTooltip } from './FloatingTooltip';
 import './MachineGraphView.css';
@@ -130,7 +130,17 @@ const TT_C_INITIAL  = '#3b82f6';
 const TT_C_TERMINAL = '#111827';
 const TT_C_DEFAULT  = '#64748b';
 const TT_C_FIRED    = '#f59e0b';
-const TT_EDGE_CLR   = '#e2e8f0';
+// Paint the panel's own theme supplies (#253). The arcs were '#e2e8f0', which is
+// the Light theme's panel ground `--re-bg-3` exactly: every arc and arrowhead was
+// drawn, at 1.00:1, and invisible under Light and under System in light mode. A
+// hard-coded colour is right for one panel at most; these follow the theme, and
+// because they are CSS variables set through `style` (a presentation attribute
+// does not resolve var()), a theme switch repaints an open tooltip by itself.
+// `--re-text-1` holds 6:1 or better against `--re-bg-3` in every theme; the
+// fallbacks are the Dark values, for a host with no theme applied.
+const TT_EDGE_CLR   = 'var(--re-text-1, #cbd5e1)';
+const TT_LABEL_CLR  = 'var(--re-text-1, #cbd5e1)';
+const TT_TEXT_CLR   = 'var(--re-text-0, #e2e8f0)';
 // Base edge opacity, carried on `stroke-opacity`. Hover emphasis is applied on
 // the *separate* `style.opacity` channel, which multiplies with this one — so
 // the mouseout reset below must be 1, never this value. See the mouseout
@@ -138,7 +148,7 @@ const TT_EDGE_CLR   = '#e2e8f0';
 const TT_EDGE_OP    = 0.85;
 const TT_EDGE_W     = 1.8;
 const TT_EDGE_OP_DIM = 0.06;   // non-incident edges while a node is hovered
-const TT_C_ACTIVE   = '#06b6d4';  // pulse color for activated vectors
+const TT_C_ACTIVE   = 'var(--re-cyan, #06b6d4)';  // pulse color for activated vectors
 const TT_C_MATCHED  = '#fbbf24';  // ring for matched-but-not-fired vectors
 
 // Live per-step state for the hovered machine — drives node pulses,
@@ -234,6 +244,11 @@ interface NodeTipState {
 const TooltipSeqGraph: React.FC<{ sequences: TooltipSeq[]; live: TooltipLiveResult }> = ({ sequences, live }) => {
   const svgRef       = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  // Marker ids are document-global. Two graphs open at once (a pinned panel and
+  // a hover panel) shared `tt-arrowhead`, so one graph's arcs resolved the other's
+  // marker. useId's ':' is not valid in url(#…), hence the rewrite.
+  const markerBase   = `tt-arrow-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
+  const markerRef    = useRef({ idle: `url(#${markerBase})`, active: `url(#${markerBase}-active)` });
   const simRef       = useRef<d3.Simulation<TTNode, TTLink> | null>(null);
   // Persisted selections so the live-update effect can recolour and
   // pulse nodes/edges without forcing a full simulation rebuild.
@@ -295,7 +310,7 @@ const TooltipSeqGraph: React.FC<{ sequences: TooltipSeq[]; live: TooltipLiveResu
 
     const defs = svg.append('defs');
     defs.append('marker')
-      .attr('id', 'tt-arrowhead')
+      .attr('id', markerBase)
       .attr('viewBox', '0 -5 10 10')
       .attr('refX', TT_NODE_R + 10)
       .attr('refY', 0)
@@ -304,9 +319,9 @@ const TooltipSeqGraph: React.FC<{ sequences: TooltipSeq[]; live: TooltipLiveResu
       .attr('orient', 'auto')
       .append('path')
       .attr('d', 'M0,-5L10,0L0,5')
-      .attr('fill', TT_EDGE_CLR);
+      .style('fill', TT_EDGE_CLR);
     defs.append('marker')
-      .attr('id', 'tt-arrowhead-active')
+      .attr('id', `${markerBase}-active`)
       .attr('viewBox', '0 -5 10 10')
       .attr('refX', TT_NODE_R + 10)
       .attr('refY', 0)
@@ -315,7 +330,7 @@ const TooltipSeqGraph: React.FC<{ sequences: TooltipSeq[]; live: TooltipLiveResu
       .attr('orient', 'auto')
       .append('path')
       .attr('d', 'M0,-5L10,0L0,5')
-      .attr('fill', TT_C_ACTIVE);
+      .style('fill', TT_C_ACTIVE);
 
     // Strip groups — outside the zoomable graph group so they stay fixed.
     // Painted by drawVectorStrip() in the live-update effect below.
@@ -346,10 +361,11 @@ const TooltipSeqGraph: React.FC<{ sequences: TooltipSeq[]; live: TooltipLiveResu
       .selectAll<SVGLineElement, TTLink>('line')
       .data(links)
       .join('line')
-      .attr('stroke', TT_EDGE_CLR)
+      .attr('class', 'tt-edge')
+      .style('stroke', TT_EDGE_CLR)
       .attr('stroke-width', TT_EDGE_W)
       .attr('stroke-opacity', TT_EDGE_OP)
-      .attr('marker-end', 'url(#tt-arrowhead)');
+      .attr('marker-end', markerRef.current.idle);
     linkSelRef.current = link;
 
     // Nodes
@@ -359,7 +375,7 @@ const TooltipSeqGraph: React.FC<{ sequences: TooltipSeq[]; live: TooltipLiveResu
       .join('circle')
       .attr('r', TT_NODE_R)
       .attr('fill',         d => ttFill(d))
-      .attr('stroke',       d => ttStroke(d))
+      .style('stroke',      d => ttStroke(d))
       .attr('stroke-width', d => ttStrokeW(d))
       .style('cursor', 'grab');
     nodeSelRef.current = node;
@@ -371,7 +387,7 @@ const TooltipSeqGraph: React.FC<{ sequences: TooltipSeq[]; live: TooltipLiveResu
       .join('text')
       .text(d => d.label)
       .attr('font-size', 9)
-      .attr('fill', '#94a3b8')
+      .style('fill', TT_LABEL_CLR)
       .attr('dx', TT_NODE_R + 3)
       .attr('dy', 3)
       .style('pointer-events', 'none');
@@ -394,7 +410,7 @@ const TooltipSeqGraph: React.FC<{ sequences: TooltipSeq[]; live: TooltipLiveResu
         .attr('y', TT_STRIP_TOP_H + GH / 2 + TT_NODE_R + 26)
         .attr('text-anchor', 'middle')
         .attr('font-size', 10)
-        .attr('fill', disconnected > 0 ? TT_C_MATCHED : '#64748b')
+        .style('fill', disconnected > 0 ? TT_C_MATCHED : TT_LABEL_CLR)
         .style('pointer-events', 'none')
         .text(disconnected > 0
           ? `no transitions declared — ${disconnected} multi-event sequence${disconnected > 1 ? 's' : ''}`
@@ -487,7 +503,7 @@ const TooltipSeqGraph: React.FC<{ sequences: TooltipSeq[]; live: TooltipLiveResu
     });
 
     return () => { sim.stop(); };
-  }, [sequences]);
+  }, [sequences, markerBase]);
 
   // ── Live update: animate transitions + repaint vector strips ────────────
   // Runs whenever `live` changes (every WebSocket step).  Does not touch
@@ -507,15 +523,15 @@ const TooltipSeqGraph: React.FC<{ sequences: TooltipSeq[]; live: TooltipLiveResu
         sel.interrupt();
 
         if (isActivated) {
-          sel.attr('stroke', TT_C_ACTIVE).attr('stroke-width', 4);
+          sel.style('stroke', TT_C_ACTIVE).attr('stroke-width', 4);
           // Single pulse: radius grows then settles back.
           sel.attr('r', TT_NODE_R)
             .transition().duration(220).attr('r', TT_NODE_R + 5)
             .transition().duration(320).attr('r', TT_NODE_R);
         } else if (isMatched) {
-          sel.attr('stroke', TT_C_MATCHED).attr('stroke-width', 3).attr('r', TT_NODE_R);
+          sel.style('stroke', TT_C_MATCHED).attr('stroke-width', 3).attr('r', TT_NODE_R);
         } else {
-          sel.attr('stroke', ttStroke(d)).attr('stroke-width', ttStrokeW(d)).attr('r', TT_NODE_R);
+          sel.style('stroke', ttStroke(d)).attr('stroke-width', ttStrokeW(d)).attr('r', TT_NODE_R);
         }
       });
     }
@@ -530,8 +546,8 @@ const TooltipSeqGraph: React.FC<{ sequences: TooltipSeq[]; live: TooltipLiveResu
         sel.interrupt();
 
         if (isTransition) {
-          sel.attr('stroke', TT_C_ACTIVE).attr('stroke-opacity', 0.95)
-             .attr('marker-end', 'url(#tt-arrowhead-active)');
+          sel.style('stroke', TT_C_ACTIVE).attr('stroke-opacity', 0.95)
+             .attr('marker-end', markerRef.current.active);
           sel.attr('stroke-width', 3)
             .transition().duration(220).attr('stroke-width', 5)
             .transition().duration(380).attr('stroke-width', 2.5);
@@ -542,8 +558,8 @@ const TooltipSeqGraph: React.FC<{ sequences: TooltipSeq[]; live: TooltipLiveResu
           // the edges were repainted to the old 0.45 within one step of the
           // tooltip opening, whatever the join had drawn. Found only by checking
           // a running universe; a test with no step traffic never reaches it.
-          sel.attr('stroke', TT_EDGE_CLR).attr('stroke-width', TT_EDGE_W)
-             .attr('stroke-opacity', TT_EDGE_OP).attr('marker-end', 'url(#tt-arrowhead)');
+          sel.style('stroke', TT_EDGE_CLR).attr('stroke-width', TT_EDGE_W)
+             .attr('stroke-opacity', TT_EDGE_OP).attr('marker-end', markerRef.current.idle);
         }
       });
     }
@@ -701,7 +717,7 @@ function drawVectorStrip(
     .attr('x', 6).attr('y', STRIP_H / 2 + 4)
     .attr('font-size', 9).attr('font-weight', 700)
     .attr('letter-spacing', 0.5)
-    .attr('fill', kind === 'IN' ? accent : (active ? '#fbbf24' : '#94a3b8'))
+    .style('fill', kind === 'IN' ? accent : (active ? '#fbbf24' : TT_LABEL_CLR))
     .text(labelText);
 
   // Capacity for cells in the remaining width
@@ -726,20 +742,20 @@ function drawVectorStrip(
       .attr('x', cx + CELL_W / 2).attr('y', baseY + CELL_H / 2 + 3)
       .attr('text-anchor', 'middle')
       .attr('font-size', 8).attr('font-weight', 600)
-      .attr('fill', norm > 0.5 ? '#0b1220' : '#cbd5e1')
+      .style('fill', norm > 0.5 ? '#0b1220' : TT_TEXT_CLR)
       .text(formatCellValue(v));
   }
   if (values.length > showCount) {
     const cx = LABEL_W + showCount * (CELL_W + CELL_GAP);
     g.append('text')
       .attr('x', cx + 2).attr('y', STRIP_H / 2 + 4)
-      .attr('font-size', 9).attr('fill', '#94a3b8')
+      .attr('font-size', 9).style('fill', TT_LABEL_CLR)
       .text(`+${values.length - showCount}`);
   }
   if (values.length === 0) {
     g.append('text')
       .attr('x', LABEL_W).attr('y', STRIP_H / 2 + 4)
-      .attr('font-size', 9).attr('fill', '#475569')
+      .attr('font-size', 9).style('fill', TT_LABEL_CLR)
       .attr('font-style', 'italic')
       .text(kind === 'IN' ? '(no input yet)' : (region ? '(no output yet)' : '(no output region)'));
   }
@@ -808,10 +824,11 @@ const SequenceTooltip: React.FC<{
             Event Sequences
             {/* Counts, so an empty graph is legible as data rather than as a
                 failed render — the ambiguity #89 reported. */}
-            <span style={{ marginLeft: 8, color: '#94a3b8', fontWeight: 400 }}>
+            <span style={{ marginLeft: 8, color: TT_LABEL_CLR, fontWeight: 400 }}>
               · {seqCounts.events} event{seqCounts.events === 1 ? '' : 's'}
               {' · '}
-              <span style={{ color: seqCounts.transitions === 0 ? '#64748b' : '#cbd5e1' }}>
+              <span style={{ color: seqCounts.transitions === 0 ? TT_LABEL_CLR : TT_TEXT_CLR,
+                             fontWeight: seqCounts.transitions === 0 ? 400 : 600 }}>
                 {seqCounts.transitions} transition{seqCounts.transitions === 1 ? '' : 's'}
               </span>
             </span>
@@ -822,7 +839,7 @@ const SequenceTooltip: React.FC<{
               </span>
             )}
             {live.stepNumber != null && live.activityReported !== false && (
-              <span style={{ marginLeft: 8, color: '#94a3b8', fontWeight: 400 }}>
+              <span style={{ marginLeft: 8, color: TT_LABEL_CLR, fontWeight: 400 }}>
                 · step {live.stepNumber}
                 {live.activatedIds.size > 0 && (
                   <span style={{ marginLeft: 6, color: TT_C_ACTIVE, fontWeight: 700 }}>

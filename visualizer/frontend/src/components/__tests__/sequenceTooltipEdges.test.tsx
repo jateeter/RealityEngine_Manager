@@ -29,6 +29,15 @@
  * whatever combination of channels produces it. A future change is free to move
  * opacity between channels and free to retune the base; it is not free to leave
  * a transition invisible after a hover.
+ *
+ * ## Every theme's panel, not one (#253)
+ *
+ * These tests first measured against a single dark panel, `rgb(15,23,42)`, and
+ * passed while every arc was invisible under the Light theme: the arc colour was
+ * '#e2e8f0', which is Light's panel ground `--re-bg-3` exactly — 1.00:1. The
+ * panel is `--re-bg-3` of whichever theme is applied, so contrast is measured
+ * against each theme's, with the arc colour resolved through that theme's
+ * variables the way the browser resolves them.
  */
 
 import { render } from '@testing-library/react';
@@ -36,9 +45,27 @@ import { describe, it, expect } from 'vitest';
 
 import { TooltipSeqGraph, EMPTY_LIVE } from '../MachineSequenceTooltip';
 import type { TooltipSeq } from '../MachineSequenceTooltip';
+import { THEMES } from '../../styles/themes';
 
-/** The tooltip panel ground: `rgba(15,23,42,0.96)` over a dark app shell. */
-const PANEL: [number, number, number] = [15, 23, 42];
+type RGB = [number, number, number];
+
+/** Each theme's `--re-*` custom properties, read from the CSS it injects. */
+const THEME_VARS = THEMES.map(t => ({
+  id: t.id,
+  vars: Object.fromEntries(Array.from(t.css.matchAll(/(--re-[\w-]+):\s*([^;]+);/g), m => [m[1], m[2].trim()])),
+}));
+
+/** Resolve `var(--x, fallback)` against a theme, as the browser would. */
+function resolve(paint: string, vars: Record<string, string>): string {
+  const m = paint.match(/^var\((--[\w-]+)\s*(?:,\s*(.+))?\)$/);
+  if (!m) return paint;
+  return vars[m[1]] ?? resolve(m[2] ?? '', vars);
+}
+
+function hexRGB(hex: string): RGB {
+  const n = parseInt(hex.replace('#', ''), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
 
 function node(id: string, isInitial = false, hasOutput = false) {
   return { id, label: id, isInitial, hasOutput, elements: [] };
@@ -53,13 +80,30 @@ function luminance([r, g, b]: [number, number, number]): number {
   return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
 }
 
-function contrastOnPanel(hex: string, alpha: number): number {
-  const n = parseInt(hex.replace('#', ''), 16);
-  const fg: [number, number, number] = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+function contrastOnPanel(hex: string, alpha: number, panelHex: string): number {
+  const fg = hexRGB(hex);
+  const panel = hexRGB(panelHex);
   // Composite the semi-transparent stroke over the panel, then compare.
-  const over = fg.map((c, i) => alpha * c + (1 - alpha) * PANEL[i]) as [number, number, number];
-  const [a, b] = [luminance(over), luminance(PANEL)].sort((p, q) => q - p);
+  const over = fg.map((c, i) => alpha * c + (1 - alpha) * panel[i]) as RGB;
+  const [a, b] = [luminance(over), luminance(panel)].sort((p, q) => q - p);
   return (a + 0.05) / (b + 0.05);
+}
+
+/** The paint a line or path carries: `style` wins over the attribute. */
+function paintOf(el: Element, prop: 'stroke' | 'fill'): string {
+  return (el as SVGElement).style.getPropertyValue(prop) || el.getAttribute(prop) || '';
+}
+
+/** The worst contrast of these lines on the panel of every theme. */
+function worstAcrossThemes(lines: Element[], opacity = effectiveOpacity): { contrast: number; theme: string } {
+  let worst = { contrast: Infinity, theme: '' };
+  for (const { id, vars } of THEME_VARS) {
+    for (const l of lines) {
+      const c = contrastOnPanel(resolve(paintOf(l, 'stroke'), vars), opacity(l), vars['--re-bg-3']);
+      if (c < worst.contrast) worst = { contrast: c, theme: id };
+    }
+  }
+  return worst;
 }
 
 /** Effective opacity of a line: the two channels multiply. */
@@ -70,9 +114,8 @@ function effectiveOpacity(l: Element): number {
 }
 
 function transitions(container: HTMLElement): Element[] {
-  // The two strip separators are also <line>; transitions carry the edge color.
-  return Array.from(container.querySelectorAll('line'))
-    .filter(l => l.getAttribute('stroke') === '#e2e8f0');
+  // The two strip separators are also <line>; transitions carry the class.
+  return Array.from(container.querySelectorAll('line.tt-edge'));
 }
 
 /** d3-force settles asynchronously; let the ticks run. */
@@ -122,10 +165,12 @@ describe('CES tooltip transitions (#89)', () => {
     const { container } = render(<TooltipSeqGraph sequences={CONNECTED} live={EMPTY_LIVE} />);
     await settle();
 
-    const worst = () => Math.min(...transitions(container)
-      .map(l => contrastOnPanel(l.getAttribute('stroke') ?? '#ffffff', effectiveOpacity(l))));
+    const worst = () => worstAcrossThemes(transitions(container)).contrast;
 
-    expect(worst()).toBeGreaterThanOrEqual(3);
+    expect(THEME_VARS.length).toBeGreaterThanOrEqual(6);
+    // 1.00:1 under Light before #253.
+    const w = worstAcrossThemes(transitions(container));
+    expect(w.contrast, `worst theme: ${w.theme}`).toBeGreaterThanOrEqual(3);
 
     const target = container.querySelector('circle')!;
     target.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
@@ -159,8 +204,8 @@ describe('CES tooltip transitions (#89)', () => {
 
     const quiet = transitions(container).map(effectiveOpacity);
     expect(Math.min(...quiet)).toBeGreaterThanOrEqual(Math.min(...base));
-    expect(Math.min(...quiet.map((_, i) =>
-      contrastOnPanel('#e2e8f0', quiet[i])))).toBeGreaterThanOrEqual(3);
+    const quietLine = transitions(container).find(l => !paintOf(l, 'stroke').includes('cyan'))!;
+    expect(worstAcrossThemes([quietLine]).contrast).toBeGreaterThanOrEqual(3);
   });
 
   it('names an empty edge set as single-event rather than rendering nothing', async () => {
@@ -196,5 +241,50 @@ describe('CES tooltip transitions (#89)', () => {
 
     const note = container.querySelector('.tt-no-transitions');
     expect(note?.textContent).toMatch(/no transitions declared — 1 multi-event sequence/);
+  });
+
+  it('paints arcs, arrowheads and labels from the theme, at 3:1 or better on every panel (#253)', async () => {
+    const { container } = render(<TooltipSeqGraph sequences={CONNECTED} live={EMPTY_LIVE} />);
+    await settle();
+
+    // Arcs and arrowheads: no colour is fixed, so a theme switch repaints them.
+    for (const l of transitions(container)) expect(paintOf(l, 'stroke')).toMatch(/^var\(--re-/);
+    const heads = Array.from(container.querySelectorAll('marker path'));
+    expect(heads.length).toBe(2);
+    for (const h of heads) expect(paintOf(h, 'fill')).toMatch(/^var\(--re-/);
+
+    for (const { id, vars } of THEME_VARS) {
+      const panel = vars['--re-bg-3'];
+      for (const h of heads) {
+        expect({ id, c: contrastOnPanel(resolve(paintOf(h, 'fill'), vars), 1, panel) >= 3 })
+          .toEqual({ id, c: true });
+      }
+      // Event labels are text: 4.5:1.
+      for (const t of Array.from(container.querySelectorAll('g.tt-graph text'))) {
+        expect({ id, c: contrastOnPanel(resolve(paintOf(t, 'fill'), vars), 1, panel) >= 4.5 })
+          .toEqual({ id, c: true });
+      }
+    }
+  });
+
+  it('gives each graph its own arrowhead markers, so two open panels do not share them', async () => {
+    const { container } = render(
+      <>
+        <TooltipSeqGraph sequences={CONNECTED} live={EMPTY_LIVE} />
+        <TooltipSeqGraph sequences={CONNECTED} live={EMPTY_LIVE} />
+      </>,
+    );
+    await settle();
+
+    const ids = Array.from(container.querySelectorAll('marker')).map(m => m.id);
+    expect(ids).toHaveLength(4);
+    expect(new Set(ids).size).toBe(4);
+    // Every arc points at a marker that exists, and at its own graph's.
+    for (const svg of Array.from(container.querySelectorAll('svg'))) {
+      const own = new Set(Array.from(svg.querySelectorAll('marker')).map(m => `url(#${m.id})`));
+      for (const l of Array.from(svg.querySelectorAll('line.tt-edge'))) {
+        expect(own.has(l.getAttribute('marker-end') ?? '')).toBe(true);
+      }
+    }
   });
 });
