@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { isSlotName, slotRegionsOf, withoutLiveTimes, withoutNamed, withoutSlots, type Region } from './unscheduled';
 import { removedOnSchedule, resetRE, retrieveOnce } from './localai-stimulus';
+import { registryUrl } from './registry-url';
 
 type Runtime = 'lsp' | 'scala' | 'cpp';
 
@@ -535,7 +536,7 @@ async function writeCaptureBodies(runs: EngineRun[], testInfo: TestInfo) {
   return manifest;
 }
 
-const REGISTRY_URL = process.env.RE_REGISTRY_URL ?? 'http://127.0.0.1:5999/re-registry.json';
+const REGISTRY_URL = registryUrl();
 
 async function deployedEngineIds(request: APIRequestContext): Promise<Set<string>> {
   try {
