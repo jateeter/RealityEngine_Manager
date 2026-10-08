@@ -1,4 +1,5 @@
 import { expect, type APIRequestContext } from '@playwright/test';
+import { registryUrl } from './registry-url';
 
 /**
  * localAIStack's part in a cross-engine comparison (RealityEngine_CI#518), the
@@ -10,7 +11,7 @@ import { expect, type APIRequestContext } from '@playwright/test';
  *   (`/observations/removals`, kept for K-line support), are set aside where
  *   some engines still hold them and others no longer do.
  */
-const REGISTRY_URL = process.env.RE_REGISTRY_URL ?? 'http://127.0.0.1:5999/re-registry.json';
+const REGISTRY_URL = registryUrl();
 
 export async function localAIUrl(request: APIRequestContext): Promise<string | null> {
   try {

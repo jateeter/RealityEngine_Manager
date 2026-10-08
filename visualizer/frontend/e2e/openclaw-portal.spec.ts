@@ -1,9 +1,10 @@
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
+import { registryUrl } from './registry-url';
 
 const VIZ_URL = process.env.VIZ_FRONTEND_URL ?? 'http://localhost:5173';
-const REGISTRY_URL = process.env.RE_REGISTRY_URL ?? 'http://127.0.0.1:5999/re-registry.json';
+const REGISTRY_URL = registryUrl();
 const OPENCLAW_GATEWAY_URL = process.env.OPENCLAW_GATEWAY_URL ?? 'http://localhost:18789';
 // localOpenClawStack, a sibling of RealityEngine_Manager. Playwright runs from
 // visualizer/frontend, so the workspace root is three levels up.
