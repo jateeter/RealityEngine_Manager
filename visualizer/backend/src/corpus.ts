@@ -2,12 +2,18 @@
  * corpus — machine-corpus catalog + domain-scoped load orchestration
  * (Manager#31).
  *
- * Scans MACHINES_DIR (default ../RealityEngine_Machines/machines) into a
+ * Scans the catalog root (MACHINES_CATALOG_DIR, else MACHINES_DIR, else
+ * ../RealityEngine_Machines/machines) plus any extra source roots into a
  * selection tree with three root branches:
  *
  *   core/<category>     — machines/core/*.json grouped by metadata.category
  *   domains/<name>      — machines/domains/<name>/*.json (one node per dir)
  *   corpus/<category>   — root *.json grouped by metadata.category
+ *
+ * The catalog is what CAN be loaded: the full corpus, whatever bounded subset
+ * the engines booted with (Manager#256). Extra roots (localAIStack's own
+ * data/machines) contribute their top-level files to corpus/<category>, where
+ * a bounded working corpus has always placed them.
  *
  * Every corpus machine carries metadata.category (verified across the full
  * 1150-file corpus), so grouping uses that authoritative field — no
@@ -38,6 +44,7 @@ export interface CorpusTreeNode {
 
 export interface CorpusScan {
   machinesDir: string;
+  extraDirs: string[];
   scannedAt: number;
   totalMachines: number;
   machines: CorpusMachine[];
@@ -117,7 +124,11 @@ function groupByCategory(
   };
 }
 
-export function scanCorpus(machinesDir: string, force = false): CorpusScan {
+export function scanCorpus(
+  machinesDir: string,
+  force = false,
+  extraDirs: string[] = [],
+): CorpusScan {
   // Accept either convention: the machines/ directory itself, or the
   // RealityEngine_Machines repo root (startUniverse exports MACHINES_DIR as
   // the repo root) — descend into machines/ when it exists.
@@ -125,7 +136,10 @@ export function scanCorpus(machinesDir: string, force = false): CorpusScan {
   try {
     if (statSync(join(dir, 'machines')).isDirectory()) dir = join(dir, 'machines');
   } catch { /* already the machines directory */ }
-  if (!force && cache && cache.machinesDir === dir && Date.now() - cache.scannedAt < SCAN_TTL_MS) {
+  const extras = extraDirs.map(d => resolve(d)).filter(d => d !== dir);
+  if (!force && cache && cache.machinesDir === dir
+      && cache.extraDirs.join('\0') === extras.join('\0')
+      && Date.now() - cache.scannedAt < SCAN_TTL_MS) {
     return cache;
   }
 
@@ -172,16 +186,29 @@ export function scanCorpus(machinesDir: string, force = false): CorpusScan {
     }
   }
 
-  // corpus/<category> — root-level files
+  // corpus/<category> — root-level files, then each extra root's. A name the
+  // corpus already holds is not offered twice: corpus filenames are globally
+  // unique, and an extra root restating one would load the same machine again.
   const rootEntries = listJsonFiles(dir)
     .map(f => readMachineEntry(f, dir, 'corpus'))
     .filter((e): e is CorpusMachine => e !== null);
+  const seen = new Set(machines.concat(rootEntries).map(m => m.relFile.split('/').pop()));
+  for (const extra of extras) {
+    for (const e of listJsonFiles(extra)
+      .map(f => readMachineEntry(f, extra, 'corpus'))
+      .filter((e): e is CorpusMachine => e !== null)) {
+      if (seen.has(e.relFile)) continue;
+      seen.add(e.relFile);
+      rootEntries.push(e);
+    }
+  }
   machines.push(...rootEntries);
   const rootNode = groupByCategory(rootEntries, 'corpus', 'Corpus');
   if (rootNode) tree.push(rootNode);
 
   cache = {
     machinesDir: dir,
+    extraDirs: extras,
     scannedAt: Date.now(),
     totalMachines: machines.length,
     machines,
