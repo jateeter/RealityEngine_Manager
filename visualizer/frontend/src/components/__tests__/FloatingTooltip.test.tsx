@@ -38,8 +38,19 @@ describe('FloatingTooltip (#248)', () => {
     render(<FloatingTooltip anchor={{ x: 1200, y: 100 }} className="t-flip">panel</FloatingTooltip>);
     const panel = document.body.querySelector('.t-flip') as HTMLElement;
     expect(panel.dataset.side).toBe('left');
-    expect(panel.style.left).toBe(`${1200 - 14 - PANEL_W}px`);
+    // Held by its right edge, 14px left of the pointer, so growing extends it
+    // leftwards, away from the pointer.
+    expect(panel.style.left).toBe('auto');
+    expect(panel.style.right).toBe(`${1280 - (1200 - 14)}px`);
     expect(panel.style.top).toBe('90px');
+  });
+
+  it('holds a right-side panel by its left edge', () => {
+    render(<FloatingTooltip anchor={{ x: 100, y: 100 }} className="t-right">panel</FloatingTooltip>);
+    const right = document.body.querySelector('.t-right') as HTMLElement;
+    expect(right.dataset.side).toBe('right');
+    expect(right.style.left).toBe(`${100 + 14}px`);
+    expect(right.style.right).toBe('auto');
   });
 
   it('re-places when the anchor moves', () => {
@@ -51,5 +62,6 @@ describe('FloatingTooltip (#248)', () => {
     rerender(<FloatingTooltip anchor={{ x: 1200, y: 790 }} className="t-move">panel</FloatingTooltip>);
     expect(panel.dataset.side).toBe('left');
     expect(panel.style.top).toBe(`${800 - 8 - PANEL_H}px`);
+    expect(panel.style.left).toBe('auto');
   });
 });
