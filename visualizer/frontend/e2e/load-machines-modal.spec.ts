@@ -7,6 +7,8 @@
  */
 
 import { test, expect, type Page } from '@playwright/test';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const VIZ_URL = process.env.VIZ_FRONTEND_URL ?? 'http://localhost:5173';
 
@@ -137,3 +139,44 @@ function firstLoadedMachine(nodes: TreeNode[]): string | undefined {
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
+
+/**
+ * The catalog is the full corpus, not the corpus the engines booted with
+ * (Manager#256). standard-deployment and regression universes boot a bounded
+ * working copy — the catalog offered 23 of 1,327 machines on 2026-10-08 — and
+ * the UI tests above pass against either, so this compares the catalog with
+ * the corpus on disk.
+ */
+test.describe('Load Machines catalog', () => {
+  // RealityEngine_Machines, a sibling of RealityEngine_Manager. Playwright runs
+  // from visualizer/frontend, so the workspace root is three levels up.
+  const MACHINES_ROOT = process.env.RE_MACHINES_REPO
+    ?? path.resolve(process.cwd(), '..', '..', '..', 'RealityEngine_Machines');
+
+  test('offers every domain and every machine of the full corpus', async ({ request }) => {
+    const domainsDir = path.join(MACHINES_ROOT, 'machines', 'domains');
+    test.skip(!fs.existsSync(domainsDir), `no corpus checkout at ${MACHINES_ROOT}`);
+    const tree = await request.get(`${VIZ_URL}/api/corpus/tree`);
+    test.skip(!tree.ok(), 'corpus tree endpoint unavailable');
+
+    const domains = fs.readdirSync(domainsDir)
+      .filter(d => fs.statSync(path.join(domainsDir, d)).isDirectory()
+        && fs.readdirSync(path.join(domainsDir, d)).some(f => f.endsWith('.json')))
+      .sort();
+    const onDisk = domains.flatMap(d => fs.readdirSync(path.join(domainsDir, d))
+      .filter(f => f.endsWith('.json')).map(f => `domains/${d}/${f}`));
+
+    const body = await tree.json() as {
+      machinesDir?: string; totalMachines?: number;
+      tree?: Array<{ key: string; children?: Array<{ key: string; machines: Array<{ relFile: string }> }> }>;
+    };
+    const domainNodes = body.tree?.find(n => n.key === 'domains')?.children ?? [];
+    expect(domainNodes.map(n => n.key.replace(/^domains\//, '')).sort(),
+      `catalog domains (machinesDir=${body.machinesDir})`).toEqual(domains);
+    const offered = new Set(domainNodes.flatMap(n => n.machines.map(m => m.relFile)));
+    const missing = onDisk.filter(f => !offered.has(f));
+    expect(missing, `${missing.length} corpus machines not offered (machinesDir=${body.machinesDir})`)
+      .toEqual([]);
+    expect(body.totalMachines ?? 0).toBeGreaterThanOrEqual(onDisk.length);
+  });
+});

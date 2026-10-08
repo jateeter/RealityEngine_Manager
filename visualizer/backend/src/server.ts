@@ -35,6 +35,15 @@ const MACHINES_RATE_LIMIT_MAX = parseInt(process.env.VIZ_MACHINES_RATE_LIMIT_MAX
 // scanCorpus accepts either the repo root or its machines/ subdirectory.
 const MACHINES_DIR = process.env.MACHINES_DIR
   || fileURLToPath(new URL('../../../../RealityEngine_Machines', import.meta.url));
+// The catalog is what CAN be loaded, not what the engines booted with
+// (Manager#256). startUniverse.sh points MACHINES_DIR at a bounded working
+// copy in standard-deployment and regression modes (23 of 1,327 machines on
+// 2026-10-08), so it passes the full corpus here, and localAIStack's own
+// machines as extra roots (colon-separated).
+const MACHINES_CATALOG_DIR = process.env.MACHINES_CATALOG_DIR || MACHINES_DIR;
+const MACHINES_CATALOG_EXTRA_DIRS = (process.env.MACHINES_CATALOG_EXTRA_DIRS ?? '')
+  .split(':').map(s => s.trim()).filter(Boolean);
+const scanCatalog = () => scanCorpus(MACHINES_CATALOG_DIR, false, MACHINES_CATALOG_EXTRA_DIRS);
 
 // ── Multi-engine registry ─────────────────────────────────────────────────
 
@@ -804,7 +813,7 @@ async function activeEngineMachineKeys(): Promise<{ keys: Set<string>; count: nu
 
 app.get('/api/corpus/tree', async (_req: Request, res: Response) => {
   try {
-    const scan = scanCorpus(MACHINES_DIR);
+    const scan = scanCatalog();
     let loadedIds = new Set<string>();
     let engineCount = 0;
     let engineReachable = true;
@@ -824,6 +833,7 @@ app.get('/api/corpus/tree', async (_req: Request, res: Response) => {
     });
     res.json({
       machinesDir: scan.machinesDir,
+      extraDirs: scan.extraDirs,
       scannedAt: scan.scannedAt,
       totalMachines: scan.totalMachines,
       engineMachineCount: engineCount,
@@ -842,7 +852,7 @@ app.post('/api/corpus/load', async (req: Request, res: Response) => {
     return;
   }
   try {
-    const scan = scanCorpus(MACHINES_DIR);
+    const scan = scanCatalog();
     const selection = resolveSelection(scan, nodeKeys, machineIds);
     if (selection.length === 0) {
       res.status(404).json({ error: 'selection matched no corpus machines' });

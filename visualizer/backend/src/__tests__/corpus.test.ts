@@ -58,6 +58,45 @@ describe('scanCorpus', () => {
   });
 });
 
+describe('scanCorpus with extra roots (Manager#256)', () => {
+  it('adds an extra root\'s machines to corpus/<category> and selects them', () => {
+    const extra = mkdtempSync(join(tmpdir(), 'corpus-extra-'));
+    try {
+      machineFile(join(extra, 'rag_cycle.json'), 'RAG Cycle', 'ai-services');
+      const scan = scanCorpus(dir, true, [extra]);
+      expect(scan.totalMachines).toBe(6);
+      expect(scan.extraDirs).toEqual([extra]);
+      const corpus = scan.tree.find(t => t.key === 'corpus')!;
+      const ai = corpus.children!.find(c => c.key === 'corpus/ai-services')!;
+      expect(ai.machines.map(m => m.relFile)).toEqual(['rag_cycle.json']);
+      expect(resolveSelection(scan, [], ['RAG Cycle']).map(m => m.file))
+        .toEqual([join(extra, 'rag_cycle.json')]);
+    } finally { rmSync(extra, { recursive: true, force: true }); }
+  });
+
+  it('does not offer a file twice when an extra root restates a corpus filename', () => {
+    const extra = mkdtempSync(join(tmpdir(), 'corpus-extra-'));
+    try {
+      machineFile(join(extra, 'E1.json'), 'Energy One (copy)', 'energy');
+      machineFile(join(extra, 'A1.json'), 'Alpha One (copy)', 'agriculture');
+      const scan = scanCorpus(dir, true, [extra]);
+      expect(scan.totalMachines).toBe(5);
+      expect(scan.machines.filter(m => m.name.endsWith('(copy)'))).toEqual([]);
+    } finally { rmSync(extra, { recursive: true, force: true }); }
+  });
+
+  it('keys the cache on the extra roots too', () => {
+    const extra = mkdtempSync(join(tmpdir(), 'corpus-extra-'));
+    try {
+      machineFile(join(extra, 'X1.json'), 'Extra One', 'misc');
+      const without = scanCorpus(dir, true);
+      const withExtra = scanCorpus(dir, false, [extra]);
+      expect(withExtra).not.toBe(without);
+      expect(withExtra.totalMachines).toBe(without.totalMachines + 1);
+    } finally { rmSync(extra, { recursive: true, force: true }); }
+  });
+});
+
 describe('resolveSelection', () => {
   it('resolves node keys with prefix coverage and machine names', () => {
     const scan = scanCorpus(dir, true);
