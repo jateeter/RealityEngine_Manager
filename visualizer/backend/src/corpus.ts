@@ -266,7 +266,15 @@ export async function loadMachines(
       const m = queue.shift();
       if (!m) return;
       const identity = m.id || m.name;
-      if (!replace && identity && existingKeys.has(identity)) {
+      // Presence is decided by the corpus `name`, which every runtime keeps,
+      // never by `id`: ids are minted per runtime (SURFACE_SPEC "Machines are
+      // compared by what they produce"), so C++ and Scala report a minted id even
+      // for a machine whose file declares one, and an id check missed it there
+      // and posted it again, which the engine versions as "<name> v2" while LSP,
+      // keeping the declared id, skipped it. Only a machine with no name falls
+      // back to its id.
+      const presenceKey = m.name || m.id;
+      if (!replace && presenceKey && existingKeys.has(presenceKey)) {
         results.push({ id: identity, relFile: m.relFile, status: 'skipped' });
         continue;
       }

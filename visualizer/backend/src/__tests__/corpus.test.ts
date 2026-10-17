@@ -129,6 +129,32 @@ describe('loadMachines', () => {
     expect(results.find(r => r.id === 'Alpha One')!.status).toBe('loaded');
   });
 
+  it('decides presence by name when the engine minted its own id', async () => {
+    // The file declares an id; the engine reports the same name under a minted
+    // id, as C++ and Scala do. The machine is present and must not be posted.
+    const idDir = mkdtempSync(join(tmpdir(), 'corpus-id-'));
+    try {
+      mkdirSync(join(idDir, 'machines'), { recursive: true });
+      writeFileSync(join(idDir, 'machines', 'Throttler.json'), JSON.stringify({
+        version: '1.0.0',
+        machine: { id: 'ai-capacity-throttler', name: 'AI Capacity Throttler', metadata: { category: 'ai' } },
+      }));
+      const scan = scanCorpus(idDir, true);
+      const selection = resolveSelection(scan, ['corpus/ai']);
+      const posted: string[] = [];
+      const results = await loadMachines(
+        selection,
+        new Set(['machine-01a14ad7-2553-700d-bf42-9a358122021f', 'AI Capacity Throttler']),
+        async raw => { posted.push(JSON.parse(raw).machine.name); },
+      );
+      expect(posted).toEqual([]);
+      expect(results[0].status).toBe('skipped');
+      expect(results[0].id).toBe('ai-capacity-throttler');
+    } finally {
+      rmSync(idDir, { recursive: true, force: true });
+    }
+  });
+
   it('replace bypasses the presence check', async () => {
     const scan = scanCorpus(dir, true);
     const selection = resolveSelection(scan, [], ['Alpha Two']);
