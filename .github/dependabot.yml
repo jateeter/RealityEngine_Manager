@@ -99,42 +99,25 @@ updates:
           - "@vitejs/*"
     open-pull-requests-limit: 5
 
-  # visualizer backend image
+  # The four images. One entry so the node base moves in one PR across all
+  # four Dockerfiles (group-by: dependency-name). Node is one minor across the
+  # workspace: RealityEngine_CI `scripts/advance-node.sh` moves it everywhere,
+  # and that PR supersedes this one; merging this alone leaves the .nvmrc
+  # files and the other repos behind.
   - package-ecosystem: docker
-    directory: /visualizer/backend
+    directories:
+      - /visualizer/backend
+      - /visualizer/frontend
+      - /perception-engine/backend
+      - /perception-engine/frontend
     schedule:
       interval: weekly
       day: monday
       time: "06:00"
       timezone: America/Chicago
-    open-pull-requests-limit: 3
-
-  # visualizer frontend image
-  - package-ecosystem: docker
-    directory: /visualizer/frontend
-    schedule:
-      interval: weekly
-      day: monday
-      time: "06:00"
-      timezone: America/Chicago
-    open-pull-requests-limit: 3
-
-  # PE backend image
-  - package-ecosystem: docker
-    directory: /perception-engine/backend
-    schedule:
-      interval: weekly
-      day: monday
-      time: "06:00"
-      timezone: America/Chicago
-    open-pull-requests-limit: 3
-
-  # PE frontend image
-  - package-ecosystem: docker
-    directory: /perception-engine/frontend
-    schedule:
-      interval: weekly
-      day: monday
-      time: "06:00"
-      timezone: America/Chicago
+    groups:
+      node-image:
+        patterns:
+          - "node"
+        group-by: dependency-name
     open-pull-requests-limit: 3
