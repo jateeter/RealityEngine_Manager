@@ -27,7 +27,7 @@
     "zod": "^4.6.7"
   },
   "optionalDependencies": {
-    "mqtt": "^5.16.0"
+    "mqtt": "^5.16.1"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
