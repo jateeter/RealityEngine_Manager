@@ -49,6 +49,24 @@ export interface OllamaIntegrationCfg extends IntegrationEntry {
   chatPath?: string;
   /** Force a fixed integration id (defaults to entry.id). */
   ollamaId?: string;
+  /**
+   * Send `format: 'json'` on the native API.  Default: true, except for
+   * models Ollama refuses `format` for (see OLLAMA_NO_STRUCTURED_OUTPUT_MODELS).
+   * The C++, LSP and Scala PEs take the same `formatJson` switch.
+   */
+  formatJson?: boolean;
+}
+
+/**
+ * Model families Ollama refuses `format` for ("structured output is
+ * unavailable").  The same list and rule are in the C++, LSP and Scala PEs:
+ * all engines must send or omit `format` identically for a model
+ * (RealityEngine_CI docs/OLLAMA_INTEGRATION.md, "Structured output").
+ */
+export const OLLAMA_NO_STRUCTURED_OUTPUT_MODELS: readonly string[] = ['nemotron-3-nano'];
+
+export function ollamaSupportsStructuredOutput(model: string): boolean {
+  return !OLLAMA_NO_STRUCTURED_OUTPUT_MODELS.includes(model.split(':')[0] ?? model);
 }
 
 export interface OllamaAdapterOptions {
@@ -137,7 +155,7 @@ export class OllamaAdapter implements ProviderAdapter {
             { role: 'system', content: systemPrompt },
             { role: 'user', content: JSON.stringify(userPayload) },
           ],
-          format: 'json',
+          ...((this.cfg.formatJson ?? ollamaSupportsStructuredOutput(model)) ? { format: 'json' } : {}),
           stream: false,
         }, { timeout: timeoutMs });
         externalRunId = typeof resp.data?.created_at === 'string'
