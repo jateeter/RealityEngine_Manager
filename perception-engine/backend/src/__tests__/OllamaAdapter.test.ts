@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import type { AxiosInstance, AxiosRequestConfig } from 'axios';
 
 import { loadRegistry } from '../integrations/Registry.js';
-import { OllamaAdapter } from '../integrations/adapters/OllamaAdapter.js';
+import { OllamaAdapter, ollamaSupportsStructuredOutput } from '../integrations/adapters/OllamaAdapter.js';
 import type { DispatchRecord } from '../dispatch/types.js';
 import type { TriggerEnvelope } from '../triggers/types.js';
 import { mkdtempSync, rmSync, writeFileSync } from 'fs';
@@ -131,6 +131,51 @@ describe('OllamaAdapter — native /api/chat', () => {
     expect(body.envelopeId).toBe('env-1');
     expect(body.sourceMappingId).toBe('agent-completion-risk');
     expect(body.values).toEqual([1, 0, 0.82, 0]);
+  });
+
+  // Parity: C++, LSP and Scala omit `format` for the same models, by the same
+  // rule (RealityEngine_CI docs/OLLAMA_INTEGRATION.md, "Structured output").
+  describe('structured output (format) per model', () => {
+    const dispatchWith = async (model: string, extra: Record<string, unknown> = {}) => {
+      const registry = registryWith({
+        id: 'agent-completion-risk',
+        sensorIdTemplate: 'agent.{agent}.completion',
+        region: { offset: 4200, length: 4 },
+        extract: { type: 'json', pointers: ['/completed', '/failed', '/confidence', '/actionClass'] },
+        normalize: { mode: 'passthrough', clamp: true },
+        ttlMs: 300_000,
+      });
+      const { http, calls } = stubHttp((url) => url.endsWith('/api/chat')
+        ? { status: 200, data: { model, message: { content: '{"completed":1,"failed":0,"confidence":0.5,"actionClass":0}' } } }
+        : { status: 200, data: { success: true } });
+      const adapter = new OllamaAdapter({ http });
+      await adapter.init({
+        id: 'ollama-local', kind: 'ollama', enabled: true, baseUrl: 'http://localhost:11434',
+        model, apiMode: 'native', sourceMappingId: 'agent-completion-risk', ...extra,
+      } as any, { registry, completionUrl: 'http://pe.test/api/integrations/completions' });
+      await adapter.dispatch(envelope, dispatchRecord);
+      return calls[0]!.body as any;
+    };
+
+    it('knows which models refuse format', () => {
+      expect(ollamaSupportsStructuredOutput('nemotron-3-nano:4b')).toBe(false);
+      expect(ollamaSupportsStructuredOutput('nemotron-3-nano')).toBe(false);
+      expect(ollamaSupportsStructuredOutput('gemma3:4b')).toBe(true);
+      expect(ollamaSupportsStructuredOutput('llama3.1:8b')).toBe(true);
+    });
+
+    it('omits format for nemotron-3-nano', async () => {
+      expect(await dispatchWith('nemotron-3-nano:4b')).not.toHaveProperty('format');
+    });
+
+    it('sends format: json for a model that supports it', async () => {
+      expect((await dispatchWith('gemma3:4b')).format).toBe('json');
+    });
+
+    it('honours formatJson over the model default, both ways', async () => {
+      expect(await dispatchWith('gemma3:4b', { formatJson: false })).not.toHaveProperty('format');
+      expect((await dispatchWith('nemotron-3-nano:4b', { formatJson: true })).format).toBe('json');
+    });
   });
 
   it('uses completionSourceMappingId from the shared registry config key', async () => {

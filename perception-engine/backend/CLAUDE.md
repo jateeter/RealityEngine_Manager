@@ -17,6 +17,16 @@ Toolchain: Node 26, TypeScript 7 (native `tsc`, no JS compiler API). Tests run o
 
 HealthKit ingest follows the canonical contract in `localHealthkitBridge/docs/INGEST_CONTRACT.md`: auth accepts body `bridgeToken` OR `Authorization: Bearer`. The contract checks both against `HEALTHKIT_BRIDGE_TOKEN`; this PE also accepts a per-bridge `apiKey` on the matching `kind:"healthkit"` entry in `INTEGRATIONS_CONFIG`, which takes precedence over the token (`integrations/adapters/HealthKitBridge.ts`). That override is Manager-only and not in the canonical contract; unknown bridgeIds are not a 404; samples carry pre-normalized `values[]` (scalar `value` is the legacy server-normalized path); responses expose `resolved[]`/`unmapped[]` with 200/207/400/401 parity across engines. The vector defaults to 7680 (`VECTOR_SIZE` or native-parity `VECTOR_DIMENSION` env) and grows on demand up to `MAX_VECTOR_SIZE` (default 1048576) when a source region requires it, matching the Scala PE — regions beyond the cap are rejected, not silently skipped.
 
+## Ollama `format` (structured output) — three-engine parity
+
+Whether a native Ollama dispatch sends `format` depends on the model: Ollama
+refuses it for some (`nemotron-3-nano` → `structured output is unavailable`).
+The C++, LSP and Scala PEs and the Manager TypeScript PE must send or omit it
+**identically** for every model — a divergence reads as an engine defect in the
+parity sweep. The rule and the model list are canonical in
+`RealityEngine_CI/docs/OLLAMA_INTEGRATION.md` § "Structured output"; here it is
+`ollamaSupportsStructuredOutput` (`OllamaAdapter.ts`) with the `formatJson` config switch. A change to the list or the rule lands in all four repos together.
+
 ## Standing rules — authoritative in `../../../RealityEngine_CI/docs/ENGINEERING_CONTRACT.md`
 
 These apply here and are **not** restated in this file. The table is an index
