@@ -164,8 +164,22 @@ describe('OllamaAdapter — native /api/chat', () => {
       expect(ollamaSupportsStructuredOutput('llama3.1:8b')).toBe(true);
     });
 
-    it('omits format for nemotron-3-nano', async () => {
-      expect(await dispatchWith('nemotron-3-nano:4b')).not.toHaveProperty('format');
+    it('omits format for nemotron-3-nano, names the keys in the prompt, and turns thinking off', async () => {
+      const body = await dispatchWith('nemotron-3-nano:4b');
+      expect(body).not.toHaveProperty('format');
+      expect(body.think).toBe(false);
+      // Byte-identical to the C++, LSP and Scala PEs (same keys, same order, same example).
+      expect(body.messages[0].content.endsWith(
+        '\n\nRespond with ONLY one JSON object, with no prose and no markdown fences, that has exactly '
+        + 'these keys, each a number or boolean: completed, failed, confidence, actionClass. '
+        + 'For example: {"completed": 0, "failed": 0, "confidence": 0, "actionClass": 0}',
+      )).toBe(true);
+    });
+
+    it('leaves the prompt and thinking alone for a model that takes format', async () => {
+      const body = await dispatchWith('gemma3:4b');
+      expect(body).not.toHaveProperty('think');
+      expect(body.messages[0].content).not.toContain('Respond with ONLY one JSON object');
     });
 
     it('sends format: json for a model that supports it', async () => {

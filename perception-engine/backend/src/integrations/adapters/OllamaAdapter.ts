@@ -69,6 +69,27 @@ export function ollamaSupportsStructuredOutput(model: string): boolean {
   return !OLLAMA_NO_STRUCTURED_OUTPUT_MODELS.includes(model.split(':')[0] ?? model);
 }
 
+/**
+ * For a model Ollama will not constrain with `format`: the keys the mapping
+ * requires, as plain words plus an example shape, appended to the system
+ * prompt.  Built from the mapping's pointers in declaration order so the text
+ * is byte-identical in the C++, LSP and Scala PEs (RealityEngine_CI
+ * docs/OLLAMA_INTEGRATION.md, "Structured output"): the same model must see the
+ * same prompt from every engine.
+ */
+export function completionContractPrompt(spec: ExtractSpec): string {
+  const keys: string[] = [];
+  for (const pointer of listExpectedFields(spec)) {
+    const first = pointer.startsWith('/') ? pointer.slice(1).split('/', 1)[0] ?? '' : '';
+    const key = first.replace(/~1/g, '/').replace(/~0/g, '~') || 'value';
+    if (!keys.includes(key)) keys.push(key);
+  }
+  const lead = '\n\nRespond with ONLY one JSON object, with no prose and no markdown fences, that has exactly ';
+  if (keys.length === 0) return lead + 'this key, an array of numbers: values. For example: {"values": [0]}';
+  return lead + 'these keys, each a number or boolean: ' + keys.join(', ')
+    + '. For example: {' + keys.map((k) => `"${k}": 0`).join(', ') + '}';
+}
+
 export interface OllamaAdapterOptions {
   /** Allow injecting a stub HTTP client in tests. */
   http?: AxiosInstance;
@@ -125,7 +146,11 @@ export class OllamaAdapter implements ProviderAdapter {
     const baseUrl = (this.cfg.baseUrl ?? 'http://localhost:11434').replace(/\/$/, '');
     const model = this.cfg.model ?? 'llama3.1:latest';
     const apiMode: OllamaApiMode = this.cfg.apiMode ?? 'native';
-    const systemPrompt = this.cfg.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
+    const supportsStructured = ollamaSupportsStructuredOutput(model);
+    const sendFormat = this.cfg.formatJson ?? supportsStructured;
+    // No `format` to constrain the reply: say what it must contain, in the prompt.
+    const systemPrompt = (this.cfg.systemPrompt ?? DEFAULT_SYSTEM_PROMPT)
+      + (apiMode === 'native' && !sendFormat ? completionContractPrompt(extract) : '');
     const timeoutMs = this.cfg.timeoutMs ?? 60_000;
 
     let parsed: unknown;
@@ -155,7 +180,11 @@ export class OllamaAdapter implements ProviderAdapter {
             { role: 'system', content: systemPrompt },
             { role: 'user', content: JSON.stringify(userPayload) },
           ],
-          ...((this.cfg.formatJson ?? ollamaSupportsStructuredOutput(model)) ? { format: 'json' } : {}),
+          ...(sendFormat ? { format: 'json' } : {}),
+          // Reasoning adds nothing to filling in named fields and made replies slower and
+          // less reliable on the models that cannot take `format` (nemotron-3-nano: 8/8
+          // valid at 0.4 s with thinking off, 6/8 at 2-8 s on).
+          ...(supportsStructured ? {} : { think: false }),
           stream: false,
         }, { timeout: timeoutMs });
         externalRunId = typeof resp.data?.created_at === 'string'
