@@ -21,8 +21,18 @@ const auditConfig = loadAuditConfig('visualizer-backend');
 const RE_RUNTIME_URL_DEFAULT = process.env.RE_RUNTIME_URL || process.env.REALITY_ENGINE_URL || 'https://localhost:5001';
 const PE_RUNTIME_URL_DEFAULT = process.env.PE_RUNTIME_URL || process.env.PERCEPTION_ENGINE_URL || 'https://localhost:3004';
 const RE_REGISTRY_URL = process.env.RE_REGISTRY_URL ?? '';
+// The frontend binds 127.0.0.1:5173 (Manager#296), so a browser may load it as
+// localhost, as 127.0.0.1 (the address startUniverse publishes when it answers
+// there, which the hosted e2e lane browses), or, from a container such as the
+// OpenClaw browser sidecar, as host.docker.internal. Each sends that origin, and
+// a write from an origin missing here fails with 500 (RealityEngine_CI#621).
+const FRONTEND_HOSTS = ['localhost', '127.0.0.1', 'host.docker.internal'];
+const DEFAULT_ALLOWED_ORIGINS = [
+  ...FRONTEND_HOSTS.flatMap(h => [`http://${h}:5173`, `https://${h}:5173`]),
+  'http://localhost:3001', 'https://localhost:3001',
+].join(',');
 const ALLOWED_ORIGINS: string[] = (
-  process.env.ALLOWED_ORIGINS ?? 'http://localhost:5173,https://localhost:5173,http://localhost:3001,https://localhost:3001'
+  process.env.ALLOWED_ORIGINS ?? DEFAULT_ALLOWED_ORIGINS
 ).split(',').map(o => o.trim()).filter(Boolean);
 const certPath = process.env.TLS_CERT_PATH;
 const keyPath  = process.env.TLS_KEY_PATH;
