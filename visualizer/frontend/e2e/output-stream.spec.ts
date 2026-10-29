@@ -9,10 +9,9 @@ import { test, expect, Page } from '@playwright/test';
  * "No tests found" — and (b) asserted a UI that no longer exists ("OUTPUT
  * STREAM" panel, "NAND Gate"/"Multi-Step"/"Generate" buttons).
  *
- * In the current frontend `OutputStreamVisualization` lives inside
- * `MachineContainerView`, which is not wired into `App`'s routing
- * (`selection` | `interconnection` | `perceptual-engine`), so it is
- * unreachable from the running app. The reachable landing surface is
+ * `OutputStreamVisualization` is not wired into `App`'s routing
+ * (`selection` | `perceptual-engine`, Manager#306), so it is unreachable from
+ * the running app. The reachable landing surface is
  * `RealityEnginePanelView`: a domain → machine → CES tree fed by the active
  * engine, with an EngineSwitcher. These tests target that surface. The frontend
  * is intentionally left unchanged.
@@ -54,11 +53,14 @@ test.describe('Reality Engine Visualizer E2E', () => {
     });
 
     test('exposes the primary navigation buttons', async () => {
-      await expect(page.getByRole('button', { name: /Interconnect/ })).toBeVisible();
-      // The control is labelled "Perception", not "PE Manager" — the UI was
-      // renamed and these assertions were not. Anchored on a testid so the next
-      // rename fails loudly instead of silently matching nothing.
+      // [Machines] [Perception] at the upper left, Machines active; the
+      // Interconnection view is gone (Manager#306). Anchored on testids so the
+      // next rename fails loudly instead of silently matching nothing.
+      await expect(page.getByTestId('nav-machines')).toBeVisible();
+      await expect(page.getByTestId('nav-machines')).toHaveAttribute('aria-pressed', 'true');
       await expect(page.getByTestId('nav-perception')).toBeVisible();
+      await expect(page.getByTestId('nav-perception')).toHaveAttribute('aria-pressed', 'false');
+      await expect(page.getByRole('button', { name: /Interconnect/ })).toHaveCount(0);
       await expect(page.getByRole('button', { name: 'Help' })).toBeVisible();
     });
   });

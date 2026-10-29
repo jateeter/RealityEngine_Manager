@@ -1,0 +1,52 @@
+/* ViewNav (#306): self-contained, so it reads the same in both views' headers. */
+.view-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.view-nav-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 3px;
+  padding: 6px 10px;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 10.5px;
+  font-weight: 600;
+  font-family: inherit;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.14s, border-color 0.14s, color 0.14s;
+  white-space: nowrap;
+}
+
+.view-nav-btn:hover {
+  background: rgba(148, 163, 184, 0.08);
+  color: #e2e8f0;
+}
+
+.view-nav-btn.is-active {
+  cursor: default;
+}
+
+.view-nav-nav-machines.is-active {
+  background: rgba(16, 217, 160, 0.12);
+  border-color: rgba(16, 217, 160, 0.55);
+  color: #10d9a0;
+}
+
+.view-nav-nav-perception.is-active {
+  background: rgba(125, 211, 252, 0.12);
+  border-color: rgba(125, 211, 252, 0.55);
+  color: #7dd3fc;
+}
+
+.view-nav-icon {
+  font-size: 12px;
+  line-height: 1;
+}

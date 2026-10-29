@@ -58,12 +58,17 @@ const DEFAULT_GRAPH_FILTERS: GraphFilterState = {
 };
 
 interface VisualizerState {
-  currentView: 'selection' | 'interconnection' | 'perceptual-engine';
+  // The two top-level views, switched by ViewNav (#306).
+  currentView: 'selection' | 'perceptual-engine';
 
   settings: VisualizerSettings;
   updateSettings: (patch: Partial<VisualizerSettings>) => void;
 
   machines: Machine[];
+  // Bumped whenever the engine's machine set changes under the app (a load,
+  // import or create). Views drawn from the engine's machines refetch on it
+  // (#307).
+  machinesVersion: number;
   currentMachineId: string | null;
   currentMachine: Machine | null;
 
@@ -75,8 +80,9 @@ interface VisualizerState {
 
   graphFilters: GraphFilterState;
 
-  setCurrentView: (view: 'selection' | 'interconnection' | 'perceptual-engine') => void;
+  setCurrentView: (view: 'selection' | 'perceptual-engine') => void;
   setMachines: (machines: Machine[]) => void;
+  notifyMachinesChanged: () => void;
   loadMachine: (machineId: string) => Promise<void>;
 
   connectWebSocket: () => void;
@@ -98,6 +104,7 @@ interface VisualizerState {
 export const useVisualizerStore = create<VisualizerState>((set, get) => ({
   currentView: 'selection',
   machines: [],
+  machinesVersion: 0,
   currentMachineId: null,
   currentMachine: null,
   ws: null,
@@ -113,6 +120,7 @@ export const useVisualizerStore = create<VisualizerState>((set, get) => ({
 
   setCurrentView: (view) => set({ currentView: view }),
   setMachines: (machines) => set({ machines }),
+  notifyMachinesChanged: () => set(state => ({ machinesVersion: state.machinesVersion + 1 })),
 
   loadMachine: async (machineId: string) => {
     try {

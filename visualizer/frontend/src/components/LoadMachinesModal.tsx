@@ -57,6 +57,7 @@ function internedLabel(summary: LoadSummary): string | null {
 
 export function LoadMachinesModal({ onClose }: LoadMachinesModalProps) {
   const setMachines = useVisualizerStore(s => s.setMachines);
+  const notifyMachinesChanged = useVisualizerStore(s => s.notifyMachinesChanged);
 
   const [catalog, setCatalog] = useState<CorpusTreeResponse | null>(null);
   const [catalogError, setCatalogError] = useState<string | null>(null);
@@ -124,6 +125,8 @@ export function LoadMachinesModal({ onClose }: LoadMachinesModalProps) {
       const data = await r.json();
       if (!r.ok) throw new Error(data?.error ?? `HTTP ${r.status}`);
       setSummary(data);
+      // The engines' machine set may have changed: graph views refetch (#307).
+      notifyMachinesChanged();
       // Refresh machine list + catalog loaded-annotations for the app.
       try {
         const m = await fetch('/api/machines');

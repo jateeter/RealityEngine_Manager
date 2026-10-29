@@ -42,8 +42,8 @@ export interface DomainDef {
 // 4×4 grid layout (4 cols × 4 rows):
 //   x = 0.125 | 0.375 | 0.625 | 0.875
 //   y = 0.125 | 0.375 | 0.625 | 0.875
-// Each domain occupies one cell; the MachineInterconnectionGraph clamps
-// node positions to per-cell bounding boxes so domain hulls are disjoint.
+// Each domain occupies one cell, anchored at its centre; MachineGraphView
+// places a domain's nodes around its anchor.
 export const DOMAINS: Record<DomainId, DomainDef> = {
   healthservices: {
     id: 'healthservices',

@@ -32,9 +32,8 @@ interface PortalData {
 
 async function openGraph(page: Page): Promise<void> {
   await page.goto(VIZ_URL);
-  await page.getByRole('button', { name: /Interconnect/i }).click();
-  // `.machine-graph-svg` is MachineGraphView's svg, which the Interconnect
-  // button renders (#153); `.graph-svg` belongs to the sibling component.
+  // `.machine-graph-svg` is MachineGraphView's svg, which the Machines view
+  // renders directly (#153, #306).
   await page.waitForSelector('svg.machine-graph-svg', { timeout: 20_000 });
   await page.waitForFunction(
     () => {

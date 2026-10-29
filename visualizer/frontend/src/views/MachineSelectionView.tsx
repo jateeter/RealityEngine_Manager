@@ -129,7 +129,6 @@ const MachineSelectionView: React.FC = () => {
   const {
     machines,
     setMachines,
-    setCurrentView,
   } = useVisualizerStore();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -474,11 +473,6 @@ const MachineSelectionView: React.FC = () => {
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
           />
-
-          <button className="msv-nav-btn msv-nav-btn-interconnect" onClick={() => setCurrentView('interconnection')}>
-            <span className="msv-btn-icon">⚡</span>
-            Interconnect
-          </button>
         </div>
       </header>
 

@@ -44,8 +44,8 @@ async function nodeCenter(page: Page) {
 }
 
 async function openFallDetectionTooltip(page: Page) {
+  // The Machines view renders the machine graph directly (Manager#306).
   await page.goto(VIZ_URL);
-  await page.getByRole('button', { name: /Interconnect/i }).click();
   await page.locator('g.node').first().waitFor({ timeout: 30_000 });
   await page.waitForTimeout(3_000);   // let the force layout settle
 

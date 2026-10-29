@@ -1,6 +1,7 @@
 /**
  * pe-source-arcs.spec.ts — Playwright e2e for PE-source feed-forward arcs
- * in the Machine Interconnection view (Manager#27).
+ * in the machine graph (Manager#27), which the Machines view renders directly
+ * since the Interconnection view was removed (Manager#306).
  *
  * Seeds a sensor source over a machine's input region through the
  * registry-aware Manager proxy, ACTIVATES it with one value write, then
@@ -37,9 +38,8 @@ const VIZ_URL = process.env.VIZ_FRONTEND_URL ?? 'http://localhost:5173';
 
 let seededSourceId: string | null = null;
 
-async function openInterconnections(page: Page) {
+async function openMachineGraph(page: Page) {
   await page.goto(VIZ_URL);
-  await page.getByRole('button', { name: /Interconnect/i }).click();
   await page.waitForSelector('svg.machine-graph-svg', { timeout: 20_000 });
 }
 
@@ -124,7 +124,7 @@ test.describe('PE-source feed-forward arcs', () => {
 
     // The graph fetches /api/pe/sources on mount, so navigating after
     // seeding is sufficient — no wait for the poll interval needed.
-    await openInterconnections(page);
+    await openMachineGraph(page);
   });
 
   test.afterEach(async ({ page }) => {

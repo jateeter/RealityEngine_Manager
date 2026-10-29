@@ -147,8 +147,8 @@ const COMPACT_MODE_THRESHOLD = 100;
 const COMPACT_R = 16;  // circle radius (px) in compact mode
 
 // ---------------------------------------------------------------------------
-// Sequence tooltip — extracted to a shared module so the Machine
-// Interconnection graph reuses the identical interactive panel.
+// Sequence tooltip — extracted to a shared module so every graph view
+// reuses the identical interactive panel.
 // ---------------------------------------------------------------------------
 
 import {
@@ -378,6 +378,16 @@ export const MachineGraphView: React.FC = () => {
     window.addEventListener('re:engine-switched', handler);
     return () => window.removeEventListener('re:engine-switched', handler);
   }, [fetchGraphData]);
+
+  // Refetch when the machine set changes under the view: a load, import or
+  // create (#307). The mount fetch above covers the first render.
+  const machinesVersion = useVisualizerStore(state => state.machinesVersion);
+  const seenMachinesVersion = useRef(machinesVersion);
+  useEffect(() => {
+    if (machinesVersion === seenMachinesVersion.current) return;
+    seenMachinesVersion.current = machinesVersion;
+    fetchGraphData();
+  }, [machinesVersion, fetchGraphData]);
 
   // ── Container resize ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -649,18 +659,23 @@ export const MachineGraphView: React.FC = () => {
       zoomTransformRef.current = restoreTransform;
     }
 
-    // Restore saved positions before starting simulation
+    // Restore saved positions before starting simulation. A node already on
+    // screen keeps where the last layout left it, so a refetch after a load
+    // adds the new machines without scattering the rest (#307).
     const savedLayout = loadLayout();
+    const previous = new Map((simNodesRef.current as Array<{ id: string; x?: number; y?: number }>)
+      .map(n => [n.id, n]));
     const spread = compact ? 60 : 160;
     const simNodes = graphData.nodes.map(n => {
       const saved = savedLayout[n.id];
+      const prev = previous.get(n.id);
       const domain = classifyMachine(n).domain;
       const anchor = DOMAINS[domain ?? 'general'].anchor;
       return Object.assign({}, n, {
         domain,
         role: getNodeRole(n),
-        x:  saved?.fx ?? (anchor.x * innerWidth  + (Math.random() - 0.5) * spread),
-        y:  saved?.fy ?? (anchor.y * innerHeight + (Math.random() - 0.5) * spread),
+        x:  saved?.fx ?? prev?.x ?? (anchor.x * innerWidth  + (Math.random() - 0.5) * spread),
+        y:  saved?.fy ?? prev?.y ?? (anchor.y * innerHeight + (Math.random() - 0.5) * spread),
         fx: saved?.fx ?? null,
         fy: saved?.fy ?? null,
       });
@@ -1086,8 +1101,7 @@ export const MachineGraphView: React.FC = () => {
       .selectAll<SVGGElement, MachineNode & d3.SimulationNodeDatum>('g')
       .data(simNodes)
       .join('g')
-      // Portals get their own class, as pe-sources already did and as the
-      // sibling MachineInterconnectionGraph does for both. Without it a portal
+      // Portals get their own class, as pe-sources already did. Without it a portal
       // was a plain `g.node` indistinguishable from the 1338 machine nodes
       // around it — unaddressable from CSS, so nothing outside this file could
       // find one. `isPortalNode(d.id)` rather than a role check: these carry
@@ -1961,8 +1975,7 @@ export const MachineGraphView: React.FC = () => {
         {/* Not gated on `!is3D` (#90). The panel was rendered only in 2D, so
             wiring onMachineHover was necessary but not sufficient: the hover
             fired, the state updated, and nothing appeared. The 2D SVG is hidden
-            above via `display`, not by unmounting this, and the sibling
-            MachineInterconnectionGraph renders the same tooltip unconditionally. */}
+            above via `display`, not by unmounting this. */}
         {tooltip && (
           <SequenceTooltip
             tooltip={tooltip}

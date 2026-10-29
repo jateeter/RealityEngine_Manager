@@ -205,8 +205,10 @@ async function forceAllSourcesOn(page: Page): Promise<void> {
 }
 
 async function returnToTree(page: Page): Promise<{ rowCount: number; loadedOk: boolean }> {
-  await page.getByTitle('Back to Reality Engine').click();
-  await expect(page.getByTestId('nav-perception')).toBeVisible({ timeout: 30_000 });
+  // The Machines button replaced the PE view's back button (Manager#306). Both
+  // views show both buttons, so arriving is read from which one is active.
+  await page.getByTestId('nav-machines').click();
+  await expect(page.getByTestId('nav-machines')).toHaveAttribute('aria-pressed', 'true', { timeout: 30_000 });
   return waitForTreeRows(page);
 }
 
