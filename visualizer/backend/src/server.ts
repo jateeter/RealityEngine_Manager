@@ -12,7 +12,7 @@ import {
 import { readFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { auditMiddleware, loadAuditConfig, logAuditEvent } from './auditLogger.js';
-import { scanCorpus, resolveSelection, loadMachines } from './corpus.js';
+import { scanCorpus, resolveSelection, loadMachines, internableEngineIds } from './corpus.js';
 import { RateLimitRegistry, RATE_WINDOW_MS } from './rateLimit.js';
 import { parseStepFrame } from './reStepStream.js';
 
@@ -797,10 +797,43 @@ app.get('/api/machines/json/:name', async (req: Request, res: Response) => {
   return proxyGet(req, res, activeReUrl(), `/api/machines/json/${name}`, null, 'loadMachineJSON');
 });
 
+// ── A loaded machine's test sequences become PE sources (Manager#304) ──────
+//
+// The PE interns a machine's inputSequences as a `test` source only when asked
+// (POST /api/sources/bootstrap-from-machines), and asks itself only at boot, so
+// a machine loaded afterwards — one machine, a domain, an import, an editor
+// create — never reached the PE view. Every load path now asks the PE paired
+// with the RE it loaded into, naming the engine ids it placed. The TypeScript
+// PE interns just those; the C++, LSP and Scala PEs read no body and intern
+// every RE machine they lack, which is the same set after a load. Interning is
+// idempotent per machine, and interned sources are seeds: they never displace
+// a live source on a shared lane.
+async function internTestSequences(peUrl: string, machineIds: string[] | null): Promise<unknown> {
+  if (machineIds !== null && machineIds.length === 0) return null;
+  try {
+    const r = await axios.post(`${peUrl}/api/sources/bootstrap-from-machines`,
+      machineIds === null ? {} : { machineIds });
+    invalidate('pe:');
+    return r.data;
+  } catch (e: any) {
+    const error = String(e?.message ?? e).slice(0, 200);
+    console.warn(`[load] interning test sequences on ${peUrl} failed: ${error}`);
+    return { error };
+  }
+}
+
+/** The ingested machine's id from an RE create/import answer, else null (unfiltered). */
+function ingestedIds(data: any): string[] | null {
+  const id = data?.machine?.id;
+  return typeof id === 'string' && id.length > 0 ? [id] : null;
+}
+
 app.post('/api/machines/json/import', async (req: Request, res: Response) => {
   try {
+    const peUrl = activePeUrl();
     const response = await axios.post(`${activeReUrl()}/api/machines/json/import`, req.body);
     invalidate('machines:');
+    await internTestSequences(peUrl, ingestedIds(response.data));
     res.json(response.data);
   } catch (error: any) { upstreamError(res, error, 'importMachineJSON'); }
 });
@@ -871,51 +904,53 @@ app.post('/api/corpus/load', async (req: Request, res: Response) => {
     // Loads target the active engine; --all-engines is an explicit opt-in
     // that repeats the load against every registry instance (Manager#31
     // Phase 4 guardrail: never implicit).
-    const targets: Array<{ id: string; re_url: string }> =
+    const targets: Array<{ id: string; re_url: string; pe_url: string }> =
       body.allEngines === true && engineInstances.length > 0
-        ? engineInstances.map(i => ({ id: i.id, re_url: i.re_url }))
-        : [{ id: activeEngineId ?? 'active', re_url: activeReUrl() }];
+        ? engineInstances.map(i => ({ id: i.id, re_url: i.re_url, pe_url: i.pe_url }))
+        : [{ id: activeEngineId ?? 'active', re_url: activeReUrl(), pe_url: activePeUrl() }];
+    // Each loaded machine's test sequences are interned on the PE paired with
+    // every RE the load reached (Manager#304). On unless the caller opts out.
+    const internSequences = body.bootstrapPeSources !== false;
+    let peBootstrap: unknown = null;
 
     const perEngine: Array<Record<string, unknown>> = [];
     let results: Awaited<ReturnType<typeof loadMachines>> = [];
     for (const t of targets) {
       const r = await axios.get(`${t.re_url}/api/machines`);
       const machines: any[] = Array.isArray(r.data?.machines) ? r.data.machines : [];
-      const existing = new Set<string>();
+      // name/id -> the id this engine holds the machine under
+      const existing = new Map<string, string>();
       for (const m of machines) {
-        if (m.id) existing.add(String(m.id));
-        if (m.name) existing.add(String(m.name));
+        if (!m.id) continue;
+        existing.set(String(m.id), String(m.id));
+        if (m.name) existing.set(String(m.name), String(m.id));
       }
       const engineResults = await loadMachines(
         selection,
         existing,
         async raw => {
-          await axios.post(`${t.re_url}/api/machines`, raw, {
+          const r = await axios.post(`${t.re_url}/api/machines`, raw, {
             headers: { 'Content-Type': 'application/json' },
           });
+          return ingestedIds(r.data)?.[0];
         },
         body.replace === true,
       );
+      const engineBootstrap = internSequences
+        ? await internTestSequences(t.pe_url, internableEngineIds(engineResults))
+        : null;
       perEngine.push({
         engine: t.id,
         re_url: t.re_url,
         loaded: engineResults.filter(x => x.status === 'loaded').length,
         skipped: engineResults.filter(x => x.status === 'skipped').length,
         failed: engineResults.filter(x => x.status === 'failed').length,
+        peBootstrap: engineBootstrap,
       });
       results = engineResults; // active/last engine's detail records
+      peBootstrap = engineBootstrap;
     }
     const reUrl = targets[targets.length - 1].re_url;
-
-    let peBootstrap: unknown = null;
-    if (body.bootstrapPeSources === true) {
-      try {
-        const r = await axios.post(`${activePeUrl()}/api/sources/bootstrap-from-machines`, {});
-        peBootstrap = r.data;
-      } catch (e: any) {
-        peBootstrap = { error: String(e?.message ?? e).slice(0, 200) };
-      }
-    }
 
     responseCache.delete('machines:list');
     const summary = {
@@ -979,8 +1014,10 @@ app.get('/api/machine-graph', async (_req: Request, res: Response) => {
 // Mutations invalidate the machine cache so the next list/detail fetch is fresh
 app.post('/api/machines', async (req: Request, res: Response) => {
   try {
+    const peUrl = activePeUrl();
     const response = await axios.post(`${activeReUrl()}/api/machines`, req.body);
     invalidate('machines:');
+    await internTestSequences(peUrl, ingestedIds(response.data));
     res.json(response.data);
   } catch (error: any) { upstreamError(res, error, 'createMachine'); }
 });

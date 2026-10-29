@@ -41,6 +41,18 @@ interface LoadSummary {
   skipped: number;
   failed: number;
   results: Array<{ id: string; relFile: string; status: string; error?: string }>;
+  // Per engine the load reached, what its paired PE interned (Manager#304).
+  engines?: Array<{ engine: string; peBootstrap?: { created?: number; error?: string } | null }>;
+}
+
+/** "PE sources +N" across every engine the load reached, or the first PE error. */
+function internedLabel(summary: LoadSummary): string | null {
+  const boots = (summary.engines ?? []).map(e => e.peBootstrap).filter(b => b);
+  if (boots.length === 0) return null;
+  const failed = boots.find(b => b!.error);
+  if (failed) return `PE sources not interned: ${failed.error}`;
+  const created = boots.reduce((n, b) => n + (b!.created ?? 0), 0);
+  return `PE sources +${created}${boots.length > 1 ? ` on ${boots.length} engines` : ''}`;
 }
 
 export function LoadMachinesModal({ onClose }: LoadMachinesModalProps) {
@@ -52,7 +64,7 @@ export function LoadMachinesModal({ onClose }: LoadMachinesModalProps) {
   const [sel, setSel] = useState<CorpusSelection>(emptySelection());
   const [expanded, setExpanded] = useState<Set<string>>(new Set(['domains']));
   const [query, setQuery] = useState('');
-  const [bootstrapPe, setBootstrapPe] = useState(false);
+  const [bootstrapPe, setBootstrapPe] = useState(true);
   const [allEngines, setAllEngines] = useState(false);
   const [engineCount, setEngineCount] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -216,6 +228,7 @@ export function LoadMachinesModal({ onClose }: LoadMachinesModalProps) {
         {summary && (
           <div className={`lmm-summary${summary.failed > 0 ? ' has-failures' : ''}`}>
             Loaded {summary.loaded} · skipped {summary.skipped} · failed {summary.failed}
+            {internedLabel(summary) && <div className="lmm-interned">{internedLabel(summary)}</div>}
             {summary.results.filter(r => r.status === 'failed').slice(0, 3).map((r, i) => (
               <div key={i} className="lmm-failure">{r.relFile || 'request'}: {r.error}</div>
             ))}
@@ -229,7 +242,7 @@ export function LoadMachinesModal({ onClose }: LoadMachinesModalProps) {
               checked={bootstrapPe}
               onChange={e => setBootstrapPe(e.target.checked)}
             />
-            Bootstrap PE test sources after load
+            Add loaded machines' test sequences to the PE
           </label>
           {engineCount > 1 && (
             <label className="lmm-bootstrap" title="Repeat the load against every registry engine instead of only the active one">

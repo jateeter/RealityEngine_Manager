@@ -7,7 +7,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { scanCorpus, resolveSelection, loadMachines } from '../corpus.js';
+import { scanCorpus, resolveSelection, loadMachines, internableEngineIds } from '../corpus.js';
 
 let dir: string;
 
@@ -181,5 +181,38 @@ describe('loadMachines', () => {
     const failed = results.find(r => r.status === 'failed')!;
     expect(failed.id).toBe('Delta One');
     expect(failed.error).toContain('boom');
+  });
+});
+
+// A load interns each placed machine's test sequences on the paired PE, which
+// filters by the id the engine holds the machine under (Manager#304).
+describe('internableEngineIds', () => {
+  it('names the minted id of a loaded machine and the resident id of a skipped one, never a failure', async () => {
+    const scan = scanCorpus(dir, true);
+    const selection = resolveSelection(scan, ['corpus/agriculture', 'corpus/data-center']);
+    const results = await loadMachines(
+      selection,
+      new Map([['Alpha Two', 'machine-resident-a2'], ['machine-resident-a2', 'machine-resident-a2']]),
+      async raw => {
+        const name = JSON.parse(raw).machine.name;
+        if (name === 'Delta One') throw new Error('500');
+        return `machine-minted-${name.replace(/\s+/g, '-').toLowerCase()}`;
+      },
+    );
+    expect(results.find(r => r.id === 'Alpha Two')).toMatchObject({ status: 'skipped', engineId: 'machine-resident-a2' });
+    expect(results.find(r => r.id === 'Alpha One')).toMatchObject({ status: 'loaded', engineId: 'machine-minted-alpha-one' });
+    expect(results.find(r => r.id === 'Delta One')!.engineId).toBeUndefined();
+    expect(internableEngineIds(results)!.sort()).toEqual(['machine-minted-alpha-one', 'machine-resident-a2']);
+  });
+
+  it('asks for an unfiltered intern when the engine did not report an id', async () => {
+    const scan = scanCorpus(dir, true);
+    const results = await loadMachines(resolveSelection(scan, ['corpus']), new Set<string>(), async () => {});
+    expect(results.some(r => r.status === 'loaded' && r.engineId === undefined)).toBe(true);
+    expect(internableEngineIds(results)).toBeNull();
+  });
+
+  it('names nothing when every machine failed', () => {
+    expect(internableEngineIds([{ id: 'x', relFile: 'x.json', status: 'failed', error: '500' }])).toEqual([]);
   });
 });
