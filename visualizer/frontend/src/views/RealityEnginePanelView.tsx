@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useVisualizerStore } from '../store';
 import { Machine, HealthStatus, EngineActive, PEState } from '../types';
 import { EngineSwitcher } from '../components/EngineSwitcher';
+import { ViewNav } from '../components/ViewNav';
 import { MachineGraphView } from '../components/MachineGraphView';
 import { SetupToolsMenu } from '../components/SetupToolsMenu';
 import {
@@ -160,7 +161,7 @@ const KEYBOARD_SHORTCUTS: [string, string][] = [
 // ── Component ────────────────────────────────────────────────────────────────
 
 const RealityEnginePanelView: React.FC = () => {
-  const { machines, setMachines, setCurrentView } = useVisualizerStore();
+  const { machines, setMachines } = useVisualizerStore();
   const surface = useSurfaceStatus();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -425,6 +426,8 @@ const RealityEnginePanelView: React.FC = () => {
       {/* ── Header ─────────────────────────────────────────────────────── */}
       <header className="rep-header">
 
+        <ViewNav />
+
         <div className="rep-wordmark">
           <div className="rep-title" data-testid="re-title">
             Reality<span className="rep-title-accent"> Engine</span>
@@ -450,26 +453,6 @@ const RealityEnginePanelView: React.FC = () => {
 
         <div className="rep-header-right">
           <EngineSwitcher />
-
-          <button
-            className="rep-nav-btn rep-nav-interconnect"
-            onClick={() => setCurrentView('interconnection')}
-            title="Open interconnection graph"
-          >
-            <span className="rep-btn-icon">⚡</span>
-            Interconnect
-          </button>
-
-          <button
-            className="rep-nav-btn"
-            data-testid="nav-perception"
-            onClick={() => setCurrentView('perceptual-engine')}
-            title="Open Perception Engine management"
-            style={{ borderColor: 'rgba(125,211,252,0.3)', color: '#7dd3fc' }}
-          >
-            <span className="rep-btn-icon">◎</span>
-            Perception
-          </button>
 
           <button
             className={`rep-help-btn${showHelp ? ' is-active' : ''}`}

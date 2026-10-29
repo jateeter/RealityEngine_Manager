@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import { useVisualizerStore } from './store';
 import RealityEnginePanelView from './views/RealityEnginePanelView';
-import { MachineInterconnectionView } from './pages/MachineInterconnectionView';
 import { PerceptualEngineView } from './views/PerceptualEngineView';
 
 function App() {
@@ -15,10 +14,6 @@ function App() {
     connectWebSocket();
     return () => disconnectWebSocket();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  if (currentView === 'interconnection') {
-    return <MachineInterconnectionView />;
-  }
 
   if (currentView === 'perceptual-engine') {
     return <PerceptualEngineView />;

@@ -2,8 +2,8 @@
  * MachineSequenceTooltip — shared per-machine CES (Critical Event Sequence)
  * tooltip subsystem.
  *
- * Extracted verbatim from MachineGraphView so that the Machine Interconnection
- * graph can present the exact same interactive sequence graph on hover/click.
+ * Extracted verbatim from MachineGraphView so that every graph view can
+ * present the exact same interactive sequence graph on hover/click.
  * Contains: the embedded force-directed sequence graph (TooltipSeqGraph), the
  * per-node Event-Vector overlay (NodeEventTip), the live input/output vector
  * strips (drawVectorStrip), and the pin-able panel chrome (SequenceTooltip).

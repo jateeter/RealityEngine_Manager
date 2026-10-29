@@ -17,8 +17,8 @@ const VIZ_URL = process.env.VIZ_FRONTEND_URL ?? 'http://localhost:5173';
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 async function openGraphView(page: Page) {
+  // The Machines view renders the machine graph directly (Manager#306).
   await page.goto(VIZ_URL);
-  await page.getByRole('button', { name: /Interconnect/i }).click();
   // Wait for SVG to be fully ready (simulation settled, opacity: 1)
   await page.waitForSelector('svg.machine-graph-svg', { timeout: 20_000 });
   await page.waitForFunction(

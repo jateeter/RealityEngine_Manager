@@ -299,6 +299,19 @@ function invalidate(prefix: string): void {
   }
 }
 
+/**
+ * The machine set changed (a load, import, create, edit, delete or an engine
+ * switch): drop every cached view of it, the machine list and detail AND the
+ * machine graph, in every engine scope. The corpus load used to delete the
+ * unscoped key 'machines:list', which matched no scoped entry, and no mutation
+ * dropped 'machine-graph', so the graph could be served from before the load
+ * (RealityEngine_Manager#307).
+ */
+function invalidateMachines(): void {
+  invalidate('machines:');
+  invalidate('machine-graph');
+}
+
 setInterval(() => {
   const cutoff = Date.now() - CACHE_TTL_MS;
   for (const [key, entry] of responseCache) {
@@ -492,8 +505,7 @@ app.post('/api/engines/active', (req: Request, res: Response) => {
   const inst = engineInstances.find(i => i.id === id);
   if (!inst) { res.status(404).json({ error: `Instance '${id}' not found` }); return; }
   activeEngineId = id;
-  invalidate('machine-graph');
-  invalidate('machines:');
+  invalidateMachines();
   // Reconnect SSE stream to the new active RE instance
   if (reconnectTimer) clearTimeout(reconnectTimer);
   reconnectTimer = null;
@@ -832,7 +844,7 @@ app.post('/api/machines/json/import', async (req: Request, res: Response) => {
   try {
     const peUrl = activePeUrl();
     const response = await axios.post(`${activeReUrl()}/api/machines/json/import`, req.body);
-    invalidate('machines:');
+    invalidateMachines();
     await internTestSequences(peUrl, ingestedIds(response.data));
     res.json(response.data);
   } catch (error: any) { upstreamError(res, error, 'importMachineJSON'); }
@@ -952,7 +964,7 @@ app.post('/api/corpus/load', async (req: Request, res: Response) => {
     }
     const reUrl = targets[targets.length - 1].re_url;
 
-    responseCache.delete('machines:list');
+    invalidateMachines();
     const summary = {
       loaded: results.filter(r => r.status === 'loaded').length,
       skipped: results.filter(r => r.status === 'skipped').length,
@@ -1016,7 +1028,7 @@ app.post('/api/machines', async (req: Request, res: Response) => {
   try {
     const peUrl = activePeUrl();
     const response = await axios.post(`${activeReUrl()}/api/machines`, req.body);
-    invalidate('machines:');
+    invalidateMachines();
     await internTestSequences(peUrl, ingestedIds(response.data));
     res.json(response.data);
   } catch (error: any) { upstreamError(res, error, 'createMachine'); }
@@ -1027,7 +1039,7 @@ app.patch('/api/machines/:id', async (req: Request, res: Response) => {
   if (!isValidId(id)) { res.status(400).json({ error: 'Invalid id' }); return; }
   try {
     const response = await axios.patch(`${activeReUrl()}/api/machines/${id}`, req.body);
-    invalidate('machines:');
+    invalidateMachines();
     res.json(response.data);
   } catch (error: any) { upstreamError(res, error, 'patchMachine'); }
 });
@@ -1037,7 +1049,7 @@ app.put('/api/machines/:id', async (req: Request, res: Response) => {
   if (!isValidId(id)) { res.status(400).json({ error: 'Invalid id' }); return; }
   try {
     const response = await axios.put(`${activeReUrl()}/api/machines/${id}`, req.body);
-    invalidate('machines:');
+    invalidateMachines();
     res.json(response.data);
   } catch (error: any) { upstreamError(res, error, 'putMachine'); }
 });
@@ -1047,7 +1059,7 @@ app.delete('/api/machines/:id', async (req: Request, res: Response) => {
   if (!isValidId(id)) { res.status(400).json({ error: 'Invalid id' }); return; }
   try {
     await axios.delete(`${activeReUrl()}/api/machines/${id}`);
-    invalidate('machines:');
+    invalidateMachines();
     res.json({ success: true });
   } catch (error: any) { upstreamError(res, error, 'deleteMachine'); }
 });

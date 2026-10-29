@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
-import { useVisualizerStore } from '../store';
 import { api } from '../api';
 import type {
   PESource, PESimulatedSource, PESensorSource, PETestSource,
@@ -10,6 +9,7 @@ import type {
 import { classifyMachine, DOMAINS, DOMAIN_ORDER } from '../components/machineDomains';
 import type { DomainId } from '../components/machineDomains';
 import { MqttPanel } from '../components/MqttPanel';
+import { ViewNav } from '../components/ViewNav';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -665,7 +665,6 @@ const SourcesPanel: React.FC<SourcesPanelProps> = ({
 // ── Main View ─────────────────────────────────────────────────────────────────
 
 export const PerceptualEngineView: React.FC = () => {
-  const { setCurrentView } = useVisualizerStore();
 
   const [state, setState] = useState<PEFullState | null>(null);
   const [pushLog, setPushLog] = useState<PEPushLogEntry[]>([]);
@@ -836,6 +835,8 @@ export const PerceptualEngineView: React.FC = () => {
     padding: '5px 12px', borderRadius: 4, border: '1px solid #334155',
     cursor: 'pointer', fontSize: 12, fontWeight: 600,
     background: '#1e293b', color: '#e2e8f0',
+    // One line each: the header also carries the view nav now (#306).
+    whiteSpace: 'nowrap',
   };
 
   return (
@@ -843,24 +844,20 @@ export const PerceptualEngineView: React.FC = () => {
 
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <div style={{
-        display: 'flex', alignItems: 'center', gap: 12,
+        // Wraps rather than clips when the window is narrower than the
+        // controls, now that the view nav shares the row (#306).
+        display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', rowGap: 6,
         padding: '8px 16px', background: '#0f172a',
         borderBottom: '1px solid #1e293b', flexShrink: 0,
       }}>
-        <button
-          onClick={() => setCurrentView('selection')}
-          title="Back to Reality Engine"
-          style={{ ...btn, color: '#64748b', padding: '5px 8px', fontSize: 14 }}
-        >
-          ‹
-        </button>
+        <ViewNav />
 
         <div>
           <div data-testid="pe-view-title" style={{ fontWeight: 700, fontSize: 14, color: '#7dd3fc' }}>PERCEPTION ENGINE</div>
-          <div style={{ fontSize: 10, color: '#64748b' }}>perceptual space management</div>
+          <div style={{ fontSize: 10, color: '#64748b', whiteSpace: 'nowrap' }}>perceptual space management</div>
         </div>
 
-        <div style={{ color: '#94a3b8', fontSize: 12, marginLeft: 4 }}>
+        <div style={{ color: '#94a3b8', fontSize: 12, marginLeft: 4, whiteSpace: 'nowrap' }}>
           Step <strong style={{ color: '#e2e8f0' }}>{state?.globalStep ?? 0}</strong>
           <span style={{ color: '#334155', margin: '0 8px' }}>·</span>
           {state?.sources.filter(s => s.active).length ?? 0}/{state?.sources.length ?? 0} active
@@ -879,7 +876,7 @@ export const PerceptualEngineView: React.FC = () => {
                 title={algo === 'gte' ? 'Greater-than-or-equal' : 'Strict equality'}
                 style={{
                   padding: '4px 10px', fontSize: 11, fontWeight: 700,
-                  cursor: 'pointer', border: 'none',
+                  cursor: 'pointer', border: 'none', whiteSpace: 'nowrap',
                   background: state?.matchAlgorithm === algo ? '#1d4ed8' : '#1e293b',
                   color: state?.matchAlgorithm === algo ? '#bfdbfe' : '#64748b',
                 }}
@@ -905,7 +902,7 @@ export const PerceptualEngineView: React.FC = () => {
               type="range" min={0} max={10000} step={100}
               value={autoIntervalMs}
               onChange={e => handleIntervalChange(Number(e.target.value))}
-              style={{ width: 100, accentColor: '#38bdf8', cursor: 'pointer' }}
+              style={{ width: 64, accentColor: '#38bdf8', cursor: 'pointer' }}
             />
             <span style={{ fontSize: 11, fontFamily: 'monospace', fontWeight: 600, color: '#7dd3fc', minWidth: 38, textAlign: 'right' }}>
               {(autoIntervalMs / 1000).toFixed(1)}s

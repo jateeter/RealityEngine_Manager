@@ -482,6 +482,16 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
     return () => window.removeEventListener('re:engine-switched', handler);
   }, [fetchGraphData]);
 
+  // Refetch when the machine set changes under the view: a load, import or
+  // create (#307). The mount fetch above covers the first render.
+  const machinesVersion = useVisualizerStore(state => state.machinesVersion);
+  const seenMachinesVersion = useRef(machinesVersion);
+  useEffect(() => {
+    if (machinesVersion === seenMachinesVersion.current) return;
+    seenMachinesVersion.current = machinesVersion;
+    fetchGraphData();
+  }, [machinesVersion, fetchGraphData]);
+
   // Track mouse viewport position so onNodeHover can forward it to the parent.
   useEffect(() => {
     const el = containerRef.current;
@@ -650,6 +660,14 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
       }
     }
 
+    // A node already on screen keeps its place across a refetch, so a load
+    // adds the new machines without scattering the rest (#307).
+    const previous = new Map(allNodesRef.current.map(n => [n.id, n as { x?: number; y?: number; z?: number }]));
+    for (const n of nodes as Array<MachineNode3D & { x?: number; y?: number; z?: number; fx?: number | null }>) {
+      const prev = previous.get(n.id);
+      if (prev?.x !== undefined && n.fx == null) { n.x = prev.x; n.y = prev.y; n.z = prev.z; }
+    }
+
     // Store all nodes/links for domain filtering
     allNodesRef.current = nodes;
     allLinksRef.current = links;
@@ -673,7 +691,7 @@ export const Graph3DView: React.FC<Graph3DViewProps> = ({
       .nodeId('id')
       // The built-in mouse-pinned label is suppressed — the parent renders a
       // shared in-view tooltip overlay driven by onNodeHover below, matching
-      // the 2D MachineInterconnectionGraph behaviour.
+      // the 2D graph's behaviour.
       .nodeLabel(() => '')
       // Node hover is driven by our capture-phase onPointerMove handler,
       // which raycasts __threeObj meshes and calls onMachineHoverRef directly.
