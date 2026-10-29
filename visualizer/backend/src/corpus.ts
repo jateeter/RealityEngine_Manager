@@ -242,6 +242,11 @@ export interface LoadResultRecord {
   relFile: string;
   status: 'loaded' | 'skipped' | 'failed';
   error?: string;
+  // The id the engine holds the machine under: minted or declared at ingest
+  // for a loaded machine, the resident one's for a skipped machine. Absent
+  // when the engine did not say. Ids are per runtime, so this is not a
+  // cross-engine identity; it is what the paired PE's bootstrap filters on.
+  engineId?: string;
 }
 
 /**
@@ -250,11 +255,15 @@ export interface LoadResultRecord {
  * assign one at import), so presence is matched by machine NAME against
  * `existingKeys` (which should contain both engine ids and names).
  * Skipped unless `replace` is set. Concurrency-limited.
+ *
+ * When `existingKeys` is a Map (key -> engine id) a skipped machine records
+ * the resident machine's `engineId`; `postMachine` may resolve to the id the
+ * engine ingested the machine under, which a loaded machine records.
  */
 export async function loadMachines(
   selection: CorpusMachine[],
-  existingKeys: Set<string>,
-  postMachine: (rawBody: string) => Promise<void>,
+  existingKeys: ReadonlySet<string> | ReadonlyMap<string, string>,
+  postMachine: (rawBody: string) => Promise<string | void>,
   replace = false,
   concurrency = 8,
 ): Promise<LoadResultRecord[]> {
@@ -275,13 +284,14 @@ export async function loadMachines(
       // back to its id.
       const presenceKey = m.name || m.id;
       if (!replace && presenceKey && existingKeys.has(presenceKey)) {
-        results.push({ id: identity, relFile: m.relFile, status: 'skipped' });
+        const engineId = existingKeys instanceof Map ? existingKeys.get(presenceKey) : undefined;
+        results.push({ id: identity, relFile: m.relFile, status: 'skipped', ...(engineId ? { engineId } : {}) });
         continue;
       }
       try {
         const raw = readFileSync(m.file, 'utf8');
-        await postMachine(raw);
-        results.push({ id: identity, relFile: m.relFile, status: 'loaded' });
+        const engineId = await postMachine(raw);
+        results.push({ id: identity, relFile: m.relFile, status: 'loaded', ...(engineId ? { engineId } : {}) });
       } catch (e: any) {
         results.push({
           id: identity,
@@ -295,4 +305,24 @@ export async function loadMachines(
 
   await Promise.all(Array.from({ length: Math.min(concurrency, selection.length) }, worker));
   return results;
+}
+
+/**
+ * The engine ids whose test sequences a load should intern on the paired PE
+ * (RealityEngine_Manager#304): every machine the load placed or found
+ * resident, never one that failed. A skipped machine is included because
+ * being resident on the RE says nothing about its sources on the PE, and the
+ * bootstrap is idempotent per machine.
+ *
+ * Null when a placed machine has no engine id — the engine did not say what
+ * it ingested — so the caller interns unfiltered rather than miss it.
+ */
+export function internableEngineIds(results: ReadonlyArray<LoadResultRecord>): string[] | null {
+  const ids = new Set<string>();
+  for (const r of results) {
+    if (r.status === 'failed') continue;
+    if (!r.engineId) return null;
+    ids.add(r.engineId);
+  }
+  return [...ids];
 }
