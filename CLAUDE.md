@@ -1,12 +1,17 @@
 # RealityEngine_Manager Guidance
 
-Last reviewed: 2026-11-04
+Last reviewed: 2026-11-06
 
 See `/Users/johnt/workspace/GitHub/CLAUDE.md` for the integrated application map. Update both this file and the root map when Manager ownership of runtime surfaces, PE behavior, or integration paths changes.
 
 ## Role
 
 This repo contains the user-facing Manager application and the TypeScript Perception Engine implementation.
+
+The TypeScript Perception Engine is one of the two conformance followers. It is a **non-voting conformance follower** (owner, 2026-11-06;
+`RealityEngine_CI/docs/QUORUM_CONTRACT.md`), like RealityEngine_Rust: it implements the PE surface
+and is measured against what C++, LSP and Scala agree on, and it never votes. This repo has no
+TypeScript RE.
 
 ## Codebase Map
 

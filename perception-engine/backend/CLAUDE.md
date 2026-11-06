@@ -2,6 +2,11 @@
 
 This package is the TypeScript Perception Engine implementation.
 
+It is a **non-voting conformance follower** (owner, 2026-11-06;
+`RealityEngine_CI/docs/QUORUM_CONTRACT.md`), like RealityEngine_Rust: it implements the PE surface
+and is measured against what C++, LSP and Scala agree on, and it never votes. This repo has no
+TypeScript RE.
+
 - `src/server.ts`: HTTP entrypoint.
 - `src/PerceptionEngine.ts`: PE assembly behavior.
 - `src/SourceStore.ts`: source persistence/state.
