@@ -7,6 +7,9 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { createServer as createHttpServer } from 'http';
 import { Agent as HttpsAgent, createServer as createHttpsServer } from 'https';
 import { readFileSync, existsSync } from 'fs';
+import type { Server as HttpsServer } from 'https';
+import type { TLSSocket } from 'tls';
+import { servingSettings, serverOptions, refuseUntrustedPresented, requireClientCertificate, installAxios, startupLine } from './laneTls.js';
 import { PerceptionEngine } from './PerceptionEngine.js';
 import { SourceStore } from './SourceStore.js';
 import { mountMcp } from './mcp.js';
@@ -184,14 +187,33 @@ if (reHttpsAgent) {
 // Use these helpers in place of bare axios.get/post when the URL is on
 // REALITY_ENGINE_URL — they no-op (use default agent) in deployed mode.
 const reAxios = axios.create(reHttpsAgent ? { httpsAgent: reHttpsAgent } : {});
+// Lane TLS (#327): with RE_TLS_CA set, an https call to an internal peer
+// trusts the lane CA and presents this PE's certificate. Inert otherwise.
+installAxios(axios);
+installAxios(reAxios);
 
 const app = express();
 // Use HTTPS when TLS_CERT_PATH and TLS_KEY_PATH are set (dev outside Docker);
 // otherwise plain HTTP (Docker: TLS is terminated by the nginx tls-proxy).
-const server = tlsEnabled
-  ? createHttpsServer({ cert: readFileSync(certPath!), key: readFileSync(keyPath!) }, app)
-  : createHttpServer(app);
-const wss = new WebSocketServer({ server, path: '/ws' });
+//
+// Lane TLS (RealityEngine_CI#668, #327): RE_TLS_CERT set means TLS 1.3 on this
+// port with no plaintext listener, as on the engines' PEs. The handshake
+// requests a client certificate and refuses an untrusted one; every route but
+// the HealthKit device routes then needs a verified one (403 otherwise), and
+// so does /ws. It takes precedence over TLS_CERT_PATH (the proxied pair).
+const lane = servingSettings();
+const server = lane
+  ? createHttpsServer(serverOptions(lane, 'devices'), app)
+  : tlsEnabled
+    ? createHttpsServer({ cert: readFileSync(certPath!), key: readFileSync(keyPath!) }, app)
+    : createHttpServer(app);
+if (lane) refuseUntrustedPresented(server as HttpsServer);
+const wss = new WebSocketServer({
+  server, path: '/ws',
+  ...(lane ? { verifyClient: (info: { req: { socket: unknown } }) => (info.req.socket as TLSSocket).authorized === true } : {}),
+});
+
+if (lane) app.use(requireClientCertificate());
 
 app.use(cors());
 app.use(express.json({
@@ -2576,7 +2598,8 @@ app.get('/api/machines/semantics/:name', (req: Request, res: Response) => {
 // ── Start server ─────────────────────────────────────────────────────────
 
 server.listen(PORT, HOST, () => {
-  const protocol = tlsEnabled ? 'HTTPS' : 'HTTP';
+  const protocol = lane || tlsEnabled ? 'HTTPS' : 'HTTP';
+  if (lane) console.log(startupLine(PORT, 'devices'));
   const bindLabel = HOST === '' ? `port ${PORT}` : `${HOST}:${PORT}`;
   console.log(`Perception Engine backend listening on ${bindLabel} (${protocol})`);
   console.log(`  Reality Engine : ${REALITY_ENGINE_URL}`);

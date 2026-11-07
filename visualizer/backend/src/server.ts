@@ -10,6 +10,7 @@ import {
   bindingScope as computeScope, scopedKey as toScopedKey, unscope,
 } from './engineBinding.js';
 import { readFileSync, existsSync } from 'fs';
+import { servingSettings, serverOptions, installAxios, agentFor, startupLine } from './laneTls.js';
 import { fileURLToPath } from 'url';
 import { auditMiddleware, loadAuditConfig, logAuditEvent } from './auditLogger.js';
 import { scanCorpus, resolveSelection, loadMachines, internableEngineIds } from './corpus.js';
@@ -218,9 +219,17 @@ app.use((req: Request, res: Response, next: NextFunction): void => {
   runBound({ id: inst.id, re_url: inst.re_url, pe_url: inst.pe_url }, next);
 });
 
-const server = tlsEnabled
-  ? https.createServer({ cert: readFileSync(certPath!), key: readFileSync(keyPath!) }, app)
-  : http.createServer(app);
+// Lane TLS (RealityEngine_CI#668, #327). The browser calls this backend
+// directly, so its port is user-facing: server TLS 1.3 with the profile, no
+// client certificate. Its calls to the engines are mTLS (installAxios below,
+// agentFor on the step stream). RE_TLS_CERT takes precedence over TLS_CERT_PATH.
+const lane = servingSettings();
+installAxios(axios);
+const server = lane
+  ? https.createServer(serverOptions(lane, 'none'), app)
+  : tlsEnabled
+    ? https.createServer({ cert: readFileSync(certPath!), key: readFileSync(keyPath!) }, app)
+    : http.createServer(app);
 
 const wss = new WebSocketServer({ server, path: '/ws' });
 
@@ -387,7 +396,9 @@ function connectToREStream(): void {
       path: reUrl.pathname,
       headers: { Accept: 'text/event-stream', 'Cache-Control': 'no-cache' },
       timeout: 0,
-      ...(reUrl.protocol === 'https:' && caPath && existsSync(caPath) ? { ca: readFileSync(caPath) } : {}),
+      ...(agentFor(reUrl)
+        ? { agent: agentFor(reUrl) }
+        : reUrl.protocol === 'https:' && caPath && existsSync(caPath) ? { ca: readFileSync(caPath) } : {}),
     },
     (res) => {
       if (!isCurrent()) { res.resume(); return; }
@@ -1067,8 +1078,9 @@ app.delete('/api/machines/:id', async (req: Request, res: Response) => {
 // ── Start ─────────────────────────────────────────────────────────────────────
 
 server.listen(PORT, () => {
-  const protocol   = tlsEnabled ? 'https' : 'http';
-  const wsProtocol = tlsEnabled ? 'wss'   : 'ws';
+  const protocol   = lane || tlsEnabled ? 'https' : 'http';
+  const wsProtocol = lane || tlsEnabled ? 'wss'   : 'ws';
+  if (lane) console.log(startupLine(PORT, 'none'));
   console.log(`Reality Engine Visualizer Backend  port=${PORT} (${protocol.toUpperCase()})`);
   console.log(`WebSocket: ${wsProtocol}://localhost:${PORT}/ws`);
   console.log(`RE runtime: ${activeReUrl()} (active)`);
