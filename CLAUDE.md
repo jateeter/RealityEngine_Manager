@@ -57,6 +57,22 @@ Use TypeScript language server in each Node/React subproject. Open the relevant 
 - Treat `perception-engine/backend/src/integrations` and `src/triggers` as cross-system contract code.
 - Keep frontend API helpers aligned with backend proxy additions.
 
+## Lane TLS
+
+With `RE_TLS_*` set (RealityEngine_CI#668, this repo's #327):
+- **The TypeScript PE** serves TLS 1.3 with mTLS, with the HealthKit device
+  routes open, exactly as the engines' PEs.
+- **The Visualizer backend** serves server TLS only, because the browser reaches it.
+- **The Vite frontend** serves TLS 1.3 with the lane certificate and proxies
+  to the backend over `https`.
+- **Their calls to internal peers** go over mTLS with the lane CA.
+
+With them unset, nothing changes, and `TLS_CERT_PATH` / `CA_CERT_PATH` (the
+proxied pair) keep working. The contract is
+`RealityEngine_CI/docs/TRANSPORT_SECURITY.md`. The code is `src/laneTls.ts`,
+one identical file in `perception-engine/backend` and `visualizer/backend`,
+each pinned by its `__tests__/laneTls.test.ts`.
+
 ## Standing rules
 
 The standing rules are in
