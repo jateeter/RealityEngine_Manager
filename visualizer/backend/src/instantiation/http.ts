@@ -74,27 +74,73 @@ export function httpEngines(instances: () => RegistryInstance[], client: AxiosIn
   };
 }
 
-/** Prometheus lines for the asset-workflow dashboard (RealityEngine_CI#723). */
-export function metricsText(c: InstantiationController): string {
-  const s = c.status();
-  const esc = (v: string) => v.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-  const lines = [
-    '# HELP re_instantiation_queue_depth Workflow steps waiting for a clone (FIFO).',
-    '# TYPE re_instantiation_queue_depth gauge',
-    `re_instantiation_queue_depth ${s.queue.length}`,
-    '# HELP re_instantiation_live_clones Live workflow clones, by engine instance and template.',
+/** A clone as an engine reports it (GET /api/engine/clones); the template is its machineId. */
+export interface BandClone { machineId: string }
+
+/**
+ * Every running engine instance's clone band, as the engine itself reports it
+ * (GET /api/engine/clones): the clones Manager's workflow steps hold and any
+ * other made through the clone routes. null where the instance did not answer.
+ */
+export async function engineBands(instances: () => RegistryInstance[], client: AxiosInstance = axios): Promise<Record<string, BandClone[] | null>> {
+  const out: Record<string, BandClone[] | null> = {};
+  await Promise.all(instances().filter((i) => (i.status ?? 'running') === 'running' && i.re_url).map(async (i) => {
+    try {
+      const r = await client.get(`${i.re_url}/api/engine/clones`, { ...keep, timeout: 5000 });
+      out[i.id] = r.status === 200 ? ((r.data as { clones?: BandClone[] }).clones ?? []) : null;
+    } catch {
+      out[i.id] = null;
+    }
+  }));
+  return out;
+}
+
+/**
+ * Prometheus lines for the asset-workflow dashboard (RealityEngine_CI#723).
+ * Live clones and pool use come from the engines' bands, so a clone made
+ * outside a workflow step counts too; the step clones, queue and outcomes are
+ * the component's own, present only when it is enabled.
+ */
+export function metricsText(c: InstantiationController | null, bands: Record<string, BandClone[] | null> = {}): string {
+  const esc = (v: string) => v.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
+  const lines: string[] = [];
+  const engines = Object.keys(bands).sort();
+  const live: Record<string, number> = {};
+  for (const e of engines) for (const clone of bands[e] ?? []) {
+    const k = `${e}|${clone.machineId}`;
+    live[k] = (live[k] ?? 0) + 1;
+  }
+  lines.push(
+    '# HELP re_instantiation_band_read Whether the engine instance answered GET /api/engine/clones at this scrape.',
+    '# TYPE re_instantiation_band_read gauge',
+    ...engines.map((e) => `re_instantiation_band_read{engine="${esc(e)}"} ${bands[e] ? 1 : 0}`),
+    '# HELP re_instantiation_live_clones Live clones in each engine instance band, by template, as the engine reports them.',
     '# TYPE re_instantiation_live_clones gauge',
-    ...Object.entries(s.liveByTemplate).map(([k, n]) => {
+    ...Object.entries(live).sort().map(([k, n]) => {
       const [engine, template] = k.split('|');
       return `re_instantiation_live_clones{engine="${esc(engine)}",template="${esc(template)}"} ${n}`;
     }),
-    '# HELP re_instantiation_pool_use Live workflow clones per engine instance, of the 1024 blocks in its clone band.',
+    '# HELP re_instantiation_pool_use Live clones per engine instance, of the 1024 blocks in its clone band.',
     '# TYPE re_instantiation_pool_use gauge',
-    ...Object.entries(s.liveByEngine).map(([e, n]) => `re_instantiation_pool_use{engine="${esc(e)}"} ${(n / 1024).toFixed(6)}`),
-    '# HELP re_instantiation_steps_total Workflow steps by outcome.',
-    '# TYPE re_instantiation_steps_total counter',
-    ...Object.entries(s.counts).map(([o, n]) => `re_instantiation_steps_total{outcome="${o}"} ${n}`)
-  ];
+    ...engines.filter((e) => bands[e]).map((e) => `re_instantiation_pool_use{engine="${esc(e)}"} ${((bands[e] as BandClone[]).length / 1024).toFixed(6)}`)
+  );
+  if (c) {
+    const s = c.status();
+    lines.push(
+      '# HELP re_instantiation_queue_depth Workflow steps waiting for a clone (FIFO).',
+      '# TYPE re_instantiation_queue_depth gauge',
+      `re_instantiation_queue_depth ${s.queue.length}`,
+      '# HELP re_instantiation_step_clones Clones held by workflow steps this component is running, by engine instance and template.',
+      '# TYPE re_instantiation_step_clones gauge',
+      ...Object.entries(s.liveByTemplate).map(([k, n]) => {
+        const [engine, template] = k.split('|');
+        return `re_instantiation_step_clones{engine="${esc(engine)}",template="${esc(template)}"} ${n}`;
+      }),
+      '# HELP re_instantiation_steps_total Workflow steps by outcome.',
+      '# TYPE re_instantiation_steps_total counter',
+      ...Object.entries(s.counts).map(([o, n]) => `re_instantiation_steps_total{outcome="${o}"} ${n}`)
+    );
+  }
   return `${lines.join('\n')}\n`;
 }
 
@@ -148,8 +194,8 @@ export function mountInstantiation(app: Express, instances: () => RegistryInstan
   app.get('/api/instantiation/status', (_req: Request, res: Response) => {
     res.json({ enabled: config.enabled, agent: config.agent, ...(controller ? controller.status() : {}) });
   });
-  app.get('/api/instantiation/metrics', (_req: Request, res: Response) => {
-    res.type('text/plain; version=0.0.4').send(controller ? metricsText(controller) : '');
+  app.get('/api/instantiation/metrics', async (_req: Request, res: Response) => {
+    res.type('text/plain; version=0.0.4').send(metricsText(controller, await engineBands(instances, client)));
   });
   app.get('/api/engine/:id/clones', (req: Request, res: Response) => pass(res, async () => {
     const url = instances().find((x) => x.id === req.params.id)?.re_url;

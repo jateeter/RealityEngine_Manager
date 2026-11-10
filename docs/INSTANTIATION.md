@@ -79,7 +79,7 @@ Every call is lane TLS: the backend's axios carries the lane's mTLS agent.
 | Route | |
 |---|---|
 | `GET /api/instantiation/status` | The queue, running and live clones, and step outcomes. |
-| `GET /api/instantiation/metrics` | Prometheus lines: `re_instantiation_queue_depth`, `re_instantiation_live_clones{engine,template}`, `re_instantiation_pool_use{engine}`, `re_instantiation_steps_total{outcome}` (RealityEngine_CI#723). |
+| `GET /api/instantiation/metrics` | Prometheus lines (RealityEngine_CI#723). From each running engine instance's own `GET /api/engine/clones`, read at scrape time: `re_instantiation_live_clones{engine,template}`, `re_instantiation_pool_use{engine}` (of the 1024 blocks), `re_instantiation_band_read{engine}`. A clone made through the clone route outside a workflow step counts too. From the component, when enabled: `re_instantiation_queue_depth`, `re_instantiation_step_clones{engine,template}`, `re_instantiation_steps_total{outcome}`. |
 | `GET /api/engine/:id/clones` | Passed through to the named engine instance, resolved from the instance registry. |
 | `POST /api/engine/:id/clone/machine/:machineId?asset=&envelope=` | As above. |
 | `POST /api/engine/:id/recycle/machine/:cloneId?generation=` | As above. |
