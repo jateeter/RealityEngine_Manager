@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { SimulatedAgent, type AgentLifecycle } from '../instantiation/agents.js';
 import { InstantiationController, envelopeOf, type Clone, type Continuation, type Engines, type FrameSummary, type Lifecycle } from '../instantiation/controller.js';
 import { machineIdOf, successorOf, type TemplateMachine } from '../instantiation/successor.js';
+import { engineBands, metricsText } from '../instantiation/http.js';
 
 const last = <T>(xs: T[]): T => xs[xs.length - 1];
 
@@ -203,5 +204,30 @@ describe('InstantiationController', () => {
     const s = w.controller.status();
     expect(s.queue).toHaveLength(1);
     expect(s.counts.full).toBe(1);
+  });
+});
+
+describe('metricsText', () => {
+  it('counts every clone in an engine band, not only the ones a workflow step holds', async () => {
+    const answers: Record<string, unknown> = {
+      'https://cpp:1/api/engine/clones': { status: 200, data: { clones: [{ machineId: 'machine-a' }, { machineId: 'machine-a' }, { machineId: 'machine-b' }] } },
+      'https://lsp:1/api/engine/clones': { status: 200, data: { clones: [] } }
+    };
+    const client = { get: async (url: string) => { if (!answers[url]) throw new Error('ECONNREFUSED'); return answers[url]; } } as never;
+    const bands = await engineBands(() => [
+      { id: 'cpp-1', re_url: 'https://cpp:1' }, { id: 'lsp-1', re_url: 'https://lsp:1' },
+      { id: 'scala-1', re_url: 'https://scala:1' }, { id: 'old-1', re_url: 'https://old:1', status: 'stopped' }
+    ], client);
+    expect(Object.keys(bands).sort()).toEqual(['cpp-1', 'lsp-1', 'scala-1']);
+    const text = metricsText(null, bands);
+    expect(text).toContain('re_instantiation_live_clones{engine="cpp-1",template="machine-a"} 2');
+    expect(text).toContain('re_instantiation_live_clones{engine="cpp-1",template="machine-b"} 1');
+    expect(text).toContain(`re_instantiation_pool_use{engine="cpp-1"} ${(3 / 1024).toFixed(6)}`);
+    // An empty band is a zero, not a missing series; one that did not answer is not read.
+    expect(text).toContain('re_instantiation_pool_use{engine="lsp-1"} 0.000000');
+    expect(text).toContain('re_instantiation_band_read{engine="scala-1"} 0');
+    expect(text).not.toContain('re_instantiation_pool_use{engine="scala-1"}');
+    // Without the component there is no queue or step series.
+    expect(text).not.toContain('re_instantiation_queue_depth');
   });
 });
