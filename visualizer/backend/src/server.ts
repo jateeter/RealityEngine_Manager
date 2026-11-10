@@ -16,6 +16,7 @@ import { auditMiddleware, loadAuditConfig, logAuditEvent } from './auditLogger.j
 import { scanCorpus, resolveSelection, loadMachines, internableEngineIds } from './corpus.js';
 import { RateLimitRegistry, RATE_WINDOW_MS } from './rateLimit.js';
 import { parseStepFrame } from './reStepStream.js';
+import { mountInstantiation, instantiationConfig } from './instantiation/http.js';
 
 const PORT = parseInt(process.env.VIZ_PORT || '3001', 10);
 const auditConfig = loadAuditConfig('visualizer-backend');
@@ -1074,6 +1075,12 @@ app.delete('/api/machines/:id', async (req: Request, res: Response) => {
     res.json({ success: true });
   } catch (error: any) { upstreamError(res, error, 'deleteMachine'); }
 });
+
+// ── Workflow instantiation (localAssetStorageStack ROADMAP phase 9) ──────────
+// The clone, recycle and clones routes for any registered engine instance, and,
+// with INSTANTIATION_ENABLED=true, the component that runs workflow steps as
+// clones for the lifecycle service's frames.
+mountInstantiation(app, () => engineInstances, instantiationConfig());
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 
