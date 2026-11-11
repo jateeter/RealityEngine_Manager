@@ -16,6 +16,7 @@ import { mountMcp } from './mcp.js';
 import { MqttBridge, fromEnvironment as mqttFromEnvironment } from './MqttBridge.js';
 import type { IngestPayload } from './MqttBridge.js';
 import type { SourceConfig, NewSourceConfig, SensorSourceConfig, TestSourceConfig, PushResult, MatchAlgorithm } from './types.js';
+import { normalizeCreateBody } from './sourceCreateBody.js';
 import {
   emptyRegistryState,
   integrationStatus,
@@ -2281,11 +2282,19 @@ app.get('/api/sources', (_req: Request, res: Response) => {
 // Add source
 app.post('/api/sources', async (req: Request, res: Response) => {
   try {
-    const config = req.body as NewSourceConfig & { id?: unknown };
-    if (!config.type || !config.name || !config.region) {
-      res.status(400).json({ error: 'type, name, and region are required' });
+    // The create body (SURFACE_SPEC "POST /api/sources: the create body",
+    // RealityEngine_CI#755): `kind` for `type`, declared defaults for the
+    // rest. Fields beyond the contract pass through as before.
+    const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
+    let normalized: NewSourceConfig & { id?: string };
+    try {
+      normalized = normalizeCreateBody(body);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
       return;
     }
+    const { kind: _kind, ...passthrough } = body;
+    const config = { ...passthrough, ...normalized } as NewSourceConfig & { id?: unknown };
     const { offset, length } = config.region;
     if (typeof offset !== 'number' || typeof length !== 'number' || offset < 0 || length < 1 || offset + length > MAX_VECTOR_SIZE) {
       res.status(400).json({ error: `region must satisfy offset ≥ 0, length ≥ 1, offset+length ≤ ${MAX_VECTOR_SIZE}` });
