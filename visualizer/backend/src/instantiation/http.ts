@@ -10,6 +10,7 @@ import { readFileSync } from 'fs';
 import { SimulatedAgent, type AgentDriver, type AgentLifecycle } from './agents.js';
 import { InstantiationController, type Clone, type Engines, type Lifecycle, type Reply } from './controller.js';
 import type { TemplateMachine } from './successor.js';
+import { OpenClawAgent, cliCloneAgents, httpGateway } from './openclaw.js';
 
 const keep = { validateStatus: () => true };
 const reply = <T>(r: { status: number; data: unknown }): Reply<T> => ({ status: r.status, body: r.data as T });
@@ -150,6 +151,8 @@ export interface InstantiationConfig {
   engineToken: string;
   pollMs: number;
   agent: string;
+  /** INSTANTIATION_AGENT=openclaw (ROADMAP phase 8): the gateway and localOpenClawStack's clone-agents CLI. */
+  openclaw: { gatewayUrl: string; token: string; cli: string };
 }
 
 export function instantiationConfig(env: NodeJS.ProcessEnv = process.env): InstantiationConfig {
@@ -159,7 +162,16 @@ export function instantiationConfig(env: NodeJS.ProcessEnv = process.env): Insta
     lifecycleUrl: env.LIFECYCLE_URL ?? '',
     engineToken: tokenFile ? readFileSync(tokenFile, 'utf8').trim() : (env.LIFECYCLE_ENGINE_TOKEN ?? ''),
     pollMs: Number(env.INSTANTIATION_POLL_MS ?? 2000),
-    agent: env.INSTANTIATION_AGENT ?? 'simulated'
+    agent: env.INSTANTIATION_AGENT ?? 'simulated',
+    // Names of its own: OPENCLAW_GATEWAY_URL is the PE integrations' ACP
+    // gateway, a ws(s) URL. Its http(s) form is the fallback (the gateway serves
+    // both on one port).
+    openclaw: {
+      gatewayUrl: env.INSTANTIATION_OPENCLAW_URL || (env.OPENCLAW_GATEWAY_URL ?? '').replace(/^ws(s?):/, 'http$1:'),
+      token: env.INSTANTIATION_OPENCLAW_TOKEN_FILE ? readFileSync(env.INSTANTIATION_OPENCLAW_TOKEN_FILE, 'utf8').trim()
+        : (env.INSTANTIATION_OPENCLAW_TOKEN || env.OPENCLAW_GATEWAY_TOKEN || ''),
+      cli: env.OPENCLAW_CLONE_AGENTS ?? ''
+    }
   };
 }
 
@@ -174,7 +186,14 @@ export function mountInstantiation(app: Express, instances: () => RegistryInstan
   if (config.enabled) {
     if (!config.lifecycleUrl || !config.engineToken) throw new Error('INSTANTIATION_ENABLED needs LIFECYCLE_URL and LIFECYCLE_ENGINE_TOKEN');
     const lifecycle = httpLifecycle(config.lifecycleUrl, config.engineToken, client);
-    const drivers: Record<string, () => AgentDriver> = { simulated: () => new SimulatedAgent(lifecycle) };
+    const drivers: Record<string, () => AgentDriver> = {
+      simulated: () => new SimulatedAgent(lifecycle),
+      openclaw: () => {
+        const o = config.openclaw;
+        if (!o.gatewayUrl || !o.token || !o.cli) throw new Error('INSTANTIATION_AGENT=openclaw needs INSTANTIATION_OPENCLAW_URL (or OPENCLAW_GATEWAY_URL), INSTANTIATION_OPENCLAW_TOKEN(_FILE) and OPENCLAW_CLONE_AGENTS');
+        return new OpenClawAgent(lifecycle, cliCloneAgents(o.cli), httpGateway(o.gatewayUrl, o.token, client));
+      }
+    };
     const make = drivers[config.agent];
     if (!make) throw new Error(`INSTANTIATION_AGENT ${config.agent} is not one of ${Object.keys(drivers).join(', ')}`);
     controller = new InstantiationController({ lifecycle, engines, agent: make() });

@@ -61,6 +61,20 @@ The simulated agent sets the pattern that per-clone OpenClaw agents follow
    captures, approves or closes anything; those belong to the dispatcher and
    to people.
 
+## Per-clone OpenClaw agents (`INSTANTIATION_AGENT=openclaw`)
+
+`visualizer/backend/src/instantiation/openclaw.ts` (localAssetStorageStack ROADMAP phase 8, localOpenClawStack#91):
+- **The agent:** a copy of the template machine's OpenClaw agent, loaded for the step's clone and unloaded before the clone is recycled. This follows the owner's decision of 2026-11-06.
+- **Load and unload:** localOpenClawStack's `scripts/clone-agents.mjs` does both. Every call goes through one FIFO queue, so two steps never interleave their `openclaw.json` edits.
+- **Unload order:** the config entry first; then wait until the gateway no longer lists the agent; then purge its workspace and state.
+- **Hooks:**
+  - the prologue (the driver) reads the frame and its documents with the step's capability;
+  - the agent gets the documents in its turn (`/v1/chat/completions`, model `openclaw/<agentId>`) and answers JSON;
+  - the epilogue writes the return: the response, the parsed answer, and each document's revision and pin check.
+- **What the agent can't do:** it never holds the capability. Its only tool is `session_status`, set by localOpenClawStack, so it reaches nothing outside its frame.
+- **Review:** as with the simulated agent, the step asks for review until the frame has been approved once. The agent's recommendation is recorded, not obeyed.
+- **A failed turn** still unloads and purges the agent, and writes no return.
+
 ## Configuration
 
 | Variable | |
@@ -69,7 +83,11 @@ The simulated agent sets the pattern that per-clone OpenClaw agents follow
 | `LIFECYCLE_URL` | The lifecycle service, for example `https://lifecycle:8443/`. |
 | `LIFECYCLE_ENGINE_TOKEN`, `LIFECYCLE_ENGINE_TOKEN_FILE` | The lifecycle's `engine` service token. |
 | `INSTANTIATION_POLL_MS` | Default 2000. |
-| `INSTANTIATION_AGENT` | `simulated` (default). Phase 8 adds OpenClaw. |
+| `INSTANTIATION_AGENT` | `simulated` (default) or `openclaw`. |
+| `INSTANTIATION_OPENCLAW_URL` | The gateway's http(s) base. Defaults to `OPENCLAW_GATEWAY_URL` (the PE's ACP `ws(s)` URL) in its http(s) form. |
+| `INSTANTIATION_OPENCLAW_TOKEN`, `INSTANTIATION_OPENCLAW_TOKEN_FILE` | The gateway token. Defaults to `OPENCLAW_GATEWAY_TOKEN`. |
+| `OPENCLAW_CLONE_AGENTS` | Path to localOpenClawStack's `scripts/clone-agents.mjs`. |
+| `OPENCLAW_STATE_DIR`, `OPENCLAW_HOME_DIR` | Passed to the CLI: the gateway's state directory on this machine, and as the gateway sees it. |
 | `RE_REGISTRY_URL` | The instance registry the engine instances come from. |
 
 Every call is lane TLS: the backend's axios carries the lane's mTLS agent.
