@@ -98,8 +98,8 @@ describe('firstJson', () => {
 describe('instantiationConfig: the OpenClaw gateway', () => {
   it('uses its own names first, and the ACP gateway URL in its http(s) form as the fallback', async () => {
     const { instantiationConfig } = await import('../instantiation/http.js');
-    expect(instantiationConfig({ INSTANTIATION_OPENCLAW_URL: 'http://127.0.0.1:18899', OPENCLAW_GATEWAY_URL: 'wss://127.0.0.1:18789', INSTANTIATION_OPENCLAW_TOKEN: 't1', OPENCLAW_GATEWAY_TOKEN: 't2' }).openclaw)
-      .toMatchObject({ gatewayUrl: 'http://127.0.0.1:18899', token: 't1' });
+    expect(instantiationConfig({ INSTANTIATION_OPENCLAW_URL: 'https://127.0.0.1:18899', OPENCLAW_GATEWAY_URL: 'wss://127.0.0.1:18789', INSTANTIATION_OPENCLAW_TOKEN: 't1', OPENCLAW_GATEWAY_TOKEN: 't2' }).openclaw)
+      .toMatchObject({ gatewayUrl: 'https://127.0.0.1:18899', token: 't1' });
     expect(instantiationConfig({ OPENCLAW_GATEWAY_URL: 'wss://127.0.0.1:18789', OPENCLAW_GATEWAY_TOKEN: 't2' }).openclaw)
       .toMatchObject({ gatewayUrl: 'https://127.0.0.1:18789', token: 't2' });
   });
