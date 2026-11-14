@@ -9,7 +9,7 @@ import { Agent as HttpsAgent, createServer as createHttpsServer } from 'https';
 import { readFileSync, existsSync } from 'fs';
 import type { Server as HttpsServer } from 'https';
 import type { TLSSocket } from 'tls';
-import { servingSettings, serverOptions, refuseUntrustedPresented, requireClientCertificate, installAxios, startupLine } from './laneTls.js';
+import { servingSettings, serverOptions, refuseUntrustedPresented, requireClientCertificate, requireDeviceSourceCertificate, installAxios, startupLine } from './laneTls.js';
 import { PerceptionEngine } from './PerceptionEngine.js';
 import { SourceStore } from './SourceStore.js';
 import { mountMcp } from './mcp.js';
@@ -222,6 +222,8 @@ app.use(express.json({
     (req as Request & { rawBody?: string }).rawBody = buf.toString('utf8');
   },
 }));
+// Per source on the device routes, once the body names it (owner, 2026-11-12).
+if (lane) app.use(requireDeviceSourceCertificate());
 // Express 5 leaves req.body undefined when no parser ran (no body, or a
 // non-JSON content type); Express 4 left it {}. Handlers here destructure it
 // (`const { intervalMs } = req.body`), so a bodiless POST would throw and answer

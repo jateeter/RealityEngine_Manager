@@ -117,6 +117,45 @@ export function requireClientCertificate(deviceRoutes: readonly string[] = PE_DE
   };
 }
 
+/** HEALTHKIT_CLIENT_CERTIFICATE_REQUIRED (owner, 2026-11-12; RealityEngine_CI
+ * docs/TRANSPORT_SECURITY.md): the sources that must present a client
+ * certificate on the device routes too (PIM's scope pushes). C++, LSP, Scala
+ * and Rust read the same. */
+export function certificateSources(raw: string | undefined = process.env['HEALTHKIT_CLIENT_CERTIFICATE_REQUIRED']): Set<string> {
+  return new Set((raw ?? '').split(',').map((s) => s.trim()).filter((s) => s.length > 0));
+}
+
+/** A device request's source: the query's bridgeId (status), else the body's
+ * source, else its bridgeId (scope, ingest), else the configured bridge. */
+export function deviceSource(query: unknown, body: unknown): string {
+  const str = (v: unknown): string | undefined => (typeof v === 'string' && v.length > 0 ? v : undefined);
+  const q = (query ?? {}) as Record<string, unknown>;
+  const b = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
+  return str(q['bridgeId']) ?? str(b['source']) ?? str(b['bridgeId'])
+    ?? (process.env['HEALTHKIT_BRIDGE_ID'] || 'healthkit-ios-bridge');
+}
+
+/** After the body parser, for 'devices': on a device route, a 403 when the
+ * request's source must present a client certificate and did not. */
+export function requireDeviceSourceCertificate(deviceRoutes: readonly string[] = PE_DEVICE_ROUTES) {
+  return (req: IncomingMessage & { query?: unknown; body?: unknown }, res: ServerResponse, next: () => void): void => {
+    const socket = req.socket as tls.TLSSocket;
+    const path = (req.url ?? '/').split('?')[0];
+    const required = certificateSources();
+    // Behind tls-proxy (docker lane, release) the connection is the proxy's,
+    // which presents its own certificate; the proxy says what it verified of the
+    // caller in X-Client-Certificate ($ssl_client_verify). Believed only on a
+    // connection that itself presented a verified lane certificate.
+    const forwarded = req.headers['x-client-certificate'];
+    const verified = socket.authorized && (forwarded === undefined || forwarded === 'SUCCESS');
+    if (verified || !deviceRoutes.includes(path) || required.size === 0
+        || !required.has(deviceSource(req.query, req.body))) { next(); return; }
+    res.statusCode = 403;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(CLIENT_CERTIFICATE_REQUIRED);
+  };
+}
+
 export function startupLine(port: number | string, clientCertificate: 'required' | 'devices' | 'none'): string {
   const req = clientCertificate === 'required' ? 'client certificate required'
     : clientCertificate === 'devices' ? 'client certificate required except device routes'

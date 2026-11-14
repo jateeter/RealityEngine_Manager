@@ -52,11 +52,12 @@ function json(body: string) {
 }
 
 /** One GET over tls.connect: the HTTP status line, or the error that refused it. */
-function rawGet(port: number, path: string, opts: tls.ConnectionOptions): Promise<string> {
+function rawGet(port: number, path: string, opts: tls.ConnectionOptions, headers: Record<string, string> = {}): Promise<string> {
   return new Promise((resolve) => {
     let out = '';
+    const extra = Object.entries(headers).map(([k, v]) => `${k}: ${v}\r\n`).join('');
     const s = tls.connect({ host: '127.0.0.1', port, servername: 'localhost', ca: readFileSync(f('ca.crt')), ...opts }, () => {
-      s.write(`GET ${path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n`);
+      s.write(`GET ${path} HTTP/1.1\r\nHost: localhost\r\n${extra}Connection: close\r\n\r\n`);
     });
     s.setTimeout(4000, () => { s.destroy(); resolve(out || 'timeout'); });
     s.on('data', (d) => { out += d.toString(); });
@@ -83,8 +84,15 @@ beforeAll(async () => {
   rePort = await listen(re);
 
   const guard = lane.requireClientCertificate();
+  const sourceGuard = lane.requireDeviceSourceCertificate();
+  process.env['HEALTHKIT_CLIENT_CERTIFICATE_REQUIRED'] = 'pim';
   const pe = https.createServer(lane.serverOptions(settings, 'devices'), (req, res) => {
-    guard(req, res, () => json(req.url?.startsWith('/api/integrations/healthkit/status') ? '{"device":true}' : '{"service":true}')(req, res));
+    guard(req, res, () => {
+      // What Express's query parser gives the per-source guard.
+      const query = Object.fromEntries(new URL(req.url ?? '/', 'https://x').searchParams);
+      sourceGuard(Object.assign(req, { query }), res, () =>
+        json(req.url?.startsWith('/api/integrations/healthkit/status') ? '{"device":true}' : '{"service":true}')(req, res));
+    });
   });
   lane.refuseUntrustedPresented(pe);
   servers.push(pe);
@@ -95,7 +103,7 @@ beforeAll(async () => {
 afterAll(() => {
   for (const s of servers) s.close();
   lane.resetForTests();
-  for (const v of ['RE_TLS_CERT', 'RE_TLS_KEY', 'RE_TLS_CA', 'RE_TLS_CRL']) delete process.env[v];
+  for (const v of ['RE_TLS_CERT', 'RE_TLS_KEY', 'RE_TLS_CA', 'RE_TLS_CRL', 'HEALTHKIT_CLIENT_CERTIFICATE_REQUIRED']) delete process.env[v];
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -145,5 +153,32 @@ describe('a PE-like port (device routes)', () => {
   });
   it('still refuses a presented untrusted certificate', async () => {
     expect(await rawGet(pePort, '/api/integrations/healthkit/status', rogue())).not.toContain('HTTP/1.1 200');
+  });
+  it('requires a certificate of a source listed in HEALTHKIT_CLIENT_CERTIFICATE_REQUIRED, and of no other', async () => {
+    const refused = await rawGet(pePort, '/api/integrations/healthkit/status?bridgeId=pim', {});
+    expect(refused).toContain('HTTP/1.1 403');
+    expect(refused).toContain(lane.CLIENT_CERTIFICATE_REQUIRED);
+    expect(await rawGet(pePort, '/api/integrations/healthkit/status?bridgeId=pim', own())).toContain('HTTP/1.1 200');
+    expect(await rawGet(pePort, '/api/integrations/healthkit/status?bridgeId=phone', {})).toContain('HTTP/1.1 200');
+  });
+  it('believes a proxy that says it verified no caller certificate, and only a proxy with a lane certificate', async () => {
+    const via = (header: string, opts: tls.ConnectionOptions) => rawGet(pePort, '/api/integrations/healthkit/status?bridgeId=pim',
+      opts, { 'X-Client-Certificate': header });
+    expect(await via('NONE', own())).toContain('HTTP/1.1 403');
+    expect(await via('SUCCESS', own())).toContain('HTTP/1.1 200');
+    expect(await via('SUCCESS', {})).toContain('HTTP/1.1 403');
+  });
+});
+
+describe('per-source device certificates (owner, 2026-11-12)', () => {
+  it('reads the sources as a trimmed comma list', () => {
+    expect([...lane.certificateSources(' pim , other,')]).toEqual(['pim', 'other']);
+    expect(lane.certificateSources('').size).toBe(0);
+  });
+  it('takes the source from the query, then the body, then the configured bridge', () => {
+    expect(lane.deviceSource({ bridgeId: 'phone-2' }, {})).toBe('phone-2');
+    expect(lane.deviceSource({}, { source: 'pim', bridgeId: 'phone' })).toBe('pim');
+    expect(lane.deviceSource({}, { source: '', bridgeId: 'phone' })).toBe('phone');
+    expect(lane.deviceSource(undefined, undefined)).toBe('healthkit-ios-bridge');
   });
 });
