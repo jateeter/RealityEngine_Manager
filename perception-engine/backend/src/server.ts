@@ -141,7 +141,7 @@ const EXAMPLE_CK_REGISTRY_JSON = {
  * on this one), which made any cross-runtime comparison of provider output
  * meaningless before it started.
  */
-const DEFAULT_OLLAMA_MODEL = 'llama3.1:8b';
+const DEFAULT_OLLAMA_MODEL = 'nemotron-3-nano:4b';
 
 // Declares how each contended universal-vector position resolves. Loaded before
 // any source is assembled so the first vector already arbitrates rather than
