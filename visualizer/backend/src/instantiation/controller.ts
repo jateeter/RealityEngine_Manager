@@ -13,6 +13,13 @@
 //   then capture the successor, park it for a reviewer when the agent asks
 //   for review, or close the frame when there is none (termination closes the
 //   workflow head, D11).
+// - a failed agent turn is retried in the step, with the same clone and
+//   capability, `agentRetries` times after a backoff that doubles from
+//   `agentRetryBackoffMs`. When the retries are spent, the clone is recycled and
+//   the step reported to the lifecycle (`POST …/continuations/:kid/fail`), which
+//   parks the frame for its author with the reason (RealityEngine_Manager#346).
+//   It was recycled and the frame left open, so the asset chain could only time
+//   out, and the open frame was resumed into the next universe.
 //
 // A step that a person resumed (a reviewer's approve) is picked up the same
 // way and runs with the capability the lifecycle issues for it. A full pool
@@ -46,6 +53,8 @@ export interface Lifecycle {
   freeLanes(frameId: string, cloneId: string, generation: number): Promise<Reply>;
   capture(frameId: string, body: object): Promise<Reply>;
   close(frameId: string): Promise<Reply>;
+  /** The running step failed: the lifecycle parks the frame for its author with the reason. */
+  fail(frameId: string, kid: string, reason: string, attempts: number): Promise<Reply>;
 }
 export interface Engines {
   clone(engineId: string, templateId: string, asset: string, envelope: string): Promise<Reply<Clone & { error?: string }>>;
@@ -56,6 +65,7 @@ export interface Engines {
 type Kind = 'resume' | 'dispatch';
 interface Job { frameId: string; kind: Kind; continuationId: string; queuedAt: number }
 export type StepOutcome = 'done' | 'escaped' | 'full' | 'failed';
+type Counted = StepOutcome | 'retried';
 export interface StepRecord { frameId: string; continuationId: string; outcome: StepOutcome; detail: string; at: number }
 
 /** The envelope a step's clone takes: one per frame and continuation generation, so a retried dispatch reuses its clone. */
@@ -67,10 +77,38 @@ export class InstantiationController {
   private readonly running = new Set<string>();
   readonly live = new Map<string, { frameId: string; engineId: string; templateId: string; generation: number; since: number }>();
   readonly history: StepRecord[] = [];
-  readonly counts: Record<StepOutcome, number> = { done: 0, escaped: 0, full: 0, failed: 0 };
+  readonly counts: Record<Counted, number> = { done: 0, escaped: 0, full: 0, failed: 0, retried: 0 };
   private draining = false;
 
-  constructor(private readonly deps: { lifecycle: Lifecycle; engines: Engines; agent: AgentDriver; now?: () => number; historyLimit?: number }) {}
+  constructor(private readonly deps: {
+    lifecycle: Lifecycle; engines: Engines; agent: AgentDriver; now?: () => number; historyLimit?: number;
+    /** Retries of a failed agent turn within its step (INSTANTIATION_AGENT_RETRIES, default 2). */
+    agentRetries?: number;
+    /** The first retry's backoff, doubled for each after it (INSTANTIATION_AGENT_RETRY_BACKOFF_MS, default 5000). */
+    agentRetryBackoffMs?: number;
+    sleep?: (ms: number) => Promise<void>;
+  }) {}
+
+  private readonly retriesSpent: { frameId: string; attempt: number; error: string; at: number }[] = [];
+
+  /** Runs the step's agent, retrying a failed turn with a doubling backoff. Throws the last error with the attempt count. */
+  private async dispatchWithRetries(run: () => Promise<AgentResult>, frameId: string): Promise<AgentResult> {
+    const retries = Math.max(0, this.deps.agentRetries ?? 2);
+    const backoff = Math.max(0, this.deps.agentRetryBackoffMs ?? 5000);
+    const sleep = this.deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+    for (let attempt = 1; ; attempt += 1) {
+      try { return await run(); }
+      catch (e) {
+        const error = (e as Error).message;
+        if (attempt > retries) throw Object.assign(new Error(error), { attempts: attempt });
+        this.retriesSpent.push({ frameId, attempt, error, at: this.now() });
+        if (this.retriesSpent.length > 50) this.retriesSpent.shift();
+        this.counts.retried += 1;
+        console.warn(`instantiation: ${frameId} agent turn ${attempt} failed (${error}); retrying in ${backoff * 2 ** (attempt - 1)} ms`);
+        await sleep(backoff * 2 ** (attempt - 1));
+      }
+    }
+  }
 
   private now(): number { return (this.deps.now ?? Date.now)(); }
   get queued(): readonly Job[] { return this.queue; }
@@ -178,11 +216,18 @@ export class InstantiationController {
     // ── the step ──
     let result: AgentResult;
     try {
-      result = await agent.dispatch({ frameId: f.frameId, continuationId: c.continuationId, capability, scopes,
-        clone: { cloneId: clone!.cloneId, engineId: next.engineId, templateId: next.templateId, envelopeId: clone!.envelopeId } });
+      result = await this.dispatchWithRetries(() => agent.dispatch({ frameId: f.frameId, continuationId: c.continuationId, capability, scopes,
+        clone: { cloneId: clone!.cloneId, engineId: next.engineId, templateId: next.templateId, envelopeId: clone!.envelopeId } }), f.frameId);
     } catch (e) {
       await this.release(f.frameId, clone!, true);
-      throw new Error(`agent ${agent.name}: ${(e as Error).message}`);
+      const attempts = (e as { attempts?: number }).attempts ?? 1;
+      const reason = `agent ${agent.name}: ${(e as Error).message}`;
+      // The step fails visibly: the lifecycle parks the frame for its author with
+      // the reason. If even that is refused, the step is still recorded failed.
+      const failed = await lifecycle.fail(f.frameId, c.continuationId, reason, attempts);
+      if (failed.status !== 201) throw new Error(`${reason} (after ${attempts} attempt(s)); reporting it failed: ${failed.status} ${JSON.stringify(failed.body)}`);
+      this.record({ frameId: f.frameId, continuationId: c.continuationId, outcome: 'failed', detail: `${reason} (after ${attempts} attempt(s)); parked for the author` });
+      return 'failed';
     }
 
     // ── epilogue ──
@@ -239,6 +284,6 @@ export class InstantiationController {
       byTemplate[`${c.engineId}|${c.templateId}`] = (byTemplate[`${c.engineId}|${c.templateId}`] ?? 0) + 1;
     }
     return { queue: this.queue.map((j) => ({ ...j })), running: [...this.running], live: [...this.live.entries()].map(([cloneId, v]) => ({ cloneId, ...v })),
-      liveByEngine: byEngine, liveByTemplate: byTemplate, counts: { ...this.counts }, history: this.history.slice(-50) };
+      liveByEngine: byEngine, liveByTemplate: byTemplate, counts: { ...this.counts }, history: this.history.slice(-50), retries: this.retriesSpent.slice(-20) };
   }
 }

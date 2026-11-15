@@ -36,6 +36,7 @@ export function httpLifecycle(baseUrl: string, engineToken: string, client: Axio
     freeLanes: async (f, cloneId, g) => reply(await client.delete(url(`/frames/${f}/clones/${encodeURIComponent(cloneId)}?generation=${g}`), engine)),
     capture: async (f, body) => reply(await client.post(url(`/frames/${f}/continuations`), body, engine)),
     close: async (f) => reply(await client.post(url(`/frames/${f}/close`), {}, engine)),
+    fail: async (f, k, reason, attempts) => reply(await client.post(url(`/frames/${f}/continuations/${k}/fail`), { reason, attempts }, engine)),
     // The agent's side: its capability, nothing else.
     async frame(f, capability) {
       const r = await client.get(url(`/frames/${f}`), agent(capability));
@@ -139,7 +140,10 @@ export function metricsText(c: InstantiationController | null, bands: Record<str
       }),
       '# HELP re_instantiation_steps_total Workflow steps by outcome.',
       '# TYPE re_instantiation_steps_total counter',
-      ...Object.entries(s.counts).map(([o, n]) => `re_instantiation_steps_total{outcome="${o}"} ${n}`)
+      ...Object.entries(s.counts).filter(([o]) => o !== 'retried').map(([o, n]) => `re_instantiation_steps_total{outcome="${o}"} ${n}`),
+      '# HELP re_instantiation_agent_retries_total Failed agent turns retried within their step (Manager#346).',
+      '# TYPE re_instantiation_agent_retries_total counter',
+      `re_instantiation_agent_retries_total ${s.counts.retried}`
     );
   }
   return `${lines.join('\n')}\n`;
@@ -151,6 +155,9 @@ export interface InstantiationConfig {
   engineToken: string;
   pollMs: number;
   agent: string;
+  /** A failed agent turn's retries in its step, and the first backoff (doubling) (Manager#346). */
+  agentRetries: number;
+  agentRetryBackoffMs: number;
   /** INSTANTIATION_AGENT=openclaw (ROADMAP phase 8): the gateway and localOpenClawStack's clone-agents CLI. */
   openclaw: { gatewayUrl: string; token: string; cli: string };
 }
@@ -163,6 +170,8 @@ export function instantiationConfig(env: NodeJS.ProcessEnv = process.env): Insta
     engineToken: tokenFile ? readFileSync(tokenFile, 'utf8').trim() : (env.LIFECYCLE_ENGINE_TOKEN ?? ''),
     pollMs: Number(env.INSTANTIATION_POLL_MS ?? 2000),
     agent: env.INSTANTIATION_AGENT ?? 'simulated',
+    agentRetries: Number(env.INSTANTIATION_AGENT_RETRIES ?? 2),
+    agentRetryBackoffMs: Number(env.INSTANTIATION_AGENT_RETRY_BACKOFF_MS ?? 5000),
     // Names of its own: OPENCLAW_GATEWAY_URL is the PE integrations' ACP
     // gateway, a ws(s) URL. Its http(s) form is the fallback (the gateway serves
     // both on one port).
@@ -196,7 +205,8 @@ export function mountInstantiation(app: Express, instances: () => RegistryInstan
     };
     const make = drivers[config.agent];
     if (!make) throw new Error(`INSTANTIATION_AGENT ${config.agent} is not one of ${Object.keys(drivers).join(', ')}`);
-    controller = new InstantiationController({ lifecycle, engines, agent: make() });
+    controller = new InstantiationController({ lifecycle, engines, agent: make(),
+      agentRetries: config.agentRetries, agentRetryBackoffMs: config.agentRetryBackoffMs });
     const c = controller;
     const loop = async () => {
       try { await c.tick(); } catch (e) { console.error(`instantiation: ${(e as Error).message}`); }

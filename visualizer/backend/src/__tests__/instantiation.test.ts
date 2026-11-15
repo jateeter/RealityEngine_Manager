@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SimulatedAgent, type AgentLifecycle } from '../instantiation/agents.js';
+import { SimulatedAgent, type AgentDriver, type AgentLifecycle } from '../instantiation/agents.js';
 import { InstantiationController, envelopeOf, type Clone, type Continuation, type Engines, type FrameSummary, type Lifecycle } from '../instantiation/controller.js';
 import { machineIdOf, successorOf, type TemplateMachine } from '../instantiation/successor.js';
 import { engineBands, metricsText } from '../instantiation/http.js';
@@ -39,7 +39,7 @@ describe('successorOf', () => {
 
 interface FakeFrame extends FrameSummary { continuations: Continuation[]; observed: { approved: boolean }; returns: unknown[]; closed: boolean }
 
-function world(opts: { maxActive?: number } = {}) {
+function world(opts: { maxActive?: number; agent?: (l: AgentLifecycle) => AgentDriver; agentRetries?: number } = {}) {
   const calls: string[] = [];
   const frames = new Map<string, FakeFrame>();
   const lanes: { frameId: string; cloneId: string; engineId: string; generation: number }[] = [];
@@ -85,6 +85,15 @@ function world(opts: { maxActive?: number } = {}) {
       return { status: 201, body: {} };
     },
     async close(fid) { calls.push('close'); frames.get(fid)!.closed = true; return { status: 200, body: {} }; },
+    async fail(fid, kid, reason, attempts) {
+      const f = frames.get(fid)!; const c = last(f.continuations)!;
+      calls.push(`fail ${kid} after ${attempts}`);
+      if (c.continuationId !== kid || c.status !== 'resumed') return { status: 409, body: { error: `continuation is ${c.status}` } };
+      c.status = 'failed';
+      f.continuations.push({ continuationId: `k${f.continuations.length}`, status: 'parked', generation: c.generation + 1, next: c.next,
+        resumableBy: { role: 'author' }, reason } as Continuation);
+      return { status: 201, body: { outcome: 'failed' } };
+    },
     async frame(fid) { const f = frames.get(fid)!; return { documents: [{ uri: 'https://pod/a.html', sha256: 'x', revision: 'r1' }], action: 'prepare', observed: f.observed }; },
     async readDocument() { return Buffer.from('doc'); },
     async writeReturn(fid, _cap, value) { frames.get(fid)!.returns.push(value); }
@@ -118,8 +127,10 @@ function world(opts: { maxActive?: number } = {}) {
     const f = frames.get(frameId)!; const c = last(f.continuations)!;
     c.status = 'resumed'; f.observed.approved = true;
   };
-  const controller = new InstantiationController({ lifecycle, engines, agent: new SimulatedAgent(lifecycle) });
-  return { calls, frames, lanes, live, controller, add, approve, setFull: (v: boolean) => { full = v; } };
+  const slept: number[] = [];
+  const controller = new InstantiationController({ lifecycle, engines, agent: opts.agent ? opts.agent(lifecycle) : new SimulatedAgent(lifecycle),
+    agentRetries: opts.agentRetries, sleep: async (ms) => { slept.push(ms); } });
+  return { calls, frames, lanes, live, controller, add, approve, slept, setFull: (v: boolean) => { full = v; } };
 }
 
 describe('InstantiationController', () => {
@@ -194,6 +205,55 @@ describe('InstantiationController', () => {
     expect(w.live.size).toBe(0);
     await w.controller.tick();
     expect(last(f.continuations)?.status).toBe('parked');
+  });
+
+  // RealityEngine_Manager#346: a failed agent turn recycled the clone and left the frame open and silent.
+  const flaky = (failures: number) => (l: AgentLifecycle): AgentDriver => {
+    const inner = new SimulatedAgent(l);
+    let n = 0;
+    return { name: 'flaky', async dispatch(step) {
+      n += 1;
+      if (n <= failures) throw new Error('FailoverError: ollama/m ended without a visible assistant reply');
+      return inner.dispatch(step);
+    } };
+  };
+
+  it('retries a failed agent turn in its step, with the same clone and a doubling backoff', async () => {
+    const w = world({ agent: flaky(2) });
+    const f = w.add('frame-eeeeeeee-e');
+    await w.controller.tick();
+    const clone = `machine-ifrs-sec01-verifier.cpp-1.${envelopeOf(f.frameId, 1)}`;
+    expect(w.slept).toEqual([5000, 10000]);
+    expect(w.calls).toEqual([`clone ${clone}`, 'resume k0', `lanes ${clone}`, `recycle ${clone} g0`, `free ${clone} g0`, 'capture machine-ifrs-sec03-arbiter parked']);
+    expect(w.controller.counts).toMatchObject({ done: 1, failed: 0, retried: 2 });
+    expect(w.controller.status().retries).toHaveLength(2);
+  });
+
+  it('when the retries are spent the step fails visibly: the frame parks for its author with the reason', async () => {
+    const w = world({ agent: flaky(99) });
+    const f = w.add('frame-ffffffff-f');
+    await w.controller.tick();
+    const clone = `machine-ifrs-sec01-verifier.cpp-1.${envelopeOf(f.frameId, 1)}`;
+    expect(w.calls).toEqual([`clone ${clone}`, 'resume k0', `lanes ${clone}`, `recycle ${clone} g0`, `free ${clone} g0`, 'fail k0 after 3']);
+    expect(w.live.size).toBe(0);
+    expect(w.lanes).toHaveLength(0);
+    const parked = last(f.continuations) as Continuation & { reason: string };
+    expect(parked).toMatchObject({ status: 'parked', resumableBy: { role: 'author' }, next: { templateId: 'machine-ifrs-sec01-verifier' } });
+    expect(parked.reason).toMatch(/agent flaky: FailoverError: .* without a visible assistant reply/);
+    expect(last(w.controller.history)).toMatchObject({ outcome: 'failed' });
+    expect(last(w.controller.history)!.detail).toMatch(/\(after 3 attempt\(s\)\); parked for the author$/);
+    // Parked for a person: the engine side does not pick it up again.
+    w.calls.length = 0;
+    await w.controller.tick();
+    expect(w.calls).toEqual([]);
+  });
+
+  it('INSTANTIATION_AGENT_RETRIES=0 fails the step on the first failed turn', async () => {
+    const w = world({ agent: flaky(1), agentRetries: 0 });
+    w.add('frame-99999999-9');
+    await w.controller.tick();
+    expect(w.slept).toEqual([]);
+    expect(last(w.calls)).toBe('fail k0 after 1');
   });
 
   it('reports pool use and queue depth for the dashboard', async () => {

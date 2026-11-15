@@ -36,6 +36,17 @@ step.
    - if there is no successor, close the frame. Termination closes the workflow
      head.
 
+**A failed agent turn** (#346) is retried within the step, with the same clone
+and capability, `INSTANTIATION_AGENT_RETRIES` times after a backoff that
+doubles from `INSTANTIATION_AGENT_RETRY_BACKOFF_MS`. When the retries are
+spent, the clone is recycled, its lanes are freed, and the step is reported to
+the lifecycle (`POST /frames/:id/continuations/:k/fail`, with the reason and the
+attempts). The lifecycle parks a re-run of the same step for the case's author,
+under a `step-failed` receipt. The frame is never left open and silent: before
+#346 the clone was recycled and the frame waited for nothing. Retries show in
+`/api/instantiation/status` (`retries`, `counts.retried`) and as
+`re_instantiation_agent_retries_total`.
+
 A step a person resumed (a reviewer's approve) runs the same way. Its agent
 capability comes from `POST /frames/:id/continuations/:k/capability`, which
 issues it once.
@@ -84,6 +95,8 @@ The simulated agent sets the pattern that per-clone OpenClaw agents follow
 | `LIFECYCLE_ENGINE_TOKEN`, `LIFECYCLE_ENGINE_TOKEN_FILE` | The lifecycle's `engine` service token. |
 | `INSTANTIATION_POLL_MS` | Default 2000. |
 | `INSTANTIATION_AGENT` | `simulated` (default) or `openclaw`. |
+| `INSTANTIATION_AGENT_RETRIES` | Retries of a failed agent turn within its step. Default 2; `0` fails the step on the first failure. |
+| `INSTANTIATION_AGENT_RETRY_BACKOFF_MS` | The first retry's backoff, doubled for each after it. Default 5000. |
 | `INSTANTIATION_OPENCLAW_URL` | The gateway's http(s) base. Defaults to `OPENCLAW_GATEWAY_URL` (the PE's ACP `ws(s)` URL) in its http(s) form. |
 | `INSTANTIATION_OPENCLAW_TOKEN`, `INSTANTIATION_OPENCLAW_TOKEN_FILE` | The gateway token. Defaults to `OPENCLAW_GATEWAY_TOKEN`. |
 | `OPENCLAW_CLONE_AGENTS` | Path to localOpenClawStack's `scripts/clone-agents.mjs`. |
