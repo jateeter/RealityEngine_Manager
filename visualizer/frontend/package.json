@@ -10,23 +10,23 @@
   },
   "dependencies": {
     "@types/d3": "^7.4.3",
-    "@types/three": "^0.186.0",
-    "3d-force-graph": "^1.80.1",
+    "@types/three": "^0.187.0",
+    "3d-force-graph": "^1.80.2",
     "axios": "^1.21.0",
-    "d3": "^7.9.0",
+    "d3": "^7.9.2",
     "lucide-react": "^1.70.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "reactflow": "^11.10.1",
     "three": "^0.187.0",
-    "zustand": "^5.0.16"
+    "zustand": "^5.1.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.1",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
-    "@testing-library/user-event": "^14.6.8",
+    "@testing-library/user-event": "^14.6.12",
     "@types/node": "^26.6.6",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
