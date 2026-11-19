@@ -2,7 +2,7 @@
  * AcpAdapter — no-wait OpenClaw xACP handoff contract.
  */
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { AcpAdapter, acpConfigFromRegistry } from '../integrations/adapters/AcpAdapter.js';
 import type { DispatchRecord } from '../dispatch/types.js';
@@ -119,6 +119,22 @@ describe('AcpAdapter', () => {
 });
 
 describe('acpConfigFromRegistry', () => {
+  // The defaults are what the function answers with no ACP environment. The
+  // workspace's own contract exports ACP_ENABLED=true (and the gateway, session
+  // and mapping ids), so a run under it, the deployment gate's, read enabled
+  // true here and failed (RealityEngine_CI run-all-tests --deployment,
+  // 2026-11-18). Each case starts from none of them and restores them after.
+  const ACP_ENV = ['ACP_ENABLED', 'ACP_PLATFORM', 'ACP_SURFACE', 'ACP_COMMAND', 'OPENCLAW_ACP_COMMAND',
+    'ACP_GATEWAY_URL', 'OPENCLAW_GATEWAY_URL', 'ACP_SESSION_KEY', 'OPENCLAW_ACP_SESSION',
+    'ACP_TARGET_AGENT', 'ACP_COMPLETION_SOURCE_MAPPING_ID'];
+  const saved: Record<string, string | undefined> = {};
+  beforeEach(() => {
+    for (const k of ACP_ENV) { saved[k] = process.env[k]; delete process.env[k]; }
+  });
+  afterEach(() => {
+    for (const k of ACP_ENV) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
+  });
+
   it('builds default OpenClaw xACP config when the registry has no ACP entry', () => {
     const cfg = acpConfigFromRegistry([]);
     expect(cfg).toMatchObject({
