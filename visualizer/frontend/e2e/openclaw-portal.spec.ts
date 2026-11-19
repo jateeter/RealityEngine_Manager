@@ -1,5 +1,6 @@
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { registryUrl } from './registry-url';
 
@@ -176,7 +177,15 @@ test.describe('OpenClaw agents for the engine\'s machine corpus', () => {
     test.skip(!health || !health.ok(), `OpenClaw is not deployed (no gateway at ${OPENCLAW_GATEWAY_URL})`);
 
     const indexPath = path.join(OPENCLAW_DIR, 'machine-behaviors', 'agents', 'INDEX.json');
-    const configPath = path.join(OPENCLAW_DIR, 'openclaw', 'openclaw.json');
+    // The gateway's live config. It runs natively by default (RealityEngine_CI#592),
+    // with its home in ~/.realityengine/openclaw and agents keyed by id
+    // (agents.entries); the container stack's config, in this repo's sibling, is
+    // the older agents.list schema. Reading only the container's found a stale
+    // file and counted 0 agents loaded (RealityEngine_CI deployment gate,
+    // 2026-11-18). OPENCLAW_CONFIG names it explicitly.
+    const nativeConfig = path.join(process.env.OPENCLAW_HOME ?? path.join(os.homedir(), '.realityengine', 'openclaw'), 'openclaw.json');
+    const configPath = process.env.OPENCLAW_CONFIG
+      ?? (fs.existsSync(nativeConfig) ? nativeConfig : path.join(OPENCLAW_DIR, 'openclaw', 'openclaw.json'));
     expect(fs.existsSync(indexPath), `agent corpus index not found at ${indexPath}`).toBeTruthy();
     expect(fs.existsSync(configPath), `OpenClaw live config not found at ${configPath}`).toBeTruthy();
 
@@ -184,10 +193,11 @@ test.describe('OpenClaw agents for the engine\'s machine corpus', () => {
       agents: Array<{ machineName: string; agentId: string }>;
     };
     const agentFor = new Map(index.agents.map(a => [a.machineName, a.agentId]));
-    const loaded = new Set(
-      ((JSON.parse(fs.readFileSync(configPath, 'utf8')) as any).agents?.list ?? [])
-        .map((a: { id?: string }) => String(a.id ?? '')),
-    );
+    const agentsCfg = (JSON.parse(fs.readFileSync(configPath, 'utf8')) as any).agents ?? {};
+    const loaded = new Set<string>([
+      ...Object.keys(agentsCfg.entries ?? {}),
+      ...((agentsCfg.list ?? []) as Array<{ id?: string }>).map(a => String(a.id ?? '')),
+    ]);
 
     const machines = await engineMachineNames(request);
     const required = machines.filter(n => agentFor.has(n)).map(n => ({ machine: n, agent: agentFor.get(n)! }));
