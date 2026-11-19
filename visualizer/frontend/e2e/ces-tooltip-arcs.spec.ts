@@ -16,7 +16,7 @@
 
 import { test, expect, type Page } from '@playwright/test';
 
-const VIZ_URL = process.env.VIZ_FRONTEND_URL ?? 'http://localhost:5173';
+const VIZ_URL = process.env.VIZ_FRONTEND_URL ?? 'https://localhost:5173';
 const MACHINE = 'machine-falldetection';
 /** The graph's transitions; the strips' separator lines sit outside `g.tt-graph`. */
 const ARCS = 'g.tt-graph line';

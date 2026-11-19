@@ -10,7 +10,7 @@ import { test, expect, type Page } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const VIZ_URL = process.env.VIZ_FRONTEND_URL ?? 'http://localhost:5173';
+const VIZ_URL = process.env.VIZ_FRONTEND_URL ?? 'https://localhost:5173';
 
 async function openModal(page: Page) {
   await page.goto(VIZ_URL);
