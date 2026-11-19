@@ -60,7 +60,11 @@ test.describe('Reality Engine Visualizer E2E', () => {
       await expect(page.getByTestId('nav-machines')).toHaveAttribute('aria-pressed', 'true');
       await expect(page.getByTestId('nav-perception')).toBeVisible();
       await expect(page.getByTestId('nav-perception')).toHaveAttribute('aria-pressed', 'false');
-      await expect(page.getByRole('button', { name: /Interconnect/ })).toHaveCount(0);
+      // No *navigation* button for it. The machine graph's node-type filters
+      // carry an "Interconnect" button whenever the loaded machines include a
+      // mechanical-bus interconnect, which a page-wide match counted
+      // (RealityEngine_CI deployment gate, 2026-11-18).
+      await expect(page.locator('[data-testid^="nav-"]').filter({ hasText: /Interconnect/ })).toHaveCount(0);
       await expect(page.getByRole('button', { name: 'Help' })).toBeVisible();
     });
   });

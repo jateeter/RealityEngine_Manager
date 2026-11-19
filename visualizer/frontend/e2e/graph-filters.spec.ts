@@ -12,7 +12,7 @@
 
 import { test, expect, type Page } from '@playwright/test';
 
-const VIZ_URL = process.env.VIZ_FRONTEND_URL ?? 'http://localhost:5173';
+const VIZ_URL = process.env.VIZ_FRONTEND_URL ?? 'https://localhost:5173';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

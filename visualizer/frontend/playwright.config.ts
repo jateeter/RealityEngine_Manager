@@ -1,4 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
+import { laneTlsUse } from './e2e/lane-tls';
+import { registryUrl } from './e2e/registry-url';
 
 export default defineConfig({
   testDir: './e2e',
@@ -54,6 +56,12 @@ export default defineConfig({
     baseURL: process.env.VIZ_FRONTEND_URL ?? 'https://localhost:5173',
     // The dev/deployment certificate is self-signed.
     ignoreHTTPSErrors: true,
+    // On the TLS lane (RE_TLS=on): verified against the lane CA, and the
+    // harness certificate presented to every https origin the instance registry
+    // names (the engines and the services require mTLS). Without it every spec
+    // that reached an engine or the TLS frontend failed (RealityEngine_CI
+    // deployment gate, 2026-11-18). Off the lane this adds nothing.
+    ...laneTlsUse([registryUrl()]),
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },

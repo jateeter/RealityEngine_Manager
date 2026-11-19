@@ -3,9 +3,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { registryUrl } from './registry-url';
 
-const VIZ_URL = process.env.VIZ_FRONTEND_URL ?? 'http://localhost:5173';
+const VIZ_URL = process.env.VIZ_FRONTEND_URL ?? 'https://localhost:5173';
 const REGISTRY_URL = registryUrl();
-const OPENCLAW_GATEWAY_URL = process.env.OPENCLAW_GATEWAY_URL ?? 'http://localhost:18789';
+const OPENCLAW_GATEWAY_URL = (process.env.OPENCLAW_GATEWAY_URL ?? 'https://localhost:18789').replace(/^ws(s?):/, 'http$1:');
 // localOpenClawStack, a sibling of RealityEngine_Manager. Playwright runs from
 // visualizer/frontend, so the workspace root is three levels up.
 const OPENCLAW_DIR = process.env.OPENCLAW_DIR

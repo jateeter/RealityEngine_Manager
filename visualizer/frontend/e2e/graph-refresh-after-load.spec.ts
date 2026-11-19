@@ -15,7 +15,7 @@
 
 import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
 
-const VIZ_URL = process.env.VIZ_FRONTEND_URL ?? 'http://localhost:5173';
+const VIZ_URL = process.env.VIZ_FRONTEND_URL ?? 'https://localhost:5173';
 
 interface Instance { id: string }
 interface TreeNode { machines?: Array<{ name: string; relFile: string }>; children?: TreeNode[] }
