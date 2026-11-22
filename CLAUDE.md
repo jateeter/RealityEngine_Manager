@@ -8,10 +8,16 @@ See `/Users/johnt/workspace/GitHub/CLAUDE.md` for the integrated application map
 
 This repo contains the user-facing Manager application and the TypeScript Perception Engine implementation.
 
-The TypeScript Perception Engine is one of the two conformance followers. It is a **non-voting conformance follower** (owner, 2026-11-06;
-`RealityEngine_CI/docs/QUORUM_CONTRACT.md`), like RealityEngine_Rust: it implements the PE surface
-and is measured against what C++, LSP and Scala agree on, and it never votes. This repo has no
-TypeScript RE.
+The TypeScript Perception Engine is a **non-voting conformance follower** (owner, 2026-11-06;
+`RealityEngine_CI/docs/QUORUM_CONTRACT.md`), beside RealityEngine_Rust and RealityEngine_GO: it
+implements the PE surface, is measured against what C++, LSP and Scala agree on, and never votes.
+This repo has no TypeScript RE.
+
+**It is bound only to Manager** (owner, 2026-11-22):
+
+1. It follows Manager's lead first. Manager's observation, manual testing and validation needs set its direction.
+2. It tracks the follower release gate second (RealityEngine_CI#842): its verdicts are measured and reported against the voters' agreement.
+3. Unlike Rust and Go, a deviation does not block a release automatically. The owner decides each one case by case, and the decision is recorded on the deviation's issue and in the release notes.
 
 ## Codebase Map
 
