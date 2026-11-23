@@ -14,7 +14,7 @@
     "3d-force-graph": "^1.80.2",
     "axios": "^1.21.0",
     "d3": "^7.9.2",
-    "lucide-react": "^1.70.0",
+    "lucide-react": "^1.77.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "reactflow": "^11.10.1",
