@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import express from 'express';
-import type { AddressInfo } from 'net';
+import type { NextFunction, Request, Response } from 'express';
 import { ParticipantClock, causedBy, clockMiddleware, parseHeader, MAX_LAMPORT } from '../participantClock.js';
 
 // RealityEngine_CI#600; SURFACE_SPEC.md "The instance clock".
@@ -46,32 +45,43 @@ describe('participant clock', () => {
     expect(causedBy(undefined, null)).toBeNull();
   });
 
-  it('receives every request and stamps every response; a malformed header is a 400', async () => {
+  it('receives every request and stamps every response; a malformed header is a 400', () => {
+    // The middleware driven directly: no socket, so no plaintext transport.
     const clock = new ParticipantClock();
-    const app = express();
-    app.use(clockMiddleware(clock));
-    app.get('/x', (_req, res) => { res.json({ ok: true }); });
-    const server = app.listen(0, '127.0.0.1');
-    await new Promise((resolve) => server.once('listening', resolve));
-    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-    const get = (path: string, header?: string) =>
-      fetch(base + path, header ? { headers: { 'RE-Clock': header } } : {});
-    try {
-      const plain = await get('/x');
-      expect(plain.status).toBe(200);
-      expect(parseHeader(plain.headers.get('re-clock')!)).toBe(2);
-      const injected = await get('/x', 'instance=0192f3a0-0000-7000-8000-000000000001; lamport=5000000');
-      expect(parseHeader(injected.headers.get('re-clock')!)).toBe(5000002);
-      const bad = await get('/x', 'bad');
-      expect(bad.status).toBe(400);
-      expect(await bad.json()).toEqual({ error: 'malformed RE-Clock header' });
-      expect(bad.headers.get('re-clock')).not.toBeNull();
-      const missing = await get('/nope');
-      expect(missing.status).toBe(404);
-      expect(missing.headers.get('re-clock')).not.toBeNull();
-      expect(clock.headers()).toEqual({ received: 1, missing: 2, rejected: 1 });
-    } finally {
-      server.close();
-    }
+    const middleware = clockMiddleware(clock);
+    const call = (header?: string | string[]) => {
+      const headers: Record<string, string> = {};
+      let status = 200;
+      let body: unknown;
+      let nextCalled = false;
+      const res = {
+        headersSent: false,
+        setHeader(name: string, value: string) { headers[name.toLowerCase()] = value; },
+        writeHead() { return res; },
+        status(code: number) { status = code; return res; },
+        json(value: unknown) { body = value; (res as { writeHead: () => unknown }).writeHead(); return res; },
+      };
+      const values = header === undefined ? [] : Array.isArray(header) ? header : [header];
+      const req = { headersDistinct: values.length ? { 're-clock': values } : {} };
+      middleware(req as unknown as Request, res as unknown as Response, (() => { nextCalled = true; }) as NextFunction);
+      // A handled request answers afterwards, through the same writeHead.
+      if (nextCalled) (res as { writeHead: () => unknown }).writeHead();
+      return { status, body, nextCalled, stamp: headers['re-clock'] };
+    };
+
+    const plain = call();
+    expect(plain.nextCalled).toBe(true);
+    expect(parseHeader(plain.stamp!)).toBe(2);
+    const injected = call('instance=0192f3a0-0000-7000-8000-000000000001; lamport=5000000');
+    expect(parseHeader(injected.stamp!)).toBe(5000002);
+    const bad = call('bad');
+    expect([bad.status, bad.body, bad.nextCalled]).toEqual([400, { error: 'malformed RE-Clock header' }, false]);
+    expect(bad.stamp).toBeDefined();
+    const repeated = call([
+      'instance=0192f3a0-0000-7000-8000-000000000001; lamport=1',
+      'instance=0192f3a0-0000-7000-8000-000000000001; lamport=2',
+    ]);
+    expect(repeated.status).toBe(400);
+    expect(clock.headers()).toEqual({ received: 1, missing: 1, rejected: 2 });
   });
 });
