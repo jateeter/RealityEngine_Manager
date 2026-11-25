@@ -18,6 +18,7 @@
  * the adapter just needs to read the record from the ledger.
  */
 
+import { peClock } from '../participantClock.js';
 import { randomUUID } from 'crypto';
 
 import { Ledger } from '../dispatch/Ledger.js';
@@ -267,6 +268,7 @@ export class Dispatcher {
       error: null,
       semantics: original.semantics,
       replayOf: original.id,
+      clock: peClock.event(),
     };
 
     this.ledger.append(record);
@@ -342,6 +344,8 @@ export class Dispatcher {
       envelope,
       error: null,
       replayOf: null,
+      // The PE's clock when it stored the record (#600).
+      clock: peClock.event(),
       // Semantic link to the corpus ABox (SEMANTIC_AUDIT_CONTRACT.md): lets an
       // auditor join this dispatch to the determination that caused it without
       // name matching.  IRI fields are null when the machine is absent from

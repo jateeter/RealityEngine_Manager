@@ -3,6 +3,7 @@ import express from 'express';
 import type { Request, Response } from 'express';
 import cors from 'cors';
 import axios from 'axios';
+import { causedBy, clockMiddleware, installClockInterceptors, peClock } from './participantClock.js';
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer as createHttpServer } from 'http';
 import { Agent as HttpsAgent, createServer as createHttpsServer } from 'https';
@@ -192,6 +193,9 @@ const reAxios = axios.create(reHttpsAgent ? { httpsAgent: reHttpsAgent } : {});
 // trusts the lane CA and presents this PE's certificate. Inert otherwise.
 installAxios(axios);
 installAxios(reAxios);
+// The participant clock on every call to an internal peer (RealityEngine_CI#600).
+installClockInterceptors(axios);
+installClockInterceptors(reAxios);
 
 const app = express();
 // Use HTTPS when TLS_CERT_PATH and TLS_KEY_PATH are set (dev outside Docker);
@@ -214,6 +218,9 @@ const wss = new WebSocketServer({
   ...(lane ? { verifyClient: (info: { req: { socket: unknown } }) => (info.req.socket as TLSSocket).authorized === true } : {}),
 });
 
+// Every request a receive and every response a send under this PE's
+// participant clock (RealityEngine_CI#600): first, so a refusal is clocked too.
+app.use(clockMiddleware());
 if (lane) app.use(requireClientCertificate());
 
 app.use(cors());
@@ -622,6 +629,8 @@ async function doPush(): Promise<PushResult> {
       includeActiveRegions: false,
     });
     engine.advance();
+    // A completed push is the PE's commit (#600).
+    lastPushClock = peClock.commitStep();
     lastPush = Date.now();
 
     // Semantic audit (SEMANTIC_AUDIT_CONTRACT.md): one re:PerceptionEvent per
@@ -1004,6 +1013,21 @@ app.get('/', (_req, res) => {
       resources: ['perception://state', 'perception://sources', 'perception://vector'],
     },
     websocket: `${tlsEnabled ? 'wss' : 'ws'}://localhost:${PORT}/ws`,
+  });
+});
+
+// (lamport, commit) at the newest completed push.
+let lastPushClock = { lamport: 0, commit: 0 };
+
+// GET /api/clock: {instance, lamport, commit, step} at the newest completed push
+// (commit counting completed pushes, step the globalStep), and headers.
+app.get('/api/clock', (_req, res) => {
+  res.json({
+    instance: peClock.instance,
+    lamport: lastPushClock.lamport,
+    commit: lastPushClock.commit,
+    step: engine.globalStep,
+    headers: peClock.headers(),
   });
 });
 
@@ -2160,7 +2184,15 @@ app.post('/api/integrations/completions', async (req: Request, res: Response) =>
   }
 
   const receivedAt = Date.now();
+  // The completion's clock and causedBy (#600): the dispatch's clock while its
+  // record is in the ledger, else the sender's well-formed echo, else null.
+  const body = req.body as Record<string, unknown>;
+  const dispatchId = typeof body['dispatchId'] === 'string' ? body['dispatchId'] : '';
+  const completionCausedBy = causedBy(dispatchId ? dispatchLedger.get(dispatchId)?.clock : undefined, body['causedBy']);
+  const completionClock = peClock.event();
   const completion: Record<string, unknown> = {
+    clock: completionClock,
+    causedBy: completionCausedBy,
     provider: ctx.provider,
     agent: ctx.agent,
     sensorId: signal.sensorId,
@@ -2183,6 +2215,8 @@ app.post('/api/integrations/completions', async (req: Request, res: Response) =>
     sourceMappingId: ctx.sourceMappingId,
     correlationId: ctx.correlationId,
     envelopeId: ctx.envelopeId,
+    clock: completionClock,
+    causedBy: completionCausedBy,
     timestamp: receivedAt,
   });
 

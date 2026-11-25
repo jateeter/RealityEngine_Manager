@@ -121,7 +121,7 @@ describe('Dispatcher — happy path', () => {
     const { dispatcher } = harness({}, machinesByMid);
     dispatcher.dispatchStep({ mergeBatch: [goodOp] });
     expect(Object.keys(dispatcher.listRecords()[0]!).sort()).toEqual([
-      'attempts', 'correlationId', 'createdAt', 'envelope', 'envelopeId', 'error', 'id',
+      'attempts', 'clock', 'correlationId', 'createdAt', 'envelope', 'envelopeId', 'error', 'id',
       'machineId', 'mode', 'processStatus', 'providerReceipt', 'ragStatusCode', 'replayOf',
       'semantics', 'sequenceIds', 'status', 'target', 'updatedAt',
     ]);
