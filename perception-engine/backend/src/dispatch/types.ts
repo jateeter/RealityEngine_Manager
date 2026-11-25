@@ -51,6 +51,11 @@ export interface DispatchRecord {
    * fire without needing a side table.
    */
   replayOf: string | null;
+  /**
+   * The PE's clock when it stored the record, `{instance, lamport}`
+   * (RealityEngine_CI#600). A completion names it as `causedBy`.
+   */
+  clock: { instance: string; lamport: number } | null;
 }
 
 /**

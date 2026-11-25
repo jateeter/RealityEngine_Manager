@@ -130,7 +130,7 @@ describe('Manager MCP canonical tools', () => {
       status: 'recorded', mode: 'openai', target: 'paging-decision',
       machineId: 'm-1', sequenceIds: ['s-1'], ragStatusCode: '', processStatus: '',
       attempts: 0, createdAt: 1, updatedAt: 1, providerReceipt: null, envelope,
-  error: null, semantics: { machineIri: null, sequenceIri: null, actionCode: null }, replayOf: null,
+  error: null, semantics: { machineIri: null, sequenceIri: null, actionCode: null }, replayOf: null, clock: null,
     };
     const ledger = new Ledger();
     ledger.append(record);

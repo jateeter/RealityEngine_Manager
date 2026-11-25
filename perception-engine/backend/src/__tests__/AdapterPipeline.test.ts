@@ -58,7 +58,7 @@ function record(): DispatchRecord {
     machineId: 'm', sequenceIds: [], ragStatusCode: '', processStatus: '',
     attempts: 0, createdAt: 1, updatedAt: 1, providerReceipt: null,
     envelope: envelope('ollama'),
-    error: null, semantics: { machineIri: null, sequenceIri: null, actionCode: null }, replayOf: null,
+    error: null, semantics: { machineIri: null, sequenceIri: null, actionCode: null }, replayOf: null, clock: null,
   };
 }
 

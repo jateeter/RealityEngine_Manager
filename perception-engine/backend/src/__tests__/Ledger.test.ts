@@ -60,6 +60,7 @@ function record(id: string, overrides: Partial<DispatchRecord> = {}): DispatchRe
     error: null,
     semantics: { machineIri: null, sequenceIri: null, actionCode: null },
     replayOf: null,
+    clock: null,
     ...overrides,
   };
 }
