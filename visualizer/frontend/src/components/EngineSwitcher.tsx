@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import type { EngineInstance } from '../types';
+import { clockTitle, formatInstanceClocks, type InstanceClocks } from '../utils/instanceClock';
 
 const RUNTIME_COLOURS: Record<string, string> = {
   scala: '#dc4f2b',
@@ -52,6 +53,34 @@ function StatusDot({ proxyPath }: { proxyPath: string }) {
       borderRadius: '50%', background: colour,
       marginRight: 6, flexShrink: 0,
     }} title={healthy === null ? 'checking…' : healthy ? 'healthy' : 'unreachable'} />
+  );
+}
+
+// The instance's two Lamport clocks, RE and PE (RealityEngine_CI#600), through
+// the backend (/api/engine/:id/clock), refreshed while the menu is open.
+function ClockLine({ id }: { id: string }) {
+  const [clocks, setClocks] = useState<InstanceClocks | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const read = async () => {
+      try {
+        const res = await fetch(`/api/engine/${encodeURIComponent(id)}/clock`, { signal: AbortSignal.timeout(4000) });
+        if (!cancelled) setClocks(res.ok ? await res.json() as InstanceClocks : null);
+      } catch {
+        if (!cancelled) setClocks(null);
+      }
+    };
+    void read();
+    const t = setInterval(read, 5_000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [id]);
+
+  return (
+    <div data-testid={`engine-clock-${id}`} title={clockTitle(clocks)}
+      style={{ fontSize: '0.68rem', color: '#9aa', paddingLeft: 14, fontFamily: 'monospace' }}>
+      {formatInstanceClocks(clocks)}
+    </div>
   );
 }
 
@@ -190,6 +219,7 @@ export function EngineSwitcher({ onSwitch }: Props) {
                 <div style={{ fontSize: '0.7rem', color: '#888', paddingLeft: 14 }}>
                   RE {inst.re_url} · PE {inst.pe_url}
                 </div>
+                <ClockLine id={inst.id} />
               </button>
             );
           })}
