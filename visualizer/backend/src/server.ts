@@ -17,6 +17,7 @@ import { scanCorpus, resolveSelection, loadMachines, internableEngineIds } from 
 import { RateLimitRegistry, RATE_WINDOW_MS } from './rateLimit.js';
 import { parseStepFrame } from './reStepStream.js';
 import { mountInstantiation, instantiationConfig } from './instantiation/http.js';
+import { clockRequestHeaders, presentsClock, relayClock } from './clockRelay.js';
 
 const PORT = parseInt(process.env.VIZ_PORT || '3001', 10);
 const auditConfig = loadAuditConfig('visualizer-backend');
@@ -186,7 +187,9 @@ app.use(cors({
   origin: (origin, callback) => {
     if (!origin || ALLOWED_ORIGINS.includes(origin)) callback(null, true);
     else callback(new Error(`Origin ${origin} not allowed by CORS`));
-  }
+  },
+  // The relayed engine clock is readable by the Visualizer (Manager#293).
+  exposedHeaders: ['RE-Clock'],
 }));
 app.use(express.json({ limit: '10mb' }));
 
@@ -261,6 +264,8 @@ function isValidId(id: string | string[] | undefined): id is string { return typ
 
 function upstreamError(res: Response, error: any, context: string): void {
   const status: number = (error.response?.status as number | undefined) ?? 500;
+  // The engine's clock comes back on its errors too (Manager#293).
+  relayClock(res, error.response?.headers);
   console.error(`[${context}] upstream error (${status}):`, error.message);
   if (status === 404) res.status(404).json({ error: 'Not found' });
   else if (status >= 400 && status < 500) res.status(status).json({ error: 'Bad request' });
@@ -466,14 +471,16 @@ async function proxyGet(
   cacheKey: string | null,
   context: string,
 ): Promise<void> {
-  if (cacheKey) {
+  // A caller presenting RE-Clock is answered by the engine, never the cache (Manager#293).
+  if (cacheKey && !presentsClock(req)) {
     const cached = getCached(cacheKey);
     if (cached) { res.json(cached); return; }
   }
   try {
     const url = `${baseUrl}${upstreamPath}${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`;
-    const response = await axios.get(url);
+    const response = await axios.get(url, { headers: clockRequestHeaders(req) });
     if (cacheKey) setCached(cacheKey, response.data);
+    relayClock(res, response.headers);
     res.json(response.data);
   } catch (error: any) { upstreamError(res, error, context); }
 }
@@ -572,32 +579,36 @@ app.get('/api/pe/machines',                  (req, res) => proxyGet(req, res, ac
 
 async function proxyPost(req: Request, res: Response, baseUrl: string, path: string, context: string, invalidatePrefix?: string): Promise<void> {
   try {
-    const r = await axios.post(`${baseUrl}${path}`, req.body);
+    const r = await axios.post(`${baseUrl}${path}`, req.body, { headers: clockRequestHeaders(req) });
     if (invalidatePrefix) invalidate(invalidatePrefix);
+    relayClock(res, r.headers);
     res.json(r.data);
   } catch (e: any) { upstreamError(res, e, context); }
 }
 
 async function proxyPatch(req: Request, res: Response, baseUrl: string, path: string, context: string, invalidatePrefix?: string): Promise<void> {
   try {
-    const r = await axios.patch(`${baseUrl}${path}`, req.body);
+    const r = await axios.patch(`${baseUrl}${path}`, req.body, { headers: clockRequestHeaders(req) });
     if (invalidatePrefix) invalidate(invalidatePrefix);
+    relayClock(res, r.headers);
     res.json(r.data);
   } catch (e: any) { upstreamError(res, e, context); }
 }
 
 async function proxyPut(req: Request, res: Response, baseUrl: string, path: string, context: string, invalidatePrefix?: string): Promise<void> {
   try {
-    const r = await axios.put(`${baseUrl}${path}`, req.body);
+    const r = await axios.put(`${baseUrl}${path}`, req.body, { headers: clockRequestHeaders(req) });
     if (invalidatePrefix) invalidate(invalidatePrefix);
+    relayClock(res, r.headers);
     res.json(r.data);
   } catch (e: any) { upstreamError(res, e, context); }
 }
 
 async function proxyDelete(req: Request, res: Response, baseUrl: string, path: string, context: string, invalidatePrefix?: string): Promise<void> {
   try {
-    await axios.delete(`${baseUrl}${path}`);
+    const r = await axios.delete(`${baseUrl}${path}`, { headers: clockRequestHeaders(req) });
     if (invalidatePrefix) invalidate(invalidatePrefix);
+    relayClock(res, r.headers);
     res.json({ success: true });
   } catch (e: any) { upstreamError(res, e, context); }
 }
