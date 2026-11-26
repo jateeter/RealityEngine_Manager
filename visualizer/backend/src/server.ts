@@ -815,6 +815,23 @@ app.get('/api/engine/:id/health', async (req: Request, res: Response) => {
   }
 });
 
+// One instance's two clocks, its RE's and its PE's (RealityEngine_CI#600,
+// Manager#293): each the clock at that participant's newest committed step.
+// Read, never stamped: the Manager relays clocks and does not tick. A half that
+// does not answer, or predates #600 (404), is null.
+app.get('/api/engine/:id/clock', async (req: Request, res: Response) => {
+  const inst = engineInstances.find(i => i.id === req.params.id);
+  if (!inst) { res.status(404).json({ error: 'Instance not found' }); return; }
+  const read = async (url: string) => {
+    try { return (await axios.get(url, { timeout: 3000 })).data ?? null; } catch { return null; }
+  };
+  const [re, pe] = await Promise.all([
+    read(`${inst.re_url}/api/engine/clock`),
+    inst.pe_url ? read(`${inst.pe_url}/api/clock`) : Promise.resolve(null),
+  ]);
+  res.json({ id: inst.id, re, pe });
+});
+
 // Machine JSON import routes — proxy to RE (must precede /api/machines/:id)
 app.get('/api/machines/json/list', (req, res) => proxyGet(req, res, activeReUrl(), '/api/machines/json/list', null, 'listMachineJSON'));
 
