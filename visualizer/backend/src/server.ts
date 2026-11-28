@@ -17,6 +17,7 @@ import { scanCorpus, resolveSelection, loadMachines, internableEngineIds } from 
 import { RateLimitRegistry, RATE_WINDOW_MS } from './rateLimit.js';
 import { parseStepFrame } from './reStepStream.js';
 import { mountInstantiation, instantiationConfig } from './instantiation/http.js';
+import { mountKlinePanel } from './klines/http.js';
 import { clockRequestHeaders, presentsClock, relayClock } from './clockRelay.js';
 
 const PORT = parseInt(process.env.VIZ_PORT || '3001', 10);
@@ -1109,6 +1110,11 @@ app.delete('/api/machines/:id', async (req: Request, res: Response) => {
 // with INSTANTIATION_ENABLED=true, the component that runs workflow steps as
 // clones for the lifecycle service's frames.
 mountInstantiation(app, () => engineInstances, instantiationConfig());
+
+// ── K-line panel (RealityEngine_Manager#372, RealityEngine_CI#603) ───────────
+// Capture on and off, knobs, histograms, archive and schedules, across every
+// registered instance. The registry's own fields (role included) pass through.
+mountKlinePanel(app, () => engineInstances as unknown as import('./klines/panel.js').Instance[]);
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 

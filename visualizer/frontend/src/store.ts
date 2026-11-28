@@ -59,7 +59,7 @@ const DEFAULT_GRAPH_FILTERS: GraphFilterState = {
 
 interface VisualizerState {
   // The two top-level views, switched by ViewNav (#306).
-  currentView: 'selection' | 'perceptual-engine';
+  currentView: 'selection' | 'perceptual-engine' | 'klines';
 
   settings: VisualizerSettings;
   updateSettings: (patch: Partial<VisualizerSettings>) => void;
@@ -80,7 +80,7 @@ interface VisualizerState {
 
   graphFilters: GraphFilterState;
 
-  setCurrentView: (view: 'selection' | 'perceptual-engine') => void;
+  setCurrentView: (view: 'selection' | 'perceptual-engine' | 'klines') => void;
   setMachines: (machines: Machine[]) => void;
   notifyMachinesChanged: () => void;
   loadMachine: (machineId: string) => Promise<void>;
