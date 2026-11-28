@@ -1,0 +1,69 @@
+/* The K-line panel (RealityEngine_Manager#372). Manager is a dark UI; the
+   panel uses its tokens (styles/viz.css). Bars are one hue, blue step 400,
+   validated on --re-bg-3 (dataviz validate_palette: all checks pass). */
+.kl-root {
+  --kl-bar: #3987e5;
+  --kl-gap: 2px;
+  min-height: 100vh;
+  background: var(--re-bg-1);
+  color: var(--re-text-0);
+  padding: 0 16px 48px;
+  font-size: 13px;
+}
+.kl-header { display: flex; align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--re-border); flex-wrap: wrap; }
+.kl-header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+.kl-boot, .kl-busy, .kl-muted { color: var(--re-text-1); }
+.kl-muted { font-size: 11px; }
+.kl-section { margin-top: 20px; background: var(--re-bg-2); border: 1px solid var(--re-border); border-radius: 6px; padding: 12px 14px; }
+.kl-section h2 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+.kl-hint { color: var(--re-text-1); margin: 0 0 10px; }
+.kl-hint code, .kl-agree code { color: var(--re-text-0); }
+.kl-actions, .kl-filters { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin-bottom: 10px; }
+.kl-filters label { display: inline-flex; gap: 6px; align-items: center; color: var(--re-text-1); }
+.kl-root button, .kl-root input, .kl-root select {
+  background: var(--re-bg-3); color: var(--re-text-0); border: 1px solid var(--re-border-bright);
+  border-radius: 4px; padding: 4px 8px; font: inherit;
+}
+.kl-root input { width: 9em; }
+.kl-root input[type="checkbox"] { width: auto; }
+.kl-root button:hover:not(:disabled) { border-color: var(--re-border-glow); }
+.kl-root button:disabled { opacity: 0.5; cursor: default; }
+.kl-link { background: none !important; border: none !important; color: var(--re-text-1) !important; text-decoration: underline; padding: 0 !important; }
+.kl-grid { width: 100%; border-collapse: collapse; }
+.kl-grid th, .kl-grid td { text-align: left; padding: 5px 8px; border-top: 1px solid var(--re-border); vertical-align: middle; }
+.kl-grid thead th { color: var(--re-text-1); font-weight: 500; border-top: none; }
+.kl-half { white-space: nowrap; }
+.kl-half.is-on { color: var(--re-text-0); }
+.kl-half.is-off { color: var(--re-text-1); }
+.kl-half.is-unsupported { color: var(--re-text-2); }
+.kl-warn { color: #e0b44c; }
+.kl-error { margin-top: 10px; padding: 8px 10px; border: 1px solid #7a3a3a; border-radius: 4px; color: #f2c4c4; }
+.kl-notice { margin-top: 10px; color: var(--re-text-1); }
+.kl-knob { display: inline-flex; gap: 4px; }
+.kl-knob input { width: 8em; }
+.kl-group h3 { font-size: 13px; color: var(--re-text-1); font-weight: 500; margin: 14px 0 6px; }
+.kl-multiples { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-bottom: 12px; }
+.kl-multiple { background: var(--re-bg-3); border: 1px solid var(--re-border); border-radius: 6px; padding: 8px 10px; min-width: 0; }
+.kl-multiple-name { font-weight: 600; margin-bottom: 4px; }
+.kl-agree { margin: 4px 0 8px; }
+.kl-hist { margin: 0; position: relative; }
+.kl-hist figcaption { display: flex; gap: 8px; align-items: baseline; margin-bottom: 6px; }
+.kl-hist-title { color: var(--re-text-0); }
+.kl-hist-total { color: var(--re-text-1); margin-left: auto; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.kl-bars { display: flex; flex-direction: column; gap: var(--kl-gap); }
+.kl-bar-row { display: grid; grid-template-columns: minmax(0, 15em) 1fr auto; gap: 8px; align-items: center; padding: 2px 0; }
+.kl-bar-label { color: var(--re-text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kl-bar-track { height: 10px; display: block; }
+.kl-bar { display: block; height: 100%; background: var(--kl-bar); border-radius: 0 4px 4px 0; min-width: 1px; }
+.kl-bar-value { color: var(--re-text-0); font-variant-numeric: tabular-nums; }
+.kl-cols { display: flex; align-items: flex-end; gap: var(--kl-gap); height: 90px; position: relative; padding-bottom: 16px; border-bottom: 1px solid var(--re-border); }
+.kl-col-hit { flex: 1 1 0; height: 100%; display: flex; align-items: flex-end; min-width: 1px; }
+.kl-col { display: block; width: 100%; background: var(--kl-bar); border-radius: 4px 4px 0 0; min-height: 1px; }
+.kl-cols-axis { position: absolute; left: 0; right: 0; bottom: -2px; display: flex; justify-content: space-between; color: var(--re-text-1); font-size: 11px; }
+.kl-table { border-collapse: collapse; width: 100%; }
+.kl-table th, .kl-table td { text-align: left; padding: 2px 6px; border-top: 1px solid var(--re-border); font-weight: normal; }
+.kl-table td { text-align: right; font-variant-numeric: tabular-nums; }
+.kl-empty { color: var(--re-text-2); padding: 6px 0; }
+.kl-tip { position: fixed; z-index: 50; pointer-events: none; background: var(--re-bg-1); border: 1px solid var(--re-border-bright);
+  border-radius: 4px; padding: 4px 8px; color: var(--re-text-0); white-space: nowrap; }
+@media (forced-colors: active) { .kl-bar, .kl-col { background: CanvasText; } }

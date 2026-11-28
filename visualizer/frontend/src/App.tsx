@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useVisualizerStore } from './store';
 import RealityEnginePanelView from './views/RealityEnginePanelView';
 import { PerceptualEngineView } from './views/PerceptualEngineView';
+import { KlinePanelView } from './klines/KlinePanelView';
 
 function App() {
   const { currentView, connectWebSocket, disconnectWebSocket } = useVisualizerStore();
@@ -14,6 +15,10 @@ function App() {
     connectWebSocket();
     return () => disconnectWebSocket();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (currentView === 'klines') {
+    return <KlinePanelView />;
+  }
 
   if (currentView === 'perceptual-engine') {
     return <PerceptualEngineView />;

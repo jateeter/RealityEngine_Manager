@@ -1,6 +1,6 @@
 /**
  * ViewNav — the Manager's two top-level views, switched from the upper left
- * of both headers (RealityEngine_Manager#306): [Machines] [Perception].
+ * of both headers (RealityEngine_Manager#306): [Machines] [Perception] [K-lines] (#372).
  *
  * One component for both views so the two buttons cannot drift apart. The
  * button for the view on screen is marked active (aria-pressed) and does
@@ -14,6 +14,7 @@ import './ViewNav.css';
 const VIEWS = [
   { view: 'selection',         label: 'Machines',   icon: '⬡', testId: 'nav-machines',   title: 'Machines: the Reality Engine operational view' },
   { view: 'perceptual-engine', label: 'Perception', icon: '◎', testId: 'nav-perception', title: 'Perception: Perception Engine management' },
+  { view: 'klines',            label: 'K-lines',    icon: '⌇', testId: 'nav-klines',     title: 'K-lines: capture, knobs, histograms, archive and schedules (#372)' },
 ] as const;
 
 export const ViewNav: React.FC = () => {
